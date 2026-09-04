@@ -1,0 +1,11 @@
+.workbuddy/
+*.env
+.env*
+auth.json
+config.yaml
+.obsidian/
+banner-fonts.html
+banner-preview.html
+Thumbs.db
+.DS_Store
+*.swp

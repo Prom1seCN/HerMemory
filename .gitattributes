@@ -1,0 +1,5 @@
+# 统一 LF：install.sh 要在 Linux 上跑，CRLF 会直接毁掉 bash
+* text=auto eol=lf
+*.sh text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
