@@ -1,0 +1,29 @@
+# HerMemory Agent 皮肤
+# 基于 Hermes 官方皮肤系统（hermes_cli/skin_engine.py）。
+# 安装：将本文件放入 ~/.hermes/skins/ 即装即用；位于用户目录，上游升级永不冲掉。
+# 上游版本 pin：v0.21.0 (v2026.8.31)
+# 字符画由 pyfiglet（Bloody 字体）生成：79 列，80 列终端不折行。
+# 注意：多行字符串用 YAML 的 | 字面量块语法（""" 是 Python 语法，YAML 里非法）
+
+branding:
+  agent_name: "HerMemory"
+  welcome: "HerMemory. Your memory. — 记忆库已就绪。/help 查看命令。"
+  goodbye: "HerMemory. Your memory."
+  response_label: " HerMemory "
+  prompt_symbol: "❯"
+  help_header: "HerMemory 命令"
+
+# 开机横幅：HERMEMORY 字符画（Rich markup 着色）
+banner_logo: |
+  [bold cyan] ██░ ██ ▓█████  ██▀███   ███▄ ▄███▓▓█████  ███▄ ▄███▓ ▒█████   ██▀███ ▓██   ██▓[/]
+  [bold cyan]▓██░ ██▒▓█   ▀ ▓██ ▒ ██▒▓██▒▀█▀ ██▒▓█   ▀ ▓██▒▀█▀ ██▒▒██▒  ██▒▓██ ▒ ██▒▒██  ██▒[/]
+  [bold cyan]▒██▀▀██░▒███   ▓██ ░▄█ ▒▓██    ▓██░▒███   ▓██    ▓██░▒██░  ██▒▓██ ░▄█ ▒ ▒██ ██░[/]
+  [bold cyan]░▓█ ░██ ▒▓█  ▄ ▒██▀▀█▄  ▒██    ▒██ ▒▓█  ▄ ▒██    ▒██ ▒██   ██░▒██▀▀█▄   ░ ▐██▓░[/]
+  [bold cyan]░▓█▒░██▓░▒████▒░██▓ ▒██▒▒██▒   ░██▒░▒████▒▒██▒   ░██▒░ ████▓▒░░██▓ ▒██▒ ░ ██▒▓░[/]
+  [bold cyan] ▒ ░░▒░▒░░ ▒░ ░░ ▒▓ ░▒▓░░ ▒░   ░  ░░░ ▒░ ░░ ▒░   ░  ░░ ▒░▒░▒░ ░ ▒▓ ░▒▓░  ██▒▒▒[/]
+  [bold cyan] ▒ ░▒░ ░ ░ ░  ░  ░▒ ░ ▒░░  ░      ░ ░ ░  ░░  ░      ░  ░ ▒ ▒░   ░▒ ░ ▒░▓██ ░▒░[/]
+  [bold cyan] ░  ░░ ░   ░     ░░   ░ ░      ░      ░   ░      ░   ░ ░ ░ ▒    ░░   ░ ▒ ▒ ░░[/]
+  [bold cyan] ░  ░  ░   ░  ░   ░            ░      ░  ░       ░       ░ ░     ░     ░ ░[/]
+  [bold cyan]                                                                       ░ ░[/]
+
+tool_prefix: "┊"
