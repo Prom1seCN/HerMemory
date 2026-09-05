@@ -3,7 +3,7 @@
 > **本文件是迁移图纸**：服务器进程无法迁移，但照着本文件可以在任何新服务器上重建全部脚本与定时任务。
 > 每个脚本、每个 cron 任务必须有对应条目：路径 / 功能 / 依赖 / 重建步骤。
 > 更换服务器或 agent 时：新环境照此文件逐条重建，然后逐条打勾验证。
-> 本文件随同步范围走（与 MEMORY/USER/SOUL/RULES 同步、同备份），永远可迁移。
+> 本文件随同步范围走（与 MEMORY/USER/SOUL/AGENTS 同步、同备份），永远可迁移。
 
 ## 定时任务（cron）
 
@@ -20,7 +20,7 @@
 ## 重建清单（换服务器时逐条执行）
 
 - [ ] 装上游 Hermes（版本见仓库 README pin 表）
-- [ ] 软链五件：SOUL.md（HERMES_HOME 根）/ memories/MEMORY.md / memories/USER.md / AGENTS.md（=RULES）
+- [ ] 软链五件：SOUL.md（HERMES_HOME 根）/ memories/MEMORY.md / memories/USER.md / AGENTS.md（行为规则）
 - [ ] 按上表重建全部 cron 任务
 - [ ] 按上表重建全部脚本
 - [ ] 逐条验证后在此打勾
