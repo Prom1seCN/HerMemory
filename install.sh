@@ -36,7 +36,11 @@ log "TODO: 安装 Hermes Agent $PINNED_HERMES_VER（pin: $PINNED_HERMES_TAG）"
 log "TODO: 出厂默认文件 → vault"
 
 # ---------- 4. 符号链接（仅记忆层：~/.hermes/memories → 同步范围） ----------
-# TODO(实测)：四个软链——memories/MEMORY.md、memories/USER.md、skills、amadeus_topics 等价物。
+# 官方注入槽位（agent/prompt_builder.py 已核，9/5）：
+#   SOUL.md = 身份槽 slot#1（load_soul_md 读 HERMES_HOME/SOUL.md，自动注入，支持 profile 多实例）
+#   AGENTS.md = context file 链（git root→cwd；systemd 设 WorkingDirectory=$HOME 即稳定单点）
+#   落法：~/.hermes/AGENTS.md 软链 → 同步范围 memory/RULES.md（零代码走官方通道，RULES 缺口的解）
+# TODO(实测)：记忆软链五件——SOUL.md（身份槽根目录）、memories/MEMORY.md、memories/USER.md、AGENTS.md（=RULES）、其余按需。
 #   坑：目录软链必须 ln -sfn（缺 -n 会在目标里再套一层）。
 log "TODO: 创建符号链接"
 
