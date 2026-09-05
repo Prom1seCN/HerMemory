@@ -1,13 +1,11 @@
-# settings/ — 非密钥设置层
+# settings
 
-> 目标：agent 的全部非密钥设置的**出厂模板**（9/4 晚改判：安装到服务器 ~/.hermes 侧，不进同步库；客户按需经传送带机制取用/编辑/上传）。
-> **本层与密钥的关系**：API key、WebDAV 密码等系统凭据永远留在 `~/.hermes/`（config.yaml / .env），永不进同步范围——同步范围会同步到多端并进备份，密钥进库等于把一把钥匙复制成十几份。
+- 非密钥设置的出厂模板，装在服务器 `~/.hermes/`，不进同步库；凭据永远只留 config.yaml / .env。
+- 只放 Hermes 官方支持的配置键，不自研合并逻辑；与 config.yaml 重叠项以本目录模板为准，install.sh 装机时写入。
 
-## v0.1.0 计划拆入
+## v0.1.0 拆入
 
-- [ ] 时间规则（时区 Asia/Shanghai、周小结时刻）
+- [ ] 时区（Asia/Shanghai）
+- [ ] 时间注入开关 `gateway.message_timestamps.enabled`（官方键，默认关，install.sh 置 true）
 - [ ] 搜索通道（国内默认源）
-- [ ] 定时任务清单（cron 项 + 时刻）
-- [ ] 同步配置模板（Remotely Save 参数，凭据留空）
-
-拆分原则：**一项设置一个文件，客户改完即生效（热更新范围内）**；与 config.yaml 的重叠项以本目录为准（由 install.sh 在加载时合并）。
+- [ ] 同步配置模板（凭据留空）
