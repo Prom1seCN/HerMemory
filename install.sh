@@ -28,6 +28,8 @@ log "vault 目录：$VAULT_DIR"
 
 # ---------- 2. 安装 Hermes Agent（pin 版本） ----------
 # TODO(实测)：确认上游推荐安装方式（pipx / install 脚本 / 源码），并固定到 $PINNED_HERMES_TAG。
+# API key 配置：完全沿用上游官方流程（hermes model / hermes setup 向导），不自研、不改造、不引导。
+# 上游怎么配，HerMemory 就怎么配——发行版不碰 key 的配置体验。
 log "TODO: 安装 Hermes Agent $PINNED_HERMES_VER（pin: $PINNED_HERMES_TAG）"
 
 # ---------- 3. 出厂memory/技能落位 ----------
