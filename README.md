@@ -67,9 +67,6 @@ cd HerMemory && ./install.sh
 
 上游安装走源码路径（`git clone --branch <tag>` + 官方 `setup-hermes.sh`），何时吸收上游更新由本仓库决定，每次吸收在 [CHANGES](docs/CHANGES.md) 公示。升级只覆盖出厂默认层，你的记忆与技能永不被动变更。
 
-## 与服务的关系
-
-[成诺记忆](https://memory.prom1se.cn)提供装机与长期维护服务。付费对象是人工与时间；软件功能不因付费与否而增减。
 
 ## License
 

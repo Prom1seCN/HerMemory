@@ -1,4 +1,4 @@
-# HerMemory 行为规则（RULES · 出厂默认）
+# HerMemory 行为规则（AGENTS · 出厂默认）
 
 > 本文件是 agent 的行为规则体，客户可随时编辑，保存后下一条消息生效（热更新）。
 > 与 SOUL.md（人格）、USER.md（用户档案）、MEMORY.md（长期记忆）并列，四个文件组成记忆层。
