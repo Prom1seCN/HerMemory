@@ -5,6 +5,57 @@
 # 字符画由 pyfiglet（Bloody 字体）生成：79 列，80 列终端不折行。
 # 注意：多行字符串用 YAML 的 | 字面量块语法（""" 是 Python 语法，YAML 里非法）
 
+# 色板：青色记忆主题（主色 #22D3EE，横幅同源）；缺省键自动继承 default
+colors:
+  background: "#0d1117"
+  banner_border: "#0EA5E9"
+  banner_title: "#22D3EE"
+  banner_accent: "#67E8F9"
+  banner_dim: "#0E7490"
+  banner_text: "#CFFAFE"
+  ui_accent: "#22D3EE"
+  ui_label: "#38BDF8"
+  ui_ok: "#4ADE80"
+  ui_error: "#F87171"
+  ui_warn: "#FBBF24"
+  ui_tool: "#22D3EE"
+  ui_thinking: "#67E8F9"
+  syntax_string: "#67E8F9"
+  syntax_number: "#CFFAFE"
+  syntax_keyword: "#0EA5E9"
+  syntax_comment: "#0E7490"
+  prompt: "#CFFAFE"
+  input_rule: "#0EA5E9"
+  response_border: "#22D3EE"
+  status_bar_bg: "#0d1117"
+  status_bar_text: "#9CA3AF"
+  status_bar_strong: "#22D3EE"
+  status_bar_dim: "#4B5563"
+  status_bar_good: "#4ADE80"
+  status_bar_warn: "#FBBF24"
+  status_bar_bad: "#FB923C"
+  status_bar_critical: "#F87171"
+  session_label: "#38BDF8"
+  session_border: "#4B5563"
+  selection_bg: "#164E63"
+  completion_menu_bg: "#0d1117"
+  completion_menu_current_bg: "#164E63"
+  completion_menu_meta_bg: "#0d1117"
+  completion_menu_meta_current_bg: "#164E63"
+
+# spinner：记忆主题（时钟盘面 + 回忆动词）
+spinner:
+  waiting_faces:
+    - "(\u25d4)"
+    - "(\u25d5)"
+  thinking_faces:
+    - "(\u2301)"
+    - "(\u25c8)"
+  thinking_verbs:
+    - "remembering"
+    - "recalling"
+    - "connecting"
+
 branding:
   agent_name: "HerMemory"
   welcome: "HerMemory. Your memory. — 记忆库已就绪。/help 查看命令。"
