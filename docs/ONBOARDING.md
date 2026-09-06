@@ -6,7 +6,7 @@
 
 ## 0. 模型 fallback 链（仅阿里云百炼 / 腾讯云混元；其他来源跳过）
 
-**目的**：这两家每个模型发100万免费额度——把 10 个模型的额度串成链，主模型额度耗尽（429）或报错时自动顺位切换，容量 ×10。
+**目的**：这两家每个模型发100万token免费额度——把 10 个模型的额度串成链，主模型额度耗尽（429）或报错时自动顺位切换，容量 ×10。
 
 **做法**：从 `custom_providers` 认来源（base_url 含 dashscope / api.hunyuan.cloud.tencent.com）→ 拉 `GET /models` 实时列表 → 选**当前最强的 10 个主力对话模型**（版本新、参数大者强；排除 embedding / vl / audio / omni / coder / realtime 专用型号；用户当前主模型排第一）→ 写入 config 的 `fallback_providers`，条目 `{provider: "custom:<名>", model: <型号>}`（`custom:<名>` 引用 custom_providers 里的同名配置；`hermes config set` 不便写列表就直接编辑 config YAML）。新会话启动打印 `🔄 Fallback chain (N providers)` 即生效。
 
