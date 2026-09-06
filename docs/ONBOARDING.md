@@ -38,7 +38,7 @@
    - data 是 **encodeURIComponent 的 JSON，不是 base64**；`vault` 参数必须与用户实际仓库名**完全一致**，否则导入报错
    - JSON 内容：`serviceType: webdav`，webdav 地址（`http://AI端IP:5005`；服务器形态=公网 IP，PC 形态=局域网 IP）+ 刚才的账密全量，`syncDirection: bidirectional`，`conflictAction: keep_newer`；**不设任何自动同步间隔**
    - 用户点一下链接 → Obsidian 唤起 → 配置全含写入（弹「设置已导入」）→ 点 Remotely Save 的同步按钮
-4. **用户市场下载失败时才由你代劳**：从其他源下载 RS 三件套（main.js / manifest.json / styles.css，多渠道下载的文件互相比对一致后再交付），打一个 zip：`.obsidian/plugins/remotely-save/`（三件套 + data.json 预填地址账密）+ `.obsidian/community-plugins.json`（内容 `["remotely-save"]`——不写这个装了也不加载）+ 四核心 md（该设备还没建过库时）。**zip 文件名可中文，包内条目全 ASCII**。经微信发文件给用户；用户动作：接收 → 解压到仓库 → 打开 Obsidian 点「信任作者」→ 按同步。
+4. **用户市场下载失败时才由你代劳**：从其他源下载 RS 三件套（main.js / manifest.json / styles.css，多渠道下载的文件互相比对一致后再交付），打一个 zip：`.obsidian/plugins/remotely-save/`（三件套 + data.json 预填地址账密）+ `.obsidian/community-plugins.json`（内容 `["remotely-save"]`——不写这个装了也不加载）。**zip 里不放记忆文件**（SOUL/MEMORY/USER/AGENTS）——出厂空白版会覆盖 AI 端已有的真实记忆（用户先改短文件再同步就把长的顶掉了），记忆文件只从 WebDAV 同步拉取。**zip 文件名可中文，包内条目全 ASCII**。经微信发文件给用户；用户动作：接收 → 解压到仓库 → 打开 Obsidian 点「信任作者」→ 按同步（第一次同步会把四核心从 AI 端拉下来）。
 
 **收尾**：让用户手动同步一次，然后对你说「体检一下」，跑 sync_check.sh 确认无误。
 
