@@ -9,7 +9,6 @@
 # 前置：git（无则装 Git for Windows）。软链需要管理员权限或开发者模式。
 # ============================================================
 param(
-    [string]$VaultDir = "",
     [string]$Tag = "v2026.8.31",
     [switch]$SkipUpstream
 )
@@ -31,11 +30,8 @@ if ($env:OS -ne "Windows_NT") { Die "本脚本仅用于 Windows 原生路径；L
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) { Die "缺 git：先安装 Git for Windows（https://git-scm.com）" }
 Log "建议：另开一个窗口打开 docs\INSTALL.md，边装边看——每一步在做什么都在里面"
 
-# ---------- 1. vault 位置 ----------
-if (-not $VaultDir) {
-    $VaultDir = Read-Host "vault（同步根）路径 [默认 $HOME\HerMemory-vault]"
-    if (-not $VaultDir) { $VaultDir = "$HOME\HerMemory-vault" }
-}
+# ---------- 1. vault 位置（定名，不询问——路径被提示词与文档广泛引用，固定避免漂移） ----------
+$VaultDir = "$HOME\vault"
 Log "vault（同步根）：$VaultDir"
 
 # ---------- 2. 上游内核（官方安装器，pin tag；本脚本不自研内核安装） ----------
@@ -131,22 +127,9 @@ Ok "记忆档位：MEMORY $memLimit / USER $userLimit 字符（随时改档：ba
 if ($LASTEXITCODE -eq 0) { Ok "gateway 服务已安装（消息 + 定时任务，登录自启）" }
 else { Warn "hermes gateway install 未成功——后补：hermes gateway install" }
 
-# ---------- 11. WebDAV 一键同步 ----------
-$rclone = Get-Command rclone -ErrorAction SilentlyContinue
-if (-not $rclone) {
-    Warn "未检测到 rclone（一键 WebDAV 的实现）。安装：winget install Rclone.Rclone，装好后重跑本脚本补上"
-} else {
-    $webDavUser = Read-Host "WebDAV 用户名 [默认 hermemory]"
-    if (-not $webDavUser) { $webDavUser = "hermemory" }
-    $webDavPass = Read-Host "WebDAV 密码（自定——手机/PC 配 Obsidian 连接时要用）"
-    if (-not $webDavPass) { Die "WebDAV 密码不能为空" }
-    $task = "HerMemory WebDAV"
-    schtasks /Create /F /TN $task /SC ONLOGON /TR "rclone serve webdav `"$VaultDir`" --addr 0.0.0.0:$WebDavPort --user $webDavUser --pass $webDavPass" | Out-Null
-    if ($LASTEXITCODE -eq 0) {
-        Ok "WebDAV 已注册（登录自启）：端口 $WebDavPort / 用户 $webDavUser / 密码为你刚才所设"
-    } else { Warn "WebDAV 计划任务注册失败——手动排查：schtasks /Query /TN `"$task`"" }
-    Log "设备端三条路：① Obsidian+RemotelySave（http://本机IP:$WebDavPort）② filebrowser 网页 ③ Windows/mac 映射网络驱动器"
-}
+# ---------- 11. 脚本下线 ----------
+# 设计（用户流程 2）：key 配置完成后 AI 上线，脚本下线。
+# WebDAV / 微信接入 / 同步引导 / 能力演示全部由 AI 完成（#13）——AI 读 AGENTS.md 指针（内容在 docs）。
 
 # ---------- 12. 自检脚本（配置区写入实际路径） ----------
 $chk = Get-Content "$SRC\sync_check.sh" -Raw
@@ -163,8 +146,10 @@ Write-Host "      （MEMORY.md / USER.md 逐条扫描：命中条目在对话中
 Write-Host "  (2) 自动化默认全关：写日记/总结由你说一声才写；周小结、定时任务等口述即建（agent 自建并登记进 AUTOMATION.md）。"
 Write-Host ""
 Log "接下来："
-Write-Host "  1. hermes setup   —— 官方向导配 API key（唯一官方流程，本脚本不代配）"
+Write-Host "  1. hermes setup   —— 官方向导配 API key（流程 2；脚本内引导式版本待落码）"
 Write-Host "  2. hermes         —— 首次对话它会主动采档案（怎么称呼/主要用途/说话方式）"
-Write-Host "  3. 改 $VaultDir\HerMemory\memory\ 下任何文件 → 开新对话即生效"
+Write-Host "  3. 对 AI 发送「部署待办」—— 它会按 docs/ONBOARDING.md 引导你连接微信、配置同步"
+Write-Host "  4. 改 $VaultDir\HerMemory\memory\ 下任何文件 → 开新对话即生效"
 Write-Host ""
+Log "最后一句话：启动 AI 后，把「部署待办」发给它——剩下的配置它来引导。"
 Log "文档：docs\INSTALL.md（部署）｜docs\GUIDE.md（使用）｜docs\README_REBORN.md（导出包内给下一个 agent 的恢复指引）"

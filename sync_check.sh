@@ -6,7 +6,7 @@ set -uo pipefail
 
 # ---------- 配置区（install.sh 装机时写入实际路径） ----------
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
-SYNC_ROOT="${SYNC_ROOT:-$HOME/HerMemory}"          # 同步根（用户文档 + HerMemory/）
+SYNC_ROOT="${SYNC_ROOT:-$HOME/vault}"              # 同步根（用户文档 + HerMemory/）
 CORE_FILES=(SOUL.md MEMORY.md USER.md AGENTS.md)   # 软链四件（SOUL/AGENTS 在 HERMES_HOME 根，MEMORY/USER 在 memories/）
 CONFLICT_PATTERNS=('*.conflict' '* (1)*' '*~')     # 同步冲突产物特征
 

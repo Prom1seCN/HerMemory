@@ -8,7 +8,7 @@
 #   → 铺出厂四文件 → 软链注入槽位 → 皮肤 → 时区 → 时间注入开关
 #   → 记忆档位 → gateway 服务 → WebDAV 一键同步 → 自检脚本。
 #
-# 不做的事：不配 API key（hermes setup 官方向导，用户自配）；
+# key 配置：脚本内引导（用户流程 2），底层走上游原生机制；
 #   不装 ripgrep（可选，后补）；不碰任何商业引导。
 #
 # 运行方式：clone 本仓库后，在仓库根目录 bash install.sh
@@ -38,9 +38,8 @@ command -v curl >/dev/null || die "缺 curl：先 apt install curl"
 
 log "建议：另开一个终端/窗口打开 docs/INSTALL.md，边装边看——每一步在做什么都在里面"
 
-# ---------- 1. vault 位置 ----------
-read -rp "文档库（vault，即同步根）路径 [默认 ~/HerMemory-vault]: " VAULT_DIR
-VAULT_DIR="${VAULT_DIR:-$HOME/HerMemory-vault}"
+# ---------- 1. vault 位置（定名，不询问——路径被提示词与文档广泛引用，固定避免漂移） ----------
+VAULT_DIR="$HOME/vault"
 log "vault（同步根）：$VAULT_DIR —— 用户文档直接放这里，HerMemory/ 子目录放四核心文件"
 
 # ---------- 2. 安装上游 Hermes（pin tag，官方脚本） ----------
@@ -153,6 +152,86 @@ hermes config set memory.memory_char_limit "$MEM_LIMIT"  >/dev/null
 hermes config set memory.user_char_limit   "$USER_LIMIT" >/dev/null
 ok "记忆档位：MEMORY $MEM_LIMIT / USER $USER_LIMIT 字符（随时改档：bash memory-size.sh）"
 
+# ---------- 9.5 配置 AI（用户流程 2：key 引导两路；完成后 AI 上线，脚本下线） ----------
+log "配置 AI（API key）"
+echo "你的 API key 是从哪里拿的？"
+echo "  [1] 阿里云百炼（推荐——新用户每模型免费额度 100 万 Token / 90 天）"
+echo "  [2] 腾讯云混元（新用户免费资源包 100 万 Token）"
+echo "  [3] 硅基流动（注册送额度，多款模型长期免费）"
+echo "  [0] 我还没有 key——带我去领免费额度"
+echo "  [4] 其他（自己填地址）"
+read -rp "> " KEY_SRC
+if [ "$KEY_SRC" = "0" ]; then
+    echo "领取免费额度（三选一，都在浏览器里完成）："
+    echo "  阿里云百炼：打开 https://bailian.console.aliyun.com → 注册/登录（需实名）→ 领取新人免费额度 → 密钥管理创建 API Key"
+    echo "  腾讯云混元：打开 https://console.cloud.tencent.com/hunyuan → 领取新用户资源包 → API Key 管理页面创建密钥"
+    echo "  硅基流动：打开 https://cloud.siliconflow.cn → 手机号注册即送额度 → API 密钥页面新建密钥"
+    echo "  —— 拿到 sk- 开头的密钥后，回到下面选择来源并粘贴。"
+    echo "你的 API key 是从哪里拿的？"
+    echo "  [1] 阿里云百炼  [2] 腾讯云混元  [3] 硅基流动  [4] 其他"
+    read -rp "> " KEY_SRC
+fi
+case "$KEY_SRC" in
+    1) PROV_BASE="https://dashscope.aliyuncs.com/compatible-mode/v1"; PROV_MODEL="qwen3.6-flash";       PROV_NAME="bailian" ;;
+    2) PROV_BASE="https://api.hunyuan.cloud.tencent.com/v1";           PROV_MODEL="hunyuan-turbos-latest"; PROV_NAME="hunyuan" ;;
+    3) PROV_BASE="https://api.siliconflow.cn/v1";                      PROV_MODEL="Qwen/Qwen3-8B";       PROV_NAME="siliconflow" ;;
+    4) read -rp "API 地址（一般以 /v1 结尾）: " PROV_BASE
+       read -rp "默认模型名: " PROV_MODEL; PROV_NAME="custom" ;;
+    *) PROV_BASE="https://dashscope.aliyuncs.com/compatible-mode/v1"; PROV_MODEL="qwen3.6-flash";       PROV_NAME="bailian" ;;
+esac
+read -rsp "把你的 key 粘贴进来（输入不会显示在屏幕上）: " API_KEY
+echo ""
+[ -n "$API_KEY" ] || die "key 不能为空"
+
+# 模型防下架：从服务商实时模型列表解析型号（列表查不到才用上面的预置默认）。
+# 这样型号退役（如 qwen3.6-flash 下架）不影响新装机——脚本永远选当前真实存在的型号。
+resolve_model() {
+    local LIST_JSON PICKED
+    LIST_JSON=$(curl -s --max-time 15 "$PROV_BASE/models" -H "Authorization: Bearer $API_KEY" || true)
+    echo "$LIST_JSON" | grep -q '"id"' || return 0
+    PICKED=$(echo "$LIST_JSON" | grep -o '"id" *: *"[^"]*"' | sed 's/.*"id" *: *"//;s/"$//' \
+        | case "$PROV_NAME" in
+            bailian)     grep -i "qwen" | grep -i "flash" | grep -viE "vl|audio|omni|coder|realtime" ;;
+            hunyuan)     grep -i "hunyuan" | grep -i "turbo" | grep -i "latest" ;;
+            siliconflow) grep "Qwen/Qwen3-8B" ;;
+            *)           cat ;;
+          esac | head -1)
+    if [ -n "$PICKED" ]; then
+        PROV_MODEL="$PICKED"
+        ok "模型已按服务商当前列表选定：$PROV_MODEL"
+    fi
+}
+resolve_model
+
+# 写入走上游原生机制：custom_providers 四件套 + 设为主模型（与 _model_flow_custom 落盘结构一致）
+hermes config set custom_providers.$PROV_NAME.base_url "$PROV_BASE" >/dev/null
+hermes config set custom_providers.$PROV_NAME.api_mode chat_completions >/dev/null
+hermes config set custom_providers.$PROV_NAME.model "$PROV_MODEL" >/dev/null
+hermes config set custom_providers.$PROV_NAME.api_key "$API_KEY" >/dev/null
+hermes config set model "$PROV_MODEL" >/dev/null
+# ---------- 9.6 验活（纯脚本护城河：坏 key 绝不交给 AI） ----------
+log "正在测试连通……"
+HTTP_CODE=$(curl -s --max-time 20 -o /tmp/hm_probe.json -w "%{http_code}" \
+    "$PROV_BASE/chat/completions" \
+    -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
+    -d "{\"model\":\"$PROV_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":8}" || echo 000)
+if [ "$HTTP_CODE" = "200" ] && grep -q "choices" /tmp/hm_probe.json 2>/dev/null; then
+    rm -f /tmp/hm_probe.json
+    ok "通了，额度可用（模型：$PROV_MODEL）"
+else
+    rm -f /tmp/hm_probe.json
+    case "$HTTP_CODE" in
+        401) die "key 不对，检查有没有粘全" ;;
+        404) die "地址不对（检查是否以 /v1 结尾）" ;;
+        429|403) die "额度不可用（余额为零或未领取免费额度）" ;;
+        000) die "连不上服务商（网络问题），稍后重跑 install.sh 或手动跑 hermes setup" ;;
+        400|500) grep -qi "model" /tmp/hm_probe.json 2>/dev/null \
+            && die "预置型号已下架且列表解析失败——去服务商模型广场确认型号名后重跑 install.sh" \
+            || die "验活失败（HTTP $HTTP_CODE）——检查 key 与地址，或改用 hermes setup 官方向导" ;;
+        *) die "验活失败（HTTP $HTTP_CODE）——检查 key 与地址，或改用 hermes setup 官方向导" ;;
+    esac
+fi
+
 # ---------- 10. gateway 服务（消息通道 + cron） ----------
 if hermes gateway install >/dev/null 2>&1; then
     ok "gateway 服务已安装（消息 + 定时任务）"
@@ -171,40 +250,9 @@ else
     warn "hermes gateway install 未成功——微信等通道与 cron 暂不可用。后补：hermes gateway install"
 fi
 
-# ---------- 11. WebDAV 一键同步（核心功能之一） ----------
-RCLONE_OK=0
-command -v rclone >/dev/null && RCLONE_OK=1
-if [ "$RCLONE_OK" = "0" ]; then
-    warn "未检测到 rclone（一键 WebDAV 的实现）。安装：sudo apt install rclone 或 curl https://rclone.org/install.sh | sudo bash"
-    warn "跳过 WebDAV 配置——装好 rclone 后重跑本脚本即可补上"
-fi
-if [ "$RCLONE_OK" = "1" ]; then
-    read -rp "WebDAV 用户名 [默认 hermemory]: " WEBDAV_USER
-    WEBDAV_USER="${WEBDAV_USER:-hermemory}"
-    read -rp "WebDAV 密码（自定——手机/PC 配 Obsidian 连接时要用）: " WEBDAV_PASS
-    [[ -n "$WEBDAV_PASS" ]] || die "WebDAV 密码不能为空"
-    UNIT_DIR="$HOME/.config/systemd/user"
-    mkdir -p "$UNIT_DIR"
-    cat > "$UNIT_DIR/hermemory-webdav.service" <<EOF
-[Unit]
-Description=HerMemory WebDAV sync (rclone serve)
-After=network.target
-
-[Service]
-ExecStart=$(command -v rclone) serve webdav "$VAULT_DIR" --addr 0.0.0.0:$WEBDAV_PORT --user $WEBDAV_USER --pass $WEBDAV_PASS
-Restart=on-failure
-
-[Install]
-WantedBy=default.target
-EOF
-    systemctl --user daemon-reload
-    if systemctl --user enable --now hermemory-webdav.service 2>/dev/null; then
-        ok "WebDAV 已起：端口 $WEBDAV_PORT / 用户 $WEBDAV_USER / 密码为你刚才所设"
-    else
-        warn "WebDAV 启动失败——排查：systemctl --user status hermemory-webdav"
-    fi
-    log "设备端三条路：① Obsidian+RemotelySave（AI 端 http://AI端IP:$WEBDAV_PORT）② filebrowser 网页（自装）③ Windows/mac 映射网络驱动器"
-fi
+# ---------- 11. 脚本下线 ----------
+# 设计（用户流程 2）：key 配置完成后 AI 上线，脚本下线。
+# WebDAV / 微信接入 / 同步引导 / 能力演示全部由 AI 完成（#13）——AI 读 AGENTS.md 指针（内容在 docs）。
 
 # ---------- 12. 自检脚本（HERMES_HOME / SYNC_ROOT 写进配置区） ----------
 mkdir -p "$HERMES_HOME"
@@ -224,8 +272,9 @@ echo "  ② 自动化默认全关：写日记/总结由你说一声才写；周�
 echo "     （agent 自建 cron 并登记进 AUTOMATION.md）。"
 echo ""
 log "接下来："
-echo "  1. hermes setup        —— 官方向导配 API key（唯一官方流程，本脚本不代配）"
-echo "  2. hermes              —— 首次对话它会主动采档案（怎么称呼/主要用途/说话方式）"
-echo "  3. 改 $VAULT_DIR/HerMemory/memory/ 下任何文件 → 开新对话即生效"
+echo "  1. hermes              —— 启动 AI：首次对话它主动采档案（怎么称呼/主要用途/说话方式），"
+echo "                            然后按 docs/ONBOARDING.md 引导你连接微信、配置同步"
+echo "  2. 改 $VAULT_DIR/HerMemory/memory/ 下任何文件 → 开新对话即生效"
 echo ""
-log "文档：docs/INSTALL.md（部署）｜docs/GUIDE.md（使用：改性格、记忆容量、同步三路、通道接入、备份搬家）"
+log "最后一句话：启动 AI 后，把「部署待办」发给它——剩下的配置它来引导。"
+log "文档：docs/INSTALL.md（部署）｜docs/GUIDE.md（使用）｜docs/ONBOARDING.md（AI 的部署手册）"
