@@ -100,10 +100,14 @@ else { Warn "display.skin 写入失败（不致命），运行时 /skin hermemor
 # ---------- 7. 时区 ----------
 Log "Windows 使用本机时钟（时间注入取系统时间）——请在系统设置里确认时区为 (UTC+08:00) 北京"
 
-# ---------- 8. 时间注入开关 ----------
+# ---------- 8. 时间注入开关 + 界面显示偏好 ----------
 & hermes config set gateway.message_timestamps.enabled true | Out-Null
 if ($LASTEXITCODE -eq 0) { Ok "时间注入已开启：每条用户消息头部自动拼本机真实时间" }
 else { Die "gateway.message_timestamps.enabled 写入失败" }
+& hermes config set display.language zh 2>$null | Out-Null
+if ($LASTEXITCODE -eq 0) { Ok "界面语言：中文（静态 UI 消息，官方支持）" } else { Warn "display.language 写入失败（不致命）" }
+& hermes config set display.timestamps true 2>$null | Out-Null
+if ($LASTEXITCODE -eq 0) { Ok "对话时间标签 [HH:MM]：已开启" } else { Warn "display.timestamps 写入失败（不致命）" }
 
 # ---------- 9. 记忆档位 ----------
 Log "选择记忆容量档位（MEMORY.md / USER.md 字符上限，影响 agent 写记忆的预算）："

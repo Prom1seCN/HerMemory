@@ -123,10 +123,16 @@ else
     ok "无 timedatectl（容器/NAS）：已在 ~/.bashrc 追加 TZ=Asia/Shanghai"
 fi
 
-# ---------- 8. 时间注入开关（官方原生，默认关） ----------
+# ---------- 8. 时间注入开关（官方原生，默认关）+ 界面显示偏好 ----------
 hermes config set gateway.message_timestamps.enabled true >/dev/null 2>&1 \
     && ok "时间注入已开启：每条用户消息头部自动拼服务器真实时间" \
     || die "gateway.message_timestamps.enabled 写入失败"
+hermes config set display.language zh >/dev/null 2>&1 \
+    && ok "界面语言：中文（静态 UI 消息，官方支持）" \
+    || warn "display.language 写入失败（不致命）"
+hermes config set display.timestamps true >/dev/null 2>&1 \
+    && ok "对话时间标签 [HH:MM]：已开启" \
+    || warn "display.timestamps 写入失败（不致命）"
 
 # ---------- 9. 记忆档位（新手引导1：多档可选） ----------
 log "选择记忆容量档位（MEMORY.md / USER.md 字符上限，影响 agent 写记忆的预算）："

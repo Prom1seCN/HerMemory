@@ -55,6 +55,9 @@ spinner:
     - "remembering"
     - "recalling"
     - "connecting"
+  wings:
+    - ["⟪✦", "✦⟫"]
+    - ["⟪❖", "❖⟫"]
 
 branding:
   agent_name: "HerMemory"
@@ -76,4 +79,70 @@ banner_logo: |
   [#22D3EE]                                                   |___/ [/]
 
 
+# 中央图案：记忆水晶（程序生成对称菱形，中心光点）
+banner_hero: |
+  [#67E8F9]░░░░░░░░░░░░░░░░░░░░░[/]
+  [#0E7490]░░░░░░░░░░░░░░░░░░░░░[/]
+  [#0EA5E9]░░░░░░▒▒▒▒▒▒▒▒▒░░░░░░[/]
+  [#0EA5E9]░░░░░▓▓▓▓▓▓▓▓▓▓▓░░░░░[/]
+  [#22D3EE]░░░███████████████░░░[/]
+  [#22D3EE]░█████████✦█████████░[/]
+  [#22D3EE]░░░███████████████░░░[/]
+  [#0EA5E9]░░░░░▓▓▓▓▓▓▓▓▓▓▓░░░░░[/]
+  [#0EA5E9]░░░░░░▒▒▒▒▒▒▒▒▒░░░░░░[/]
+  [#0E7490]░░░░░░░░░░░░░░░░░░░░░[/]
+  [#67E8F9]░░░░░░░░░░░░░░░░░░░░░[/]
+  [dim #0E7490]     · your memory ·     [/]
+
 tool_prefix: "┊"
+
+# 浅色终端双色板：终端为浅背景时自动切换（colors 为暗色系，故配 light_colors）
+light_colors:
+  background: "#F5F7FA"
+  banner_border: "#0369A1"
+  banner_title: "#0E7490"
+  banner_accent: "#0891B2"
+  banner_dim: "#64748B"
+  banner_text: "#1E293B"
+  ui_accent: "#0E7490"
+  ui_label: "#0369A1"
+  ui_ok: "#15803D"
+  ui_error: "#B91C1C"
+  ui_warn: "#B45309"
+  ui_tool: "#0E7490"
+  ui_thinking: "#475569"
+  syntax_string: "#0369A1"
+  syntax_number: "#1E293B"
+  syntax_keyword: "#0C4A6E"
+  syntax_comment: "#64748B"
+  prompt: "#1E293B"
+  input_rule: "#0369A1"
+  response_border: "#0E7490"
+  status_bar_bg: "#E2E8F0"
+  status_bar_text: "#334155"
+  status_bar_strong: "#0E7490"
+  status_bar_dim: "#94A3B8"
+  status_bar_good: "#15803D"
+  status_bar_warn: "#B45309"
+  status_bar_bad: "#C2410C"
+  status_bar_critical: "#B91C1C"
+  session_label: "#0369A1"
+  session_border: "#94A3B8"
+  selection_bg: "#BAE6FD"
+  completion_menu_bg: "#F1F5F9"
+  completion_menu_current_bg: "#BAE6FD"
+  completion_menu_meta_bg: "#F1F5F9"
+  completion_menu_meta_current_bg: "#BAE6FD"
+
+# 逐工具 emoji 覆写（未列出的工具走上游默认标记）
+tool_emojis:
+  memory: "🧠"
+  terminal: "⚡"
+  read_file: "📖"
+  write_file: "✍"
+  edit_file: "✏"
+  web_search: "🔎"
+  session_search: "🗂"
+  skill_view: "📚"
+  skill_manage: "🧩"
+  cron: "⏰"
