@@ -136,16 +136,16 @@ $rclone = Get-Command rclone -ErrorAction SilentlyContinue
 if (-not $rclone) {
     Warn "未检测到 rclone（一键 WebDAV 的实现）。安装：winget install Rclone.Rclone，装好后重跑本脚本补上"
 } else {
-    $bytes = New-Object byte[] 16
-    [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
-    $webDavPass = -join ($bytes | ForEach-Object { [char](48 + ($_ % 74)) }) -replace "[^a-zA-Z0-9]",""
-    if ($webDavPass.Length -lt 12) { $webDavPass = $webDavPass + "hm" + (Get-Random -Maximum 99999) }
+    $webDavUser = Read-Host "WebDAV 用户名 [默认 hermemory]"
+    if (-not $webDavUser) { $webDavUser = "hermemory" }
+    $webDavPass = Read-Host "WebDAV 密码（自定——手机/PC 配 Obsidian 连接时要用）"
+    if (-not $webDavPass) { Die "WebDAV 密码不能为空" }
     $task = "HerMemory WebDAV"
-    schtasks /Create /F /TN $task /SC ONLOGON /TR "rclone serve webdav `"$VaultDir`" --addr 0.0.0.0:$WebDavPort --user $WebDavUser --pass $webDavPass" | Out-Null
+    schtasks /Create /F /TN $task /SC ONLOGON /TR "rclone serve webdav `"$VaultDir`" --addr 0.0.0.0:$WebDavPort --user $webDavUser --pass $webDavPass" | Out-Null
     if ($LASTEXITCODE -eq 0) {
-        Ok "WebDAV 已注册（登录自启）：端口 $WebDavPort / 用户 $WebDavUser / 密码 $webDavPass（请立即记录，明文仅出现这一次）"
+        Ok "WebDAV 已注册（登录自启）：端口 $WebDavPort / 用户 $webDavUser / 密码为你刚才所设"
     } else { Warn "WebDAV 计划任务注册失败——手动排查：schtasks /Query /TN `"$task`"" }
-    Log "设备端三条路：① Obsidian+RemotelySave（http://本机IP:$WebDavPort）② filebrowser 网页 ③ 映射网络驱动器"
+    Log "设备端三条路：① Obsidian+RemotelySave（http://本机IP:$WebDavPort）② filebrowser 网页 ③ Windows/mac 映射网络驱动器"
 }
 
 # ---------- 12. 自检脚本（配置区写入实际路径） ----------

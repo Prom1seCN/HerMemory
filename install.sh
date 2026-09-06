@@ -179,7 +179,10 @@ if [ "$RCLONE_OK" = "0" ]; then
     warn "跳过 WebDAV 配置——装好 rclone 后重跑本脚本即可补上"
 fi
 if [ "$RCLONE_OK" = "1" ]; then
-    WEBDAV_PASS="$(head -c 18 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 16)"
+    read -rp "WebDAV 用户名 [默认 hermemory]: " WEBDAV_USER
+    WEBDAV_USER="${WEBDAV_USER:-hermemory}"
+    read -rp "WebDAV 密码（自定——手机/PC 配 Obsidian 连接时要用）: " WEBDAV_PASS
+    [[ -n "$WEBDAV_PASS" ]] || die "WebDAV 密码不能为空"
     UNIT_DIR="$HOME/.config/systemd/user"
     mkdir -p "$UNIT_DIR"
     cat > "$UNIT_DIR/hermemory-webdav.service" <<EOF
@@ -196,7 +199,7 @@ WantedBy=default.target
 EOF
     systemctl --user daemon-reload
     if systemctl --user enable --now hermemory-webdav.service 2>/dev/null; then
-        ok "WebDAV 已起：端口 $WEBDAV_PORT / 用户 $WEBDAV_USER / 密码 $WEBDAV_PASS（请立即记录，明文仅出现这一次）"
+        ok "WebDAV 已起：端口 $WEBDAV_PORT / 用户 $WEBDAV_USER / 密码为你刚才所设"
     else
         warn "WebDAV 启动失败——排查：systemctl --user status hermemory-webdav"
     fi
