@@ -55,7 +55,7 @@ bash memory-size.sh
 
 ## 多端同步
 
-服务器端的 vault 就是一个 WebDAV 目录（装完那次显示的端口 / 用户名 / 密码）。
+AI 端的 vault（AI 装在服务器就是服务器，装在 PC 就是 PC）就是一个 WebDAV 目录（装完时你自己设定的端口 / 用户名 / 密码）。
 
 **主路径（唯一推荐）：Obsidian + Remotely Save 插件**——手机、PC 用同一款软件、同一套配置。它给你的是**离线副本**：文档存在你自己设备上，没网也能看能改，联网后手动同步合流；Obsidian 本身也是最好的 Markdown 编辑器。
 
@@ -66,7 +66,7 @@ bash memory-size.sh
 配置步骤（每台设备一次）：
 1. 装 Obsidian（手机应用商店 / obsidian.md），打开或新建仓库，选「本地文件夹」随便一个位置——同步下来的文档会住在这里。
 2. 设置 → 第三方插件 → 关闭安全模式 → 社区插件市场搜 **Remotely Save** → 安装并启用。
-3. Remotely Save 设置里：远程服务选 **WebDAV**，填服务器地址 `http://服务器IP:端口`、用户名、密码。
+3. Remotely Save 设置里：远程服务选 **WebDAV**，填 AI 端地址 `http://AI端IP:端口`（服务器形态=公网 IP；PC 形态=局域网 IP）、用户名、密码。
 4. **关闭插件的自动同步选项**，只用手动触发——想同步时点一下 Remotely Save 的同步按钮。
 
 不想装 Obsidian 的应急看法：
@@ -91,7 +91,7 @@ bash memory-size.sh
   bash export.sh
   ```
 
-  产出单个 zip 包，内含：文档库（四核心 + 全部用户文档）、agent 端全量（数据库一致性副本 + 所有 skill + 配置 + 定时任务，走上游官方 `hermes backup`）、README_REBORN 恢复指引。服务器上会临时起一个下载链接（无鉴权，取完即关）；PC 上直接存到本地文件夹。
+  产出单个 zip 包，内含：文档库（四核心 + 全部用户文档）、agent 端全量（数据库一致性副本 + 所有 skill + 配置 + 定时任务，走上游官方 `hermes backup`）、README_REBORN 恢复指引。AI 端在服务器上会临时起一个下载链接（无鉴权，取完即关）；PC 上直接存到本地文件夹。
 - **换机器**：新机器装好 HerMemory，解包——vault 放回原位（重跑 install.sh 自动建软链），agent 端用 `hermes import` 恢复 hermes-home.zip，脚本和定时任务按 `AUTOMATION.md` 登记册逐条重建。你的记忆不在任何一家的服务器上，就在你手里的文件里。
 
 ## 常见问题

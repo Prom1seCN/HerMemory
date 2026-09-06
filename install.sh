@@ -203,7 +203,7 @@ EOF
     else
         warn "WebDAV 启动失败——排查：systemctl --user status hermemory-webdav"
     fi
-    log "设备端三条路：① Obsidian+RemotelySave（服务器 http://IP:$WEBDAV_PORT）② filebrowser 网页（自装）③ Windows/mac 映射网络驱动器"
+    log "设备端三条路：① Obsidian+RemotelySave（AI 端 http://AI端IP:$WEBDAV_PORT）② filebrowser 网页（自装）③ Windows/mac 映射网络驱动器"
 fi
 
 # ---------- 12. 自检脚本（HERMES_HOME / SYNC_ROOT 写进配置区） ----------
