@@ -73,6 +73,11 @@ for f in MEMORY.md USER.md SOUL.md AGENTS.md AUTOMATION.md; do
     fi
 done
 
+# ---------- 4.5 使用文档进同步范围（AI 可读、多端可读） ----------
+mkdir -p "$VAULT_DIR/HerMemory/docs"
+cp -R "$SRC/docs/." "$VAULT_DIR/HerMemory/docs/"
+ok "使用文档已铺：HerMemory/docs/（随同步走；问 agent「怎么用」它自己会读）"
+
 # ---------- 5. 软链四件（官方注入槽位，零代码） ----------
 #   SOUL.md  → $HERMES_HOME/SOUL.md            （身份槽 slot#1）
 #   AGENTS.md→ $HERMES_HOME/AGENTS.md          （官方 context file 通道）
@@ -100,8 +105,8 @@ link_one "$VAULT_DIR/HerMemory/memory/USER.md"   "$HERMES_HOME/memories/USER.md"
 # ---------- 6. 品牌皮肤 ----------
 mkdir -p "$HERMES_HOME/skins"
 cp "$SRC/skins/hermemory.yaml" "$HERMES_HOME/skins/hermemory.yaml"
-hermes config set ui.skin hermemory >/dev/null 2>&1 && ok "皮肤已激活：hermemory（/skin 可随时切换）" \
-    || warn "ui.skin 写入失败（不致命），可运行时 /skin hermemory 手动切换"
+hermes config set display.skin hermemory >/dev/null 2>&1 && ok "皮肤已激活：hermemory（/skin 可随时切换；改 yaml 约一秒热重绘）" \
+    || warn "display.skin 写入失败（不致命），可运行时 /skin hermemory 手动切换"
 
 # ---------- 7. 时区 Asia/Shanghai（时钟错则时间感知全错） ----------
 if command -v timedatectl >/dev/null; then
