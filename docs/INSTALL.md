@@ -5,17 +5,34 @@
 
 ## 开始之前
 
-- 一台 Linux 机器：云服务器、NAS、或 Docker 容器（Ubuntu 22/24 均可）。
+**服务器 / NAS（Linux）**：
+
+- 一台 Linux 机器：云服务器、NAS、或 Docker 容器（Ubuntu 22/24 均可）
 - 一个普通用户账号（不要用 root 跑安装器），有 sudo 权限更好（设时区用，没有也能装）。
 - 已装 `git` 和 `curl`。缺就先装：`sudo apt install git curl`。
-- 不需要提前准备 API key——装完在脚本里配。
+
+**Windows PC**：
+
+- Windows 10/11，管理员权限或开发者模式（建软链需要，安装器会提示）
+- 已装 [Git for Windows](https://git-scm.com/download/win)（安装时一路默认，自带 Git Bash）和 Python 3.10+。缺就装：`winget install Git.Git Python.Python.3.12`
+- 同样不需要提前准备 API key。
 
 ## 开始安装
+
+**服务器 / NAS（Linux）**：
 
 ```bash
 git clone https://github.com/Prom1seCN/HerMemory.git
 cd HerMemory
 bash install.sh
+```
+
+**Windows PC**：克隆仓库后双击 `install.bat`（没有 .bat 时，在 PowerShell 里执行 `install.ps1`）：
+
+```powershell
+git clone https://github.com/Prom1seCN/HerMemory.git
+cd HerMemory
+powershell -ExecutionPolicy Bypass -File install.ps1
 ```
 
 ## 安装器会做的事，逐条对照
