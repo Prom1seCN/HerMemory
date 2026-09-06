@@ -37,6 +37,11 @@ Log "vault（同步根）：$VaultDir"
 # ---------- 2. 上游内核（官方安装器，pin tag；本脚本不自研内核安装） ----------
 if (-not (Get-Command hermes -ErrorAction SilentlyContinue)) {
     if ($SkipUpstream) { Die "hermes CLI 不可用，且指定了 -SkipUpstream" }
+    try {
+        Invoke-WebRequest -Uri "https://github.com" -Method Head -TimeoutSec 10 -UseBasicParsing | Out-Null
+    } catch {
+        Die "无法连上 GitHub（Windows 安装器需从 GitHub 获取内核与组件）。请开一次代理后再双击 install.bat——安装完成后日常使用不再需要。"
+    }
     Log "运行上游官方 install.ps1（pin $Tag；uv + Python 3.11 + Node + PortableGit，首次约 5-10 分钟）..."
     $up = Join-Path $env:TEMP "hermes-install.ps1"
     Invoke-WebRequest "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.ps1" -OutFile $up -UseBasicParsing

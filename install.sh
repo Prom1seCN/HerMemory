@@ -20,6 +20,9 @@ HERMEMORY_VERSION="0.1.0"
 PINNED_HERMES_TAG="v2026.8.31"
 UPSTREAM_REPO="https://github.com/NousResearch/hermes-agent.git"
 UPSTREAM_DIR="$HOME/hermes-agent"
+# 上游本体包直链（zip，由 scripts/make_offline_bundle.sh 生成后上传到自己的服务器）。
+# 留空 = 跳过直链层，直接 GitHub clone。境内服务器建议填上——GitHub 不可达时的兜底。
+OFFLINE_BUNDLE_URL=""
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
 WEBDAV_PORT="5005"
 WEBDAV_USER="hermemory"
@@ -43,11 +46,38 @@ VAULT_DIR="$HOME/vault"
 log "vault（同步根）：$VAULT_DIR —— 用户文档直接放这里，HerMemory/ 子目录放四核心文件"
 
 # ---------- 2. 安装上游 Hermes（pin tag，官方脚本） ----------
-if [ -d "$UPSTREAM_DIR/.git" ]; then
-    log "上游已存在：$UPSTREAM_DIR（跳过 clone）"
+# 本体获取四层：同目录本体包 → 服务器直链 → GitHub clone
+if [ -d "$UPSTREAM_DIR" ] && [ -e "$UPSTREAM_DIR/setup-hermes.sh" ]; then
+    log "上游已存在：$UPSTREAM_DIR（跳过获取）"
 else
-    log "clone 上游 Hermes $PINNED_HERMES_TAG ..."
-    git clone --depth 1 --branch "$PINNED_HERMES_TAG" "$UPSTREAM_REPO" "$UPSTREAM_DIR"
+    BUNDLE_ZIP=""
+    for c in "$SRC/hermes-agent-bundle.zip" "$PWD/hermes-agent-bundle.zip"; do
+        [ -f "$c" ] && BUNDLE_ZIP="$c" && break
+    done
+    if [ -n "$BUNDLE_ZIP" ]; then
+        log "检测到本地本体包：$BUNDLE_ZIP"
+    elif [ -n "$OFFLINE_BUNDLE_URL" ]; then
+        log "从直链下载上游本体包……"
+        if curl -fL --retry 2 --max-time 600 -o /tmp/hermes-agent-bundle.zip "$OFFLINE_BUNDLE_URL"; then
+            BUNDLE_ZIP=/tmp/hermes-agent-bundle.zip
+        else
+            warn "直链下载失败，转 GitHub clone"
+        fi
+    fi
+    if [ -n "$BUNDLE_ZIP" ]; then
+        command -v unzip >/dev/null || die "解压本体包需要 unzip：sudo apt install unzip（或删掉包转 GitHub clone）"
+        mkdir -p "$UPSTREAM_DIR"
+        unzip -qo "$BUNDLE_ZIP" -d "$UPSTREAM_DIR" || die "本体包解压失败（包损坏？重新下载）"
+        local_tag=""
+        [ -f "$UPSTREAM_DIR/HERMES_BUNDLE_TAG" ] && local_tag="$(cat "$UPSTREAM_DIR/HERMES_BUNDLE_TAG")"
+        if [ -n "$local_tag" ] && [ "$local_tag" != "$PINNED_HERMES_TAG" ]; then
+            die "本体包版本（$local_tag）与发行版 pin（$PINNED_HERMES_TAG）不一致——请换用匹配版本的本体包"
+        fi
+        ok "上游 Hermes 本体已就位（本体包，$PINNED_HERMES_TAG）"
+    else
+        log "clone 上游 Hermes $PINNED_HERMES_TAG ..."
+        git clone --depth 1 --branch "$PINNED_HERMES_TAG" "$UPSTREAM_REPO" "$UPSTREAM_DIR"
+    fi
 fi
 
 log "运行官方 setup-hermes.sh（uv + venv + hermes CLI，首次 1-5 分钟）..."
