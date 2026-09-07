@@ -99,8 +99,9 @@ namespace HerMemory
             {
                 var text = await Task.Run(() => RunCapture(HermsExe, "gateway status", 15)) ?? "";
                 var lower = text.ToLowerInvariant();
-                if (lower.Contains("running")) _state = "running";
-                else if (lower.Contains("stop") || lower.Contains("not ")) _state = "stopped";
+                // 顺序关键："not running" 也包含 "running"——必须先判否定
+                if (lower.Contains("not running") || lower.Contains("stopped")) _state = "stopped";
+                else if (lower.Contains("running")) _state = "running";
                 else _state = "unknown";
             }
             catch { _state = "unknown"; }
