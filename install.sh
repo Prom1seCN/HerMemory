@@ -202,7 +202,7 @@ mark_done memory-tier
 fi
 ok "记忆档位：MEMORY $MEM_LIMIT / USER $USER_LIMIT 字符（随时改档：bash memory-size.sh）"
 
-# ---------- 9.5/9.6 配置 AI（用户流程 2：引导打印一次 + 验活循环无上限；完成后 AI 上线） ----------
+# ---------- 9.5/9.6 配置 AI（用户流程 2：地址先验证，Key 后验证；Key 阶段输 1 可返回地址；完成后 AI 上线） ----------
 if done_step config-ai; then
     log "配置 AI：已完成（自动跳过）"
 else
@@ -215,62 +215,77 @@ echo "控制台里可能叫：API地址 / OpenAI兼容地址"
 echo "2.APIkey：AI如何计费"
 echo "一长串字符，常以sk-开头，也可能没有规律"
 echo "控制台里可能叫：API key / API密钥"
-REASK="addr"
+
+AT_URL=1
 while true; do
-    if [ "$REASK" != "key" ]; then
-        read -rp "请输入 API 地址: " PROV_BASE
-        PROV_BASE="${PROV_BASE%/}"
+    if [ "$AT_URL" = "1" ]; then
+        log "第一步：验证 API 地址"
+        while true; do
+            read -rp "请输入 API 地址: " PROV_BASE
+            PROV_BASE="${PROV_BASE%/}"
+            log "正在验证 API 地址……"
+            URL_CODE=$(curl -s --max-time 20 -o /tmp/hm_url_test.json -w "%{http_code}" "$PROV_BASE/models" || true)
+            if [ "$URL_CODE" = "000" ]; then
+                warn "[连接超时] 无法连接至该 API 地址。请确认：① 地址为服务商提供的接口地址（通常以 /v1 结尾）；② 本机当前可以访问互联网；③ 若开启了代理软件，尝试关闭代理或更换节点后重试"
+                continue
+            fi
+            if [ "$URL_CODE" = "404" ]; then
+                warn "[404] 该接口路径不存在。请核对是否使用了服务商标注的 OpenAI 兼容接口地址"
+                continue
+            fi
+            ok "API 地址可达（HTTP $URL_CODE）"
+            break
+        done
+        AT_URL=0
     fi
+
+    log "第二步：验证 API Key（输入 1 返回上一步）"
     read -rsp "请输入 API Key（输入可能不显示）: " API_KEY
     echo ""
-    log "正在验证 API 连接……"
-    HTTP_CODE=$(curl -s --max-time 20 -o /tmp/hm_models.json -w "%{http_code}"         "$PROV_BASE/models" -H "Authorization: Bearer $API_KEY" || true)
-    if [ "$HTTP_CODE" = "000" ]; then
-        warn "[连接超时] 无法连接至该 API 地址。请确认：① 地址为服务商提供的接口地址（通常以 /v1 结尾）；② 本机当前可以访问互联网"
-        REASK="addr"; continue
-    fi
-    if [ "$HTTP_CODE" = "401" ] || [ "$HTTP_CODE" = "403" ]; then
-        warn "[$HTTP_CODE] 认证未通过。请确认 API Key 复制完整（注意首尾空格与截断），且该 Key 在服务商控制台处于启用状态"
-        REASK="key"; continue
-    fi
-    if [ "$HTTP_CODE" = "404" ]; then
-        warn "[404] 该接口路径不存在。请核对是否使用了服务商标注的 OpenAI 兼容接口地址"
-        REASK="addr"; continue
-    fi
-    if [ "$HTTP_CODE" != "200" ]; then
-        warn "验活失败（HTTP $HTTP_CODE）——请重新输入"
-        REASK="addr"; continue
-    fi
+    if [ "$API_KEY" = "1" ]; then AT_URL=1; continue; fi
+    [ -n "$API_KEY" ] || { warn "key 不能为空——重新输入"; continue; }
+
+    log "正在验证 API Key……"
+    HTTP_CODE=$(curl -s --max-time 20 -o /tmp/hm_models.json -w "%{http_code}" "$PROV_BASE/models" -H "Authorization: Bearer $API_KEY" || true)
+    case "$HTTP_CODE" in
+        401|403)
+            warn "[$HTTP_CODE] 认证未通过。请确认 API Key 复制完整（注意首尾空格与截断），且该 Key 在服务商控制台处于启用状态"
+            continue ;;
+        000)
+            warn "[连接超时] 网络异常——重新输入，或输 1 返回上一步" ;;
+    esac
     if ! grep -q '"data"' /tmp/hm_models.json 2>/dev/null; then
         warn "[格式异常] 该地址返回的内容不是标准接口响应。请确认使用的是 API 接口地址，而非控制台网页地址"
-        REASK="addr"; continue
+        continue
     fi
     mapfile -t MODEL_LIST < <(grep -o '"id" *: *"[^"]*"' /tmp/hm_models.json | sed 's/.*"id" *: *"//;s/"$//' || true)
     if [ ${#MODEL_LIST[@]} -eq 0 ]; then
         warn "[错误] 连接正常，但该 Key 名下无可用模型。请在服务商控制台确认已开通模型调用权限"
-        REASK="addr"; continue
+        continue
     fi
     ok "连接正常，检测到 ${#MODEL_LIST[@]} 个可用模型。"
-    i=1
-    for m in "${MODEL_LIST[@]}"; do echo "  [$i] $m"; i=$((i+1)); done
-    while true; do
-        read -rp "请选择模型序号: " MODEL_PICK
-        MODEL_PICK="${MODEL_PICK:-1}"
-        if [[ "$MODEL_PICK" =~ ^[0-9]+$ ]] && [ "$MODEL_PICK" -ge 1 ] && [ "$MODEL_PICK" -le ${#MODEL_LIST[@]} ]; then
-            PROV_MODEL="${MODEL_LIST[$((MODEL_PICK-1))]}"
-            break
-        fi
-        warn "序号无效——重新选择"
-    done
-    PROV_NAME="custom"
-    hermes config set custom_providers.$PROV_NAME.base_url "$PROV_BASE" >/dev/null
-    hermes config set custom_providers.$PROV_NAME.api_mode chat_completions >/dev/null
-    hermes config set custom_providers.$PROV_NAME.model "$PROV_MODEL" >/dev/null
-    hermes config set custom_providers.$PROV_NAME.api_key "$API_KEY" >/dev/null
-    hermes config set model "$PROV_MODEL" >/dev/null
-    mark_done config-ai
     break
 done
+
+i=1
+for m in "${MODEL_LIST[@]}"; do echo "  [$i] $m"; i=$((i+1)); done
+while true; do
+    read -rp "请选择模型序号: " MODEL_PICK
+    if [[ "$MODEL_PICK" =~ ^[0-9]+$ ]] && [ "$MODEL_PICK" -ge 1 ] && [ "$MODEL_PICK" -le ${#MODEL_LIST[@]} ]; then
+        PROV_MODEL="${MODEL_LIST[$((MODEL_PICK-1))]}"
+        break
+    fi
+    warn "序号无效——重新选择"
+done
+
+PROV_NAME="custom"
+hermes config set custom_providers.$PROV_NAME.base_url "$PROV_BASE" >/dev/null
+hermes config set custom_providers.$PROV_NAME.api_mode chat_completions >/dev/null
+hermes config set custom_providers.$PROV_NAME.model "$PROV_MODEL" >/dev/null
+hermes config set custom_providers.$PROV_NAME.api_key "$API_KEY" >/dev/null
+hermes config set model "$PROV_MODEL" >/dev/null
+ok "配置完成（模型：$PROV_MODEL）"
+mark_done config-ai
 fi
 
 # ---------- 10. 微信扫码接入（可选；完成后 AI 直接出现在用户微信） ----------
