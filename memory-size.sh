@@ -12,18 +12,16 @@ command -v hermes >/dev/null || { echo "[错误] hermes CLI 不可用（~/.local
 if [ $# -ge 2 ]; then
     MEM_LIMIT="$1"; USER_LIMIT="$2"
 else
-    echo "记忆容量档位（MEMORY.md / USER.md 字符上限）："
-    echo "  1) 紧凑  2200 / 1375  （上游默认，≈1300 token）"
-    echo "  2) 标准  8000 / 5000  （≈4700 token，日常推荐）"
-    echo "  3) 宽敞 20000 / 12000 （≈11700 token，重度使用）"
-    echo "  4) 自定义"
-    read -rp "档位 [2]: " CHOICE
-    case "${CHOICE:-2}" in
-        1) MEM_LIMIT=2200;  USER_LIMIT=1375  ;;
-        3) MEM_LIMIT=20000; USER_LIMIT=12000 ;;
-        4) read -rp "MEMORY.md 字符上限: " MEM_LIMIT
-           read -rp "USER.md   字符上限: " USER_LIMIT ;;
-        *) MEM_LIMIT=8000;  USER_LIMIT=5000  ;;
+    echo "MEMORY/USER容量设置"
+    echo "tips：高档会提升AI记忆力，但可能降低专注度"
+    echo "  1.紧凑：2200/1375 [默认]"
+    echo "  2.标准：5000/3000"
+    echo "  3.详细：10000/5000"
+    read -rp "请选择记忆档位（1/2/3）: " CHOICE
+    case "${CHOICE:-1}" in
+        2) MEM_LIMIT=5000;  USER_LIMIT=3000  ;;
+        3) MEM_LIMIT=10000; USER_LIMIT=5000  ;;
+        *) MEM_LIMIT=2200;  USER_LIMIT=1375  ;;
     esac
 fi
 

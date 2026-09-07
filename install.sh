@@ -183,22 +183,21 @@ hermes config set display.timestamps true >/dev/null 2>&1 \
 if done_step memory-tier; then
     log "记忆档位：已完成（断点跳过）"
 else
-log "选择记忆容量档位（MEMORY.md / USER.md 字符上限，影响 agent 写记忆的预算）："
-echo "  1) 紧凑  2200 / 1375  （上游默认，≈1300 token，注意力最集中）"
-echo "  2) 标准  8000 / 5000  （≈4700 token，日常推荐）"
-echo "  3) 宽敞 20000 / 12000 （≈11700 token，重度使用）"
-echo "  4) 自定义"
-read -rp "档位 [2]: " MEM_CHOICE
-MEM_CHOICE="${MEM_CHOICE:-2}"
+log "MEMORY/USER容量设置"
+echo "tips：高档会提升AI记忆力，但可能降低专注度"
+echo "  1.紧凑：2200/1375 [默认]"
+echo "  2.标准：5000/3000"
+echo "  3.详细：10000/5000"
+read -rp "请选择记忆档位（1/2/3）: " MEM_CHOICE
+MEM_CHOICE="${MEM_CHOICE:-1}"
 case "$MEM_CHOICE" in
-    1) MEM_LIMIT=2200;  USER_LIMIT=1375  ;;
-    3) MEM_LIMIT=20000; USER_LIMIT=12000 ;;
-    4) read -rp "MEMORY.md 字符上限: " MEM_LIMIT
-       read -rp "USER.md   字符上限: " USER_LIMIT ;;
-    *) MEM_LIMIT=8000;  USER_LIMIT=5000  ;;
+    2) MEM_LIMIT=5000;  USER_LIMIT=3000  ;;
+    3) MEM_LIMIT=10000; USER_LIMIT=5000  ;;
+    *) MEM_LIMIT=2200;  USER_LIMIT=1375  ;;
 esac
 hermes config set memory.memory_char_limit "$MEM_LIMIT"  >/dev/null
 hermes config set memory.user_char_limit   "$USER_LIMIT" >/dev/null
+ok "记忆档位：MEMORY $MEM_LIMIT / USER $USER_LIMIT 字符（随时改档：bash memory-size.sh）"
 mark_done memory-tier
 fi
 ok "记忆档位：MEMORY $MEM_LIMIT / USER $USER_LIMIT 字符（随时改档：bash memory-size.sh）"

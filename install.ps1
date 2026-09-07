@@ -131,17 +131,16 @@ if ($LASTEXITCODE -eq 0) { Ok "对话时间标签 [HH:MM]：已开启" } else { 
 if (Test-Done "memory-tier") {
     Log "记忆档位：已完成（断点跳过）"
 } else {
-Log "选择记忆容量档位（MEMORY.md / USER.md 字符上限，影响 agent 写记忆的预算）："
-Write-Host "  1) 紧凑  2200 / 1375  （上游默认，≈1300 token）"
-Write-Host "  2) 标准  8000 / 5000  （≈4700 token，日常推荐）"
-Write-Host "  3) 宽敞 20000 / 12000 （≈11700 token，重度使用）"
-Write-Host "  4) 自定义"
-$choice = Read-Host "档位 [2]"
+Log "MEMORY/USER容量设置"
+Write-Host "tips：高档会提升AI记忆力，但可能降低专注度"
+Write-Host "  1.紧凑：2200/1375 [默认]"
+Write-Host "  2.标准：5000/3000"
+Write-Host "  3.详细：10000/5000"
+$choice = Read-Host "请选择记忆档位（1/2/3）"
 switch ($choice) {
-    "1" { $memLimit = 2200;  $userLimit = 1375 }
-    "3" { $memLimit = 20000; $userLimit = 12000 }
-    "4" { $memLimit = [int](Read-Host "MEMORY.md 字符上限"); $userLimit = [int](Read-Host "USER.md 字符上限") }
-    default { $memLimit = 8000; $userLimit = 5000 }
+    "2" { $memLimit = 5000;  $userLimit = 3000 }
+    "3" { $memLimit = 10000; $userLimit = 5000 }
+    default { $memLimit = 2200; $userLimit = 1375 }
 }
 & hermes config set memory.memory_char_limit $memLimit | Out-Null
 & hermes config set memory.user_char_limit $userLimit | Out-Null
