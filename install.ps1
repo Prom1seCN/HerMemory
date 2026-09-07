@@ -323,10 +323,16 @@ if ((Test-Path $envFile) -and (Select-String -Path $envFile -Pattern "WEIXIN_ACC
 }
 
 # ---------- 11. gateway 服务（消息通道 + cron；上游在 Windows 用 schtasks 自启） ----------
-Log "安装 gateway 服务（消息通道 + 定时任务，可能需要一两分钟）……"
-& hermes gateway install 2>$null | Out-Null
-if ($LASTEXITCODE -eq 0) { Ok "gateway 服务已安装（消息 + 定时任务，登录自启）" }
-else { Warn "hermes gateway install 未成功。可稍后手动执行：hermes gateway install" }
+# 向导里答过"开机自启（计划任务）"的话已经注册好了——先检测，避免重复安装卡在隐藏的授权/输入上
+$gwTask = schtasks /Query /FO LIST 2>$null | Select-String -Pattern "hermes" -Quiet
+if ($gwTask) {
+    Ok "gateway 服务已注册（向导完成）——跳过重复安装"
+} else {
+    Log "安装 gateway 服务（消息通道 + 定时任务，可能需要一两分钟）……"
+    & hermes gateway install
+    if ($LASTEXITCODE -eq 0) { Ok "gateway 服务已安装（消息 + 定时任务，登录自启）" }
+    else { Warn "hermes gateway install 未成功。可稍后手动执行：hermes gateway install" }
+}
 
 # ---------- 11. 脚本下线 ----------
 # 设计（用户流程 2）：key 配置完成后 AI 上线，脚本下线。
