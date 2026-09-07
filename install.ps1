@@ -112,6 +112,8 @@ function LinkOne([string]$src, [string]$dst) {
 }
 LinkOne "$VaultDir\HerMemory\memory\SOUL.md"   "$HermesHome\SOUL.md"
 LinkOne "$VaultDir\HerMemory\memory\AGENTS.md" "$HermesHome\AGENTS.md"
+# AGENTS.md 的注入槽位是"会话工作目录链"（git 根→cwd），不是 HERMES_HOME——必须在 HOME 根放一份
+LinkOne "$VaultDir\HerMemory\memory\AGENTS.md" "$HOME\AGENTS.md"
 LinkOne "$VaultDir\HerMemory\memory\MEMORY.md" "$HermesHome\memories\MEMORY.md"
 LinkOne "$VaultDir\HerMemory\memory\USER.md"   "$HermesHome\memories\USER.md"
 

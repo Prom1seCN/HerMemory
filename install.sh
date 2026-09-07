@@ -143,6 +143,8 @@ link_one() { # link_one <同步侧文件> <agent侧路径>
 }
 link_one "$VAULT_DIR/HerMemory/memory/SOUL.md"   "$HERMES_HOME/SOUL.md"
 link_one "$VAULT_DIR/HerMemory/memory/AGENTS.md" "$HERMES_HOME/AGENTS.md"
+# AGENTS.md 的注入槽位是"会话工作目录链"（git 根→cwd），不是 HERMES_HOME——必须在 $HOME 根放一份
+link_one "$VAULT_DIR/HerMemory/memory/AGENTS.md" "$HOME/AGENTS.md"
 link_one "$VAULT_DIR/HerMemory/memory/MEMORY.md" "$HERMES_HOME/memories/MEMORY.md"
 link_one "$VAULT_DIR/HerMemory/memory/USER.md"   "$HERMES_HOME/memories/USER.md"
 
