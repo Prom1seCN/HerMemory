@@ -127,52 +127,38 @@ switch ($choice) {
 & hermes config set memory.user_char_limit $userLimit | Out-Null
 Ok "记忆档位：MEMORY $memLimit / USER $userLimit 字符（随时改档：bash memory-size.sh）"
 
-# ---------- 9.5 配置 AI（用户流程 2：key 引导两路；完成后 AI 上线，脚本下线） ----------
-Log "配置 AI（API key）"
-Write-Host "你的 API key 是从哪里拿的？"
-Write-Host "  [1] 阿里云百炼（推荐——新用户每模型免费额度 100 万 Token / 90 天）"
-Write-Host "  [2] 腾讯云混元（新用户免费资源包 100 万 Token）"
-Write-Host "  [3] 硅基流动（注册送额度，多款模型长期免费）"
-Write-Host "  [0] 我还没有 key——带我去领免费额度"
-Write-Host "  [4] 其他（自己填地址）"
-$keySrc = Read-Host ">"
-if ($keySrc -eq "0") {
-    Write-Host "领取免费额度（三选一，都在浏览器里完成）："
-    Write-Host "  阿里云百炼：打开 https://bailian.console.aliyun.com → 注册/登录（需实名）→ 领取新人免费额度 → 密钥管理创建 API Key"
-    Write-Host "  腾讯云混元：打开 https://console.cloud.tencent.com/hunyuan → 领取新用户资源包 → API Key 管理页面创建密钥"
-    Write-Host "  硅基流动：打开 https://cloud.siliconflow.cn → 手机号注册即送额度 → API 密钥页面新建密钥"
-    Write-Host "  —— 拿到 sk- 开头的密钥后，回到下面选择来源并粘贴。"
-    Write-Host "你的 API key 是从哪里拿的？"
-    Write-Host "  [1] 阿里云百炼  [2] 腾讯云混元  [3] 硅基流动  [4] 其他"
-    $keySrc = Read-Host ">"
-}
-switch ($keySrc) {
-    "1" { $provBase = "https://dashscope.aliyuncs.com/compatible-mode/v1"; $provModel = "qwen3.6-flash";       $provName = "bailian" }
-    "2" { $provBase = "https://api.hunyuan.cloud.tencent.com/v1";           $provModel = "hunyuan-turbos-latest"; $provName = "hunyuan" }
-    "3" { $provBase = "https://api.siliconflow.cn/v1";                      $provModel = "Qwen/Qwen3-8B";       $provName = "siliconflow" }
-    "4" { $provBase = Read-Host "API 地址（一般以 /v1 结尾）"
-          $provModel = Read-Host "默认模型名"; $provName = "custom" }
-    default { $provBase = "https://dashscope.aliyuncs.com/compatible-mode/v1"; $provModel = "qwen3.6-flash"; $provName = "bailian" }
-}
-$secKey = Read-Host -AsSecureString "把你的 key 粘贴进来（输入不会显示在屏幕上）"
+# ---------- 9.5 配置 AI（用户流程 2：填 API 地址 + key，现场选模型；完成后 AI 上线，脚本下线） ----------
+Log "配置 AI（API 地址 + API key）"
+Write-Host "还没有 key？先去领免费额度（浏览器操作，详见 docs\INSTALL.md）："
+Write-Host "  阿里云百炼 https://bailian.console.aliyun.com | 腾讯云混元 https://console.cloud.tencent.com/hunyuan | 硅基流动 https://cloud.siliconflow.cn"
+$provBase = Read-Host "API 地址（服务商控制台提供，一般以 /v1 结尾）"
+if ($provBase -notmatch "^https?://") { Die "API 地址要以 http(s):// 开头" }
+$secKey = Read-Host -AsSecureString "API key（输入不会显示在屏幕上）"
 $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secKey)
 $apiKey = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
 [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
 if (-not $apiKey) { Die "key 不能为空" }
 
-# 模型防下架：从服务商实时模型列表解析型号（列表拉不到才用预置默认——预置型号退役不影响新装机）
-$modelsJson = $null
-try { $modelsJson = Invoke-RestMethod -Uri "$provBase/models" -Headers @{ Authorization = "Bearer $apiKey" } -TimeoutSec 15 } catch {}
-if ($modelsJson -and $modelsJson.data) {
-    $ids = @($modelsJson.data | ForEach-Object { $_.id })
-    $picked = switch ($provName) {
-        "bailian"     { $ids | Where-Object { $_ -match "qwen" -and $_ -match "flash" -and $_ -notmatch "vl|audio|omni|coder|realtime" } | Select-Object -First 1 }
-        "hunyuan"     { $ids | Where-Object { $_ -match "hunyuan" -and $_ -match "turbo" -and $_ -match "latest" } | Select-Object -First 1 }
-        "siliconflow" { $ids | Where-Object { $_ -eq "Qwen/Qwen3-8B" } | Select-Object -First 1 }
-        default       { $null }
+# 模型现场选：拉该地址的实时模型列表，用户选一个——型号下架/升级都不影响（列表拉不到才手填）
+$provName = "custom"
+$provModel = $null
+Log "获取可用模型列表……"
+try { $models = Invoke-RestMethod -Uri "$provBase/models" -Headers @{ Authorization = "Bearer $apiKey" } -TimeoutSec 15 } catch {}
+if ($models -and $models.data) {
+    $ids = @($models.data | ForEach-Object { $_.id })
+    if ($ids.Count -gt 0) {
+        for ($i = 0; $i -lt $ids.Count; $i++) { Write-Host ("  [{0}] {1}" -f ($i + 1), $ids[$i]) }
+        $pick = Read-Host "选默认模型序号 [1]"
+        if (-not $pick) { $pick = "1" }
+        if ($pick -match "^\d+$" -and [int]$pick -ge 1 -and [int]$pick -le $ids.Count) { $provModel = $ids[[int]$pick - 1] }
+        else { Die "序号无效" }
+    } else {
+        $provModel = Read-Host "列表为空——手动输入模型名"
     }
-    if ($picked) { $provModel = $picked; Ok "模型已按服务商当前列表选定：$provModel" }
+} else {
+    $provModel = Read-Host "列表拉取失败（服务商可能不支持）——手动输入模型名"
 }
+if (-not $provModel) { Die "模型名不能为空" }
 
 # 写入走上游原生机制：custom_providers 四件套 + 设为主模型（与 _model_flow_custom 落盘结构一致）
 & hermes config set custom_providers.$provName.base_url $provBase | Out-Null
@@ -201,7 +187,7 @@ if ($httpCode -eq 200 -and $respBody -match "choices") {
         404 { Die "地址不对（检查是否以 /v1 结尾）" }
         { $_ -eq 429 -or $_ -eq 403 } { Die "额度不可用（余额为零或未领取免费额度）" }
         0 { Die "连不上服务商（网络问题），稍后重跑 install.ps1 或手动跑 hermes setup" }
-        { $_ -eq 400 -or $_ -eq 500 } { if ($respBody -match "model") { Die "预置型号已下架且列表解析失败——去服务商模型广场确认型号名后重跑 install.ps1" } else { Die "验活失败（HTTP $httpCode）——检查 key 与地址，或改用 hermes setup 官方向导" } }
+        { $_ -eq 400 -or $_ -eq 500 } { if ($respBody -match "model") { Die "所选模型不可用（已下架？）——重跑 install.ps1 重新选模型，或手动换一个型号" } else { Die "验活失败（HTTP $httpCode）——检查 key 与地址，或改用 hermes setup 官方向导" } }
         default { Die "验活失败（HTTP $httpCode）——检查 key 与地址，或改用 hermes setup 官方向导" }
     }
 }

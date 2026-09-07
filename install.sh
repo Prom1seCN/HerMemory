@@ -182,56 +182,39 @@ hermes config set memory.memory_char_limit "$MEM_LIMIT"  >/dev/null
 hermes config set memory.user_char_limit   "$USER_LIMIT" >/dev/null
 ok "记忆档位：MEMORY $MEM_LIMIT / USER $USER_LIMIT 字符（随时改档：bash memory-size.sh）"
 
-# ---------- 9.5 配置 AI（用户流程 2：key 引导两路；完成后 AI 上线，脚本下线） ----------
-log "配置 AI（API key）"
-echo "你的 API key 是从哪里拿的？"
-echo "  [1] 阿里云百炼（推荐——新用户每模型免费额度 100 万 Token / 90 天）"
-echo "  [2] 腾讯云混元（新用户免费资源包 100 万 Token）"
-echo "  [3] 硅基流动（注册送额度，多款模型长期免费）"
-echo "  [0] 我还没有 key——带我去领免费额度"
-echo "  [4] 其他（自己填地址）"
-read -rp "> " KEY_SRC
-if [ "$KEY_SRC" = "0" ]; then
-    echo "领取免费额度（三选一，都在浏览器里完成）："
-    echo "  阿里云百炼：打开 https://bailian.console.aliyun.com → 注册/登录（需实名）→ 领取新人免费额度 → 密钥管理创建 API Key"
-    echo "  腾讯云混元：打开 https://console.cloud.tencent.com/hunyuan → 领取新用户资源包 → API Key 管理页面创建密钥"
-    echo "  硅基流动：打开 https://cloud.siliconflow.cn → 手机号注册即送额度 → API 密钥页面新建密钥"
-    echo "  —— 拿到 sk- 开头的密钥后，回到下面选择来源并粘贴。"
-    echo "你的 API key 是从哪里拿的？"
-    echo "  [1] 阿里云百炼  [2] 腾讯云混元  [3] 硅基流动  [4] 其他"
-    read -rp "> " KEY_SRC
-fi
-case "$KEY_SRC" in
-    1) PROV_BASE="https://dashscope.aliyuncs.com/compatible-mode/v1"; PROV_MODEL="qwen3.6-flash";       PROV_NAME="bailian" ;;
-    2) PROV_BASE="https://api.hunyuan.cloud.tencent.com/v1";           PROV_MODEL="hunyuan-turbos-latest"; PROV_NAME="hunyuan" ;;
-    3) PROV_BASE="https://api.siliconflow.cn/v1";                      PROV_MODEL="Qwen/Qwen3-8B";       PROV_NAME="siliconflow" ;;
-    4) read -rp "API 地址（一般以 /v1 结尾）: " PROV_BASE
-       read -rp "默认模型名: " PROV_MODEL; PROV_NAME="custom" ;;
-    *) PROV_BASE="https://dashscope.aliyuncs.com/compatible-mode/v1"; PROV_MODEL="qwen3.6-flash";       PROV_NAME="bailian" ;;
-esac
-read -rsp "把你的 key 粘贴进来（输入不会显示在屏幕上）: " API_KEY
+# ---------- 9.5 配置 AI（用户流程 2：填 API 地址 + key，现场选模型；完成后 AI 上线，脚本下线） ----------
+log "配置 AI（API 地址 + API key）"
+echo "还没有 key？先去领免费额度（浏览器操作，详见 docs/INSTALL.md）："
+echo "  阿里云百炼 https://bailian.console.aliyun.com ｜ 腾讯云混元 https://console.cloud.tencent.com/hunyuan ｜ 硅基流动 https://cloud.siliconflow.cn"
+echo ""
+read -rp "API 地址（服务商控制台提供，一般以 /v1 结尾）: " PROV_BASE
+[[ "$PROV_BASE" =~ ^https?:// ]] || die "API 地址要以 http(s):// 开头"
+read -rsp "API key（输入不会显示在屏幕上）: " API_KEY
 echo ""
 [ -n "$API_KEY" ] || die "key 不能为空"
 
-# 模型防下架：从服务商实时模型列表解析型号（列表查不到才用上面的预置默认）。
-# 这样型号退役（如 qwen3.6-flash 下架）不影响新装机——脚本永远选当前真实存在的型号。
-resolve_model() {
-    local LIST_JSON PICKED
-    LIST_JSON=$(curl -s --max-time 15 "$PROV_BASE/models" -H "Authorization: Bearer $API_KEY" || true)
-    echo "$LIST_JSON" | grep -q '"id"' || return 0
-    PICKED=$(echo "$LIST_JSON" | grep -o '"id" *: *"[^"]*"' | sed 's/.*"id" *: *"//;s/"$//' \
-        | case "$PROV_NAME" in
-            bailian)     grep -i "qwen" | grep -i "flash" | grep -viE "vl|audio|omni|coder|realtime" ;;
-            hunyuan)     grep -i "hunyuan" | grep -i "turbo" | grep -i "latest" ;;
-            siliconflow) grep "Qwen/Qwen3-8B" ;;
-            *)           cat ;;
-          esac | head -1)
-    if [ -n "$PICKED" ]; then
-        PROV_MODEL="$PICKED"
-        ok "模型已按服务商当前列表选定：$PROV_MODEL"
+# 模型现场选：拉该地址的实时模型列表，用户选一个——型号下架/升级都不影响（列表拉不到才手填）
+PROV_NAME="custom"
+log "获取可用模型列表……"
+MODELS_JSON=$(curl -s --max-time 15 "$PROV_BASE/models" -H "Authorization: Bearer $API_KEY" || true)
+PROV_MODEL=""
+if echo "$MODELS_JSON" | grep -q '"id"'; then
+    mapfile -t MODEL_LIST < <(echo "$MODELS_JSON" | grep -o '"id" *: *"[^"]*"' | sed 's/.*"id" *: *"//;s/"$//')
+    if [ ${#MODEL_LIST[@]} -gt 0 ]; then
+        i=1
+        for m in "${MODEL_LIST[@]}"; do echo "  [$i] $m"; i=$((i+1)); done
+        read -rp "选默认模型序号 [1]: " MODEL_PICK
+        MODEL_PICK="${MODEL_PICK:-1}"
+        [[ "$MODEL_PICK" =~ ^[0-9]+$ ]] && [ "$MODEL_PICK" -ge 1 ] && [ "$MODEL_PICK" -le ${#MODEL_LIST[@]} ] \
+            || die "序号无效"
+        PROV_MODEL="${MODEL_LIST[$((MODEL_PICK-1))]}"
+    else
+        read -rp "列表为空——手动输入模型名: " PROV_MODEL
     fi
-}
-resolve_model
+else
+    read -rp "列表拉取失败（服务商可能不支持）——手动输入模型名: " PROV_MODEL
+fi
+[ -n "$PROV_MODEL" ] || die "模型名不能为空"
 
 # 写入走上游原生机制：custom_providers 四件套 + 设为主模型（与 _model_flow_custom 落盘结构一致）
 hermes config set custom_providers.$PROV_NAME.base_url "$PROV_BASE" >/dev/null
@@ -256,7 +239,7 @@ else
         429|403) die "额度不可用（余额为零或未领取免费额度）" ;;
         000) die "连不上服务商（网络问题），稍后重跑 install.sh 或手动跑 hermes setup" ;;
         400|500) grep -qi "model" /tmp/hm_probe.json 2>/dev/null \
-            && die "预置型号已下架且列表解析失败——去服务商模型广场确认型号名后重跑 install.sh" \
+            && die "所选模型不可用（已下架？）——重跑 install.sh 重新选模型，或手动换一个型号" \
             || die "验活失败（HTTP $HTTP_CODE）——检查 key 与地址，或改用 hermes setup 官方向导" ;;
         *) die "验活失败（HTTP $HTTP_CODE）——检查 key 与地址，或改用 hermes setup 官方向导" ;;
     esac
