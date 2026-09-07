@@ -263,6 +263,7 @@ if ((Test-Path $envFile) -and (Select-String -Path $envFile -Pattern "WEIXIN_ACC
     Write-Host "  向导问题（英文原文）                              → 你该输入"
     Write-Host "  ─────────────────────────────────────────────"
     Write-Host "  Select platform（选择平台）                        → Weixin / WeChat 对应的数字"
+    Write-Host "  Start QR login now?                               → 直接回车（开始扫码）"
     Write-Host "  终端出现二维码                                     → 用微信扫码并确认；扫不出就把链接复制到"
     Write-Host "                                                       浏览器打开，页面里会出现二维码，再扫码"
     Write-Host "  How should direct messages be authorized?         → 输入 3（不要选默认的 1）"
@@ -275,7 +276,9 @@ if ((Test-Path $envFile) -and (Select-String -Path $envFile -Pattern "WEIXIN_ACC
         $wxNow = Read-Host "现在扫码连接微信？[y/n]"
         if (-not $wxNow) { $wxNow = "Y" }
         if ($wxNow -match "^[Nn]") { break }
+        & chcp.com 65001 | Out-Null
         & hermes gateway setup
+        & chcp.com 936 | Out-Null
         if ((Test-Path $envFile) -and (Select-String -Path $envFile -Pattern "WEIXIN_ACCOUNT_ID" -Quiet)) {
             $wxConfigured = $true
             Ok "微信通道已配置"
