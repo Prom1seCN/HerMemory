@@ -175,7 +175,7 @@ while ($true) {
     Log "正在验证 API 连接……"
     # 用系统自带 curl.exe 验证（不走 .NET 代理/TLS 栈，行为与 Linux 一致）
     $modelsFile = Join-Path $env:TEMP "hm-models.json"
-    $httpCode = & curl.exe -s --max-time 20 -o $modelsFile -w "%{http_code}" "$provBase/models" -H "Authorization: Bearer $apiKey"
+    $httpCode = & curl.exe -sL --max-time 20 -o $modelsFile -w "%{http_code}" "$provBase/models" -H "Authorization: Bearer $apiKey"
     $models = $null
     if ($httpCode -eq "200") { try { $models = Get-Content $modelsFile -Raw -Encoding UTF8 | ConvertFrom-Json } catch {} }
     if ($httpCode -eq "000" -or $httpCode -eq $null) {
@@ -191,7 +191,10 @@ while ($true) {
         $reask = "addr"; continue
     }
     if ($httpCode -ne 0 -and $httpCode -ne 200) {
-        Warn "验活失败（HTTP $httpCode）——请重新输入"
+        $snippet = ""
+        try { $snippet = (Get-Content $modelsFile -Raw -ErrorAction Stop).Substring(0, [Math]::Min(120, (Get-Item $modelsFile -ErrorAction Stop).Length)) } catch {}
+        Warn "验活失败（HTTP $httpCode）服务返回：$snippet"
+        Warn "请重新输入 API 地址与 Key"
         $reask = "addr"; continue
     }
     $ids = @()
