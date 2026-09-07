@@ -29,6 +29,9 @@ function Log([string]$m)  { Write-Host "[HerMemory] $m" -ForegroundColor Cyan }
 function Ok([string]$m)   { Write-Host "[完成] $m" -ForegroundColor Green }
 function Warn([string]$m) { Write-Host "[note] $m" -ForegroundColor Yellow }
 function Die([string]$m)  { Write-Host "[error] $m" -ForegroundColor Red; exit 1 }
+# PS 5.1 坑：EAP=Stop 时原生命令 2>$null 会把 stderr 变成终止性错误（NativeCommandError）。
+# Run-Quiet 在函数作用域内降级 EAP，stderr 静默流出——专用于允许失败的原生调用。
+function Run-Quiet { $ErrorActionPreference = "Continue"; try { & $args 2>&1 | Out-Null } catch {} }
 
 # 启用终端 VT 序列（上游向导用 ANSI 着色；老式控制台默认关闭会显示成 [2m 原文）
 try {
@@ -124,7 +127,7 @@ LinkOne "$VaultDir\HerMemory\memory\USER.md"   "$HermesHome\memories\USER.md"
 # ---------- 6. 品牌皮肤 ----------
 New-Item -ItemType Directory -Force -Path "$HermesHome\skins" | Out-Null
 Copy-Item "$SRC\skins\hermemory.yaml" "$HermesHome\skins\hermemory.yaml" -Force
-& hermes config set display.skin hermemory 2>$null | Out-Null
+Run-Quiet hermes config set display.skin hermemory
 if ($LASTEXITCODE -eq 0) { Ok "皮肤已激活：HerMemory（/skin 可随时切换；改 yaml 约一秒热重绘）" }
 else { Warn "display.skin 写入失败（不致命），运行时 /skin hermemory 手动切换" }
 
@@ -135,9 +138,9 @@ Log "Windows 使用本机时钟（时间注入取系统时间）——请在系�
 & hermes config set gateway.message_timestamps.enabled true | Out-Null
 if ($LASTEXITCODE -eq 0) { Ok "时间注入已开启：每条用户消息头部自动拼本机真实时间" }
 else { Die "gateway.message_timestamps.enabled 写入失败" }
-& hermes config set display.language zh 2>$null | Out-Null
+Run-Quiet hermes config set display.language zh
 if ($LASTEXITCODE -eq 0) { Ok "界面语言：中文" } else { Warn "display.language 写入失败（不致命）" }
-& hermes config set display.timestamps true 2>$null | Out-Null
+Run-Quiet hermes config set display.timestamps true
 if ($LASTEXITCODE -eq 0) { Ok "对话时间标签 [HH:MM]：已开启" } else { Warn "display.timestamps 写入失败（不致命）" }
 
 # ---------- 9. 记忆档位 ----------
@@ -276,8 +279,8 @@ $keyEnv = "HERMES_CUSTOM_" + (($hostId.ToUpper()) -replace "[^A-Z0-9]+", "_").Tr
 & hermes config set $keyEnv $apiKey | Out-Null
 if (-not (Select-String -Path "$HermesHome\.env" -Pattern ("^" + $keyEnv + "=") -Quiet)) { Add-Content -Path "$HermesHome\.env" -Value "$keyEnv=$apiKey" }
 # 清除会劫持路由的 OPENAI_*（上游 auxiliary_client 明确告警的 env 污染场景）
-& hermes config unset OPENAI_API_KEY 2>$null | Out-Null
-& hermes config unset OPENAI_BASE_URL 2>$null | Out-Null
+Run-Quiet hermes config unset OPENAI_API_KEY
+Run-Quiet hermes config unset OPENAI_BASE_URL
 (Get-Content "$HermesHome\.env") | Where-Object { $_ -notmatch "^OPENAI_API_KEY=" -and $_ -notmatch "^OPENAI_BASE_URL=" } | Set-Content "$HermesHome\.env" -Encoding UTF8
 & hermes config set model.default $provModel | Out-Null
 & hermes config set model.provider custom | Out-Null
@@ -367,7 +370,9 @@ if ((Test-Path $envFile) -and (Select-String -Path $envFile -Pattern "WEIXIN_ACC
 
 # ---------- 11. gateway 服务（消息通道 + cron；上游在 Windows 用 schtasks 自启） ----------
 # 向导里答过"开机自启（计划任务）"的话已经注册好了——先检测，避免重复安装卡在隐藏的授权/输入上
-$gwTask = schtasks /Query /FO LIST 2>$null | Select-String -Pattern "hermes" -Quiet
+$gwEap = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+$gwTask = schtasks /Query /FO LIST 2>&1 | Select-String -Pattern "hermes" -Quiet
+$ErrorActionPreference = $gwEap
 if ($gwTask) {
     Ok "gateway 服务已注册（向导完成）——跳过重复安装"
 } else {
