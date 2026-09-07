@@ -148,76 +148,75 @@ Ok "记忆档位：MEMORY $memLimit / USER $userLimit 字符（随时改档：ba
 Mark-Done "memory-tier"
 }
 
-# ---------- 9.5/9.6 配置 AI（用户流程 2：填地址+key，失败可重输；验活通过才写配置，完成后 AI 上线） ----------
+# ---------- 9.5/9.6 配置 AI（用户流程 2：引导打印一次 + 验活循环无上限；完成后 AI 上线） ----------
 if (Test-Done "config-ai") {
     Log "配置 AI：已完成（断点跳过——要重配就删状态文件）"
 } else {
-Log "配置 AI（API 地址 + API key，输错可重输；不想装了直接关窗口）"
-Write-Host "还没有 key？先去领免费额度（浏览器操作，详见 docs\INSTALL.md）："
-Write-Host "  阿里云百炼 https://bailian.console.aliyun.com | 腾讯云混元 https://console.cloud.tencent.com/hunyuan | 硅基流动 https://cloud.siliconflow.cn"
+Write-Host "HerMemory本身永久免费"
+Write-Host "但AI每次回答都会消耗服务商的算力"
+Write-Host "需要你获取："
+Write-Host "1.Base URL：AI去哪里干活"
+Write-Host "通常以https开头，v1结尾"
+Write-Host "控制台里可能叫：API地址 / OpenAI兼容地址"
+Write-Host "2.APIkey：AI如何计费"
+Write-Host "一长串字符，常以sk-开头，也可能没有规律"
+Write-Host "控制台里可能叫：API key / API密钥"
+$reask = "addr"
+$provName = "custom"
 while ($true) {
-    $provBase = Read-Host "API 地址（服务商控制台提供，一般以 /v1 结尾）"
-    if ($provBase -notmatch "^https?://") { Warn "API 地址要以 http(s):// 开头——重新输入"; continue }
-    $provBase = $provBase.TrimEnd("/")
-    $secKey = Read-Host -AsSecureString "API key（输入不会显示在屏幕上）"
+    if ($reask -ne "key") {
+        $provBase = Read-Host "请输入 API 地址"
+        $provBase = $provBase.TrimEnd("/")
+    }
+    $secKey = Read-Host -AsSecureString "请输入 API Key（输入可能不显示）"
     $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secKey)
     $apiKey = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
     [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
-    if (-not $apiKey) { Warn "key 不能为空——重新输入"; continue }
-
-    $provName = "custom"
-    $provModel = $null
-    Log "获取可用模型列表……"
-    try { $models = Invoke-RestMethod -Uri "$provBase/models" -Headers @{ Authorization = "Bearer $apiKey" } -TimeoutSec 15 } catch {}
-    if ($models -and $models.data) {
-        $ids = @($models.data | ForEach-Object { $_.id })
-        if ($ids.Count -gt 0) {
-            for ($i = 0; $i -lt $ids.Count; $i++) { Write-Host ("  [{0}] {1}" -f ($i + 1), $ids[$i]) }
-            $pick = Read-Host "选默认模型序号 [1]"
-            if (-not $pick) { $pick = "1" }
-            if ($pick -match "^\d+$" -and [int]$pick -ge 1 -and [int]$pick -le $ids.Count) { $provModel = $ids[[int]$pick - 1] }
-            else { Warn "序号无效——重新输入"; continue }
-        } else {
-            $provModel = Read-Host "列表为空——手动输入模型名"
-        }
-    } else {
-        $provModel = Read-Host "列表拉取失败（服务商可能不支持）——手动输入模型名"
-    }
-    if (-not $provModel) { Warn "模型名不能为空——重新输入"; continue }
-
-    Log "正在测试连通……"
+    Log "正在验证 API 连接……"
     $httpCode = 0
-    $respBody = ""
-    $body = '{"model":"' + $provModel + '","messages":[{"role":"user","content":"hi"}],"max_tokens":8}'
-    try {
-        $resp = Invoke-WebRequest -Uri "$provBase/chat/completions" -Method Post -Headers @{ Authorization = "Bearer $apiKey" } -ContentType "application/json" -Body $body -TimeoutSec 20 -UseBasicParsing
-        $httpCode = [int]$resp.StatusCode; $respBody = $resp.Content
-    } catch {
+    $models = $null
+    try { $models = Invoke-RestMethod -Uri "$provBase/models" -Headers @{ Authorization = "Bearer $apiKey" } -TimeoutSec 20 } catch {
         if ($_.Exception.Response) { $httpCode = [int]$_.Exception.Response.StatusCode }
-        if ($_.ErrorDetails -and $_.ErrorDetails.Message) { $respBody = $_.ErrorDetails.Message }
     }
-    if ($httpCode -eq 200 -and $respBody -match "choices") {
-        Ok "通了，额度可用（模型：$provModel）"
-        break
+    if ($httpCode -eq 0 -and -not $models) {
+        Warn "[连接超时] 无法连接至该 API 地址。请确认：① 地址为服务商提供的接口地址（通常以 /v1 结尾）；② 本机当前可以访问互联网"
+        $reask = "addr"; continue
     }
-    switch ($httpCode) {
-        401 { Warn "key 不对，检查有没有粘全" }
-        404 { Warn "地址不对（检查是否以 /v1 结尾）" }
-        { $_ -eq 429 -or $_ -eq 403 } { Warn "额度不可用（余额为零或未领取免费额度）" }
-        0 { Warn "连不上服务商（网络问题）" }
-        { $_ -eq 400 -or $_ -eq 500 } { if ($respBody -match "model") { Warn "所选模型不可用（换一个型号试试）" } else { Warn "验活失败（HTTP $httpCode）——检查 key 与地址" } }
-        default { Warn "验活失败（HTTP $httpCode）——检查 key 与地址" }
+    if ($httpCode -eq 401 -or $httpCode -eq 403) {
+        Warn "[$httpCode] 认证未通过。请确认 API Key 复制完整（注意首尾空格与截断），且该 Key 在服务商控制台处于启用状态"
+        $reask = "key"; continue
     }
-    Warn "——重新输入（不想装了直接关窗口）"
+    if ($httpCode -eq 404) {
+        Warn "[404] 该接口路径不存在。请核对是否使用了服务商标注的 OpenAI 兼容接口地址"
+        $reask = "addr"; continue
+    }
+    if ($httpCode -ne 0 -and $httpCode -ne 200) {
+        Warn "验活失败（HTTP $httpCode）——请重新输入"
+        $reask = "addr"; continue
+    }
+    $ids = @()
+    if ($models -and $models.data) { $ids = @($models.data | ForEach-Object { $_.id }) }
+    if ($ids.Count -eq 0) {
+        if ($models) { Warn "[错误] 连接正常，但该 Key 名下无可用模型。请在服务商控制台确认已开通模型调用权限" }
+        else { Warn "[格式异常] 该地址返回的内容不是标准接口响应。请确认使用的是 API 接口地址，而非控制台网页地址" }
+        $reask = "addr"; continue
+    }
+    Ok "连接正常，检测到 $($ids.Count) 个可用模型。"
+    for ($i = 0; $i -lt $ids.Count; $i++) { Write-Host ("  [{0}] {1}" -f ($i + 1), $ids[$i]) }
+    while ($true) {
+        $pick = Read-Host "选默认模型序号 [1]"
+        if (-not $pick) { $pick = "1" }
+        if ($pick -match "^\d+$" -and [int]$pick -ge 1 -and [int]$pick -le $ids.Count) { $provModel = $ids[[int]$pick - 1]; break }
+        Warn "序号无效——重新选择"
+    }
+    & hermes config set custom_providers.$provName.base_url $provBase | Out-Null
+    & hermes config set custom_providers.$provName.api_mode chat_completions | Out-Null
+    & hermes config set custom_providers.$provName.model $provModel | Out-Null
+    & hermes config set custom_providers.$provName.api_key $apiKey | Out-Null
+    & hermes config set model $provModel | Out-Null
+    Mark-Done "config-ai"
+    break
 }
-
-# 验活通过才写配置（上游原生机制：custom_providers 四件套 + 设为主模型）
-& hermes config set custom_providers.$provName.base_url $provBase | Out-Null
-& hermes config set custom_providers.$provName.api_mode chat_completions | Out-Null
-& hermes config set custom_providers.$provName.model $provModel | Out-Null
-& hermes config set custom_providers.$provName.api_key $apiKey | Out-Null
-& hermes config set model $provModel | Out-Null
-Mark-Done "config-ai"
 }
 
 # ---------- 10. gateway 服务（消息通道 + cron；上游在 Windows 用 schtasks 自启） ----------

@@ -202,79 +202,75 @@ mark_done memory-tier
 fi
 ok "记忆档位：MEMORY $MEM_LIMIT / USER $USER_LIMIT 字符（随时改档：bash memory-size.sh）"
 
-# ---------- 9.5/9.6 配置 AI（用户流程 2：填地址+key，失败可重输；验活通过才写配置，完成后 AI 上线） ----------
+# ---------- 9.5/9.6 配置 AI（用户流程 2：引导打印一次 + 验活循环无上限；完成后 AI 上线） ----------
 if done_step config-ai; then
     log "配置 AI：已完成（断点跳过——要重配就删状态文件）"
 else
-log "配置 AI（API 地址 + API key，输错可重输；不想装了按 Ctrl+C 退出）"
-echo "还没有 key？先去领免费额度（浏览器操作，详见 docs/INSTALL.md）："
-echo "  阿里云百炼 https://bailian.console.aliyun.com ｜ 腾讯云混元 https://console.cloud.tencent.com/hunyuan ｜ 硅基流动 https://cloud.siliconflow.cn"
+echo "HerMemory本身永久免费"
+echo "但AI每次回答都会消耗服务商的算力"
+echo "需要你获取："
+echo "1.Base URL：AI去哪里干活"
+echo "通常以https开头，v1结尾"
+echo "控制台里可能叫：API地址 / OpenAI兼容地址"
+echo "2.APIkey：AI如何计费"
+echo "一长串字符，常以sk-开头，也可能没有规律"
+echo "控制台里可能叫：API key / API密钥"
+REASK="addr"
 while true; do
-    read -rp "API 地址（服务商控制台提供，一般以 /v1 结尾）: " PROV_BASE
-    if [[ "$PROV_BASE" =~ ^https?:// ]]; then
+    if [ "$REASK" != "key" ]; then
+        read -rp "请输入 API 地址: " PROV_BASE
         PROV_BASE="${PROV_BASE%/}"
-    else
-        warn "API 地址要以 http(s):// 开头——重新输入"; continue
     fi
-    read -rsp "API key（输入不会显示在屏幕上）: " API_KEY
+    read -rsp "请输入 API Key（输入可能不显示）: " API_KEY
     echo ""
-    [ -n "$API_KEY" ] || { warn "key 不能为空——重新输入"; continue; }
-
-    PROV_NAME="custom"
-    log "获取可用模型列表……"
-    MODELS_JSON=$(curl -s --max-time 15 "$PROV_BASE/models" -H "Authorization: Bearer $API_KEY" || true)
-    PROV_MODEL=""
-    if echo "$MODELS_JSON" | grep -q '"id"'; then
-        mapfile -t MODEL_LIST < <(echo "$MODELS_JSON" | grep -o '"id" *: *"[^"]*"' | sed 's/.*"id" *: *"//;s/"$//')
-        if [ ${#MODEL_LIST[@]} -gt 0 ]; then
-            i=1
-            for m in "${MODEL_LIST[@]}"; do echo "  [$i] $m"; i=$((i+1)); done
-            read -rp "选默认模型序号 [1]: " MODEL_PICK
-            MODEL_PICK="${MODEL_PICK:-1}"
-            if [[ "$MODEL_PICK" =~ ^[0-9]+$ ]] && [ "$MODEL_PICK" -ge 1 ] && [ "$MODEL_PICK" -le ${#MODEL_LIST[@]} ]; then
-                PROV_MODEL="${MODEL_LIST[$((MODEL_PICK-1))]}"
-            else
-                warn "序号无效——重新输入"; continue
-            fi
-        else
-            read -rp "列表为空——手动输入模型名: " PROV_MODEL
+    log "正在验证 API 连接……"
+    HTTP_CODE=$(curl -s --max-time 20 -o /tmp/hm_models.json -w "%{http_code}"         "$PROV_BASE/models" -H "Authorization: Bearer $API_KEY" || true)
+    if [ "$HTTP_CODE" = "000" ]; then
+        warn "[连接超时] 无法连接至该 API 地址。请确认：① 地址为服务商提供的接口地址（通常以 /v1 结尾）；② 本机当前可以访问互联网"
+        REASK="addr"; continue
+    fi
+    if [ "$HTTP_CODE" = "401" ] || [ "$HTTP_CODE" = "403" ]; then
+        warn "[$HTTP_CODE] 认证未通过。请确认 API Key 复制完整（注意首尾空格与截断），且该 Key 在服务商控制台处于启用状态"
+        REASK="key"; continue
+    fi
+    if [ "$HTTP_CODE" = "404" ]; then
+        warn "[404] 该接口路径不存在。请核对是否使用了服务商标注的 OpenAI 兼容接口地址"
+        REASK="addr"; continue
+    fi
+    if [ "$HTTP_CODE" != "200" ]; then
+        warn "验活失败（HTTP $HTTP_CODE）——请重新输入"
+        REASK="addr"; continue
+    fi
+    if ! grep -q '"data"' /tmp/hm_models.json 2>/dev/null; then
+        warn "[格式异常] 该地址返回的内容不是标准接口响应。请确认使用的是 API 接口地址，而非控制台网页地址"
+        REASK="addr"; continue
+    fi
+    mapfile -t MODEL_LIST < <(grep -o '"id" *: *"[^"]*"' /tmp/hm_models.json | sed 's/.*"id" *: *"//;s/"$//' || true)
+    if [ ${#MODEL_LIST[@]} -eq 0 ]; then
+        warn "[错误] 连接正常，但该 Key 名下无可用模型。请在服务商控制台确认已开通模型调用权限"
+        REASK="addr"; continue
+    fi
+    ok "连接正常，检测到 ${#MODEL_LIST[@]} 个可用模型。"
+    i=1
+    for m in "${MODEL_LIST[@]}"; do echo "  [$i] $m"; i=$((i+1)); done
+    while true; do
+        read -rp "选默认模型序号 [1]: " MODEL_PICK
+        MODEL_PICK="${MODEL_PICK:-1}"
+        if [[ "$MODEL_PICK" =~ ^[0-9]+$ ]] && [ "$MODEL_PICK" -ge 1 ] && [ "$MODEL_PICK" -le ${#MODEL_LIST[@]} ]; then
+            PROV_MODEL="${MODEL_LIST[$((MODEL_PICK-1))]}"
+            break
         fi
-    else
-        read -rp "列表拉取失败（服务商可能不支持）——手动输入模型名: " PROV_MODEL
-    fi
-    [ -n "$PROV_MODEL" ] || { warn "模型名不能为空——重新输入"; continue; }
-
-    log "正在测试连通……"
-    HTTP_CODE=$(curl -s --max-time 20 -o /tmp/hm_probe.json -w "%{http_code}" \
-        "$PROV_BASE/chat/completions" \
-        -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
-        -d "{\"model\":\"$PROV_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":8}" || echo 000)
-    if [ "$HTTP_CODE" = "200" ] && grep -q "choices" /tmp/hm_probe.json 2>/dev/null; then
-        rm -f /tmp/hm_probe.json
-        ok "通了，额度可用（模型：$PROV_MODEL）"
-        break
-    fi
-    case "$HTTP_CODE" in
-        401)      warn "key 不对，检查有没有粘全" ;;
-        404)      warn "地址不对（检查是否以 /v1 结尾）" ;;
-        429|403)  warn "额度不可用（余额为零或未领取免费额度）" ;;
-        000)      warn "连不上服务商（网络问题）" ;;
-        400|500)  grep -qi "model" /tmp/hm_probe.json 2>/dev/null \
-                      && warn "所选模型不可用（换一个型号试试）" \
-                      || warn "验活失败（HTTP $HTTP_CODE）——检查 key 与地址" ;;
-        *)        warn "验活失败（HTTP $HTTP_CODE）——检查 key 与地址" ;;
-    esac
-    rm -f /tmp/hm_probe.json
-    warn "——重新输入（不想装了按 Ctrl+C 退出）"
+        warn "序号无效——重新选择"
+    done
+    PROV_NAME="custom"
+    hermes config set custom_providers.$PROV_NAME.base_url "$PROV_BASE" >/dev/null
+    hermes config set custom_providers.$PROV_NAME.api_mode chat_completions >/dev/null
+    hermes config set custom_providers.$PROV_NAME.model "$PROV_MODEL" >/dev/null
+    hermes config set custom_providers.$PROV_NAME.api_key "$API_KEY" >/dev/null
+    hermes config set model "$PROV_MODEL" >/dev/null
+    mark_done config-ai
+    break
 done
-
-# 验活通过才写配置（上游原生机制：custom_providers 四件套 + 设为主模型，与 _model_flow_custom 落盘结构一致）
-hermes config set custom_providers.$PROV_NAME.base_url "$PROV_BASE" >/dev/null
-hermes config set custom_providers.$PROV_NAME.api_mode chat_completions >/dev/null
-hermes config set custom_providers.$PROV_NAME.model "$PROV_MODEL" >/dev/null
-hermes config set custom_providers.$PROV_NAME.api_key "$API_KEY" >/dev/null
-hermes config set model "$PROV_MODEL" >/dev/null
-mark_done config-ai
 fi
 
 # ---------- 10. gateway 服务（消息通道 + cron） ----------
