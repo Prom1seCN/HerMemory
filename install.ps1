@@ -27,6 +27,14 @@ function Ok([string]$m)   { Write-Host "[完成] $m" -ForegroundColor Green }
 function Warn([string]$m) { Write-Host "[note] $m" -ForegroundColor Yellow }
 function Die([string]$m)  { Write-Host "[error] $m" -ForegroundColor Red; exit 1 }
 
+# 启用终端 VT 序列（上游向导用 ANSI 着色；老式控制台默认关闭会显示成 [2m 原文）
+try {
+    $vt = Add-Type -MemberDefinition '[DllImport("kernel32.dll")] public static extern IntPtr GetStdHandle(int h); [DllImport("kernel32.dll")] public static extern bool GetConsoleMode(IntPtr h, out uint m); [DllImport("kernel32.dll")] public static extern bool SetConsoleMode(IntPtr h, uint m);' -Name Win32VT -Namespace HerMemory -PassThru
+    $h = $vt::GetStdHandle(-11)
+    $m = [uint32]0
+    if ($vt::GetConsoleMode($h, [ref]$m)) { $vt::SetConsoleMode($h, $m -bor 0x0004) | Out-Null }
+} catch {}
+
 # ---------- 断点续装（状态文件记录已完成步骤；删除它 = 全部重来） ----------
 $StateFile = Join-Path $HermesHome "hermemory-install.state"
 New-Item -ItemType Directory -Force -Path $HermesHome | Out-Null
