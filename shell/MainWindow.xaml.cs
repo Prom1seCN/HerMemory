@@ -28,6 +28,7 @@ namespace HerMemory
         private string? _answersPath;                 // 本次静默安装的答案文件（成功后删除）
         private string? _provBase, _provModel;
         private CancellationTokenSource? _qrCts;
+        private System.Windows.Threading.DispatcherTimer? _tipTimer;
 
         /// <summary>托盘模式：默认开主界面（日常页），X 询问最小化/退出。</summary>
         public bool HomeMode { get; set; }
@@ -59,7 +60,7 @@ namespace HerMemory
         {
             ShowFromTray();
             ShowPage("PageWelcome");
-            PrecheckStatus.Text = "正在检查环境……";
+            PrecheckStatus.Text = "正在检查环境…";
             PrecheckStatus.Foreground = Brush("#78909C");
             BtnStart.IsEnabled = false;
             _ = RunPrecheckAsync();
@@ -69,9 +70,9 @@ namespace HerMemory
         {
             HomeStatus.Text = state switch
             {
-                "running" => "● 运行中——AI 在线（微信可对话）",
-                "stopped" => "○ 已停止——微信不响应，点启动即回来",
-                _ => "● 状态未知——点重启恢复",
+                "running" => "Gateway 运行中——AI 在线",
+                "stopped" => "Gateway 已停止——AI 离线",
+                _ => "Gateway 状态未知，请点重启",
             };
             HomeStatus.Foreground = Brush(state switch
             {
@@ -80,8 +81,28 @@ namespace HerMemory
                 _ => "#C62828",
             });
             HomeHint.Text = state == "running"
-                ? "改 vault\\HerMemory\\memory\\ 下的记忆文件后开新对话生效；改配置（API 地址/Key）需重启网关。"
+                ? "修改记忆文件后开启新对话生效；修改配置（API 地址、Key）后需重启网关。"
                 : "";
+            UpdateTierTable();
+        }
+
+        private void UpdateTierTable()
+        {
+            var limit = "";
+            try
+            {
+                var outp = HermesCtl.Run("config get memory.memory_char_limit", 20);
+                var m = System.Text.RegularExpressions.Regex.Match(outp, @"(2200|5000|10000)");
+                limit = m.Success ? m.Groups[1].Value : "";
+            }
+            catch { }
+            var col = limit switch { "2200" => 1, "5000" => 2, "10000" => 3, _ => 0 };
+            for (int i = 1; i <= 3; i++)
+            {
+                var on = i == col;
+                var w = FindName("TierM" + i) as TextBlock; if (w != null) { w.FontWeight = on ? System.Windows.FontWeights.Bold : System.Windows.FontWeights.Normal; w.Foreground = on ? Brush("#0E7490") : Brush("#546E7A"); }
+                w = FindName("TierU" + i) as TextBlock; if (w != null) { w.FontWeight = on ? System.Windows.FontWeights.Bold : System.Windows.FontWeights.Normal; w.Foreground = on ? Brush("#0E7490") : Brush("#546E7A"); }
+            }
         }
 
         private bool _homeBusy;
@@ -91,7 +112,7 @@ namespace HerMemory
             if (_homeBusy) return;
             _homeBusy = true;
             var cmd = sender == HomeStart ? "start" : sender == HomeStop ? "stop" : "restart";
-            HomeStatus.Text = (cmd == "stop" ? "正在停止" : "正在" + (cmd == "restart" ? "重启" : "启动")) + "……";
+            HomeStatus.Text = cmd == "stop" ? "正在停止…" : cmd == "restart" ? "正在重启…" : "正在启动…";
             HomeStatus.Foreground = Brush("#78909C");
             await Task.Run(() => HermesCtl.Run($"gateway {cmd}", 120));
             UpdateHomeStatus(await Task.Run(HermesCtl.State));
@@ -148,7 +169,7 @@ namespace HerMemory
             };
             var rememberBox = new System.Windows.Controls.CheckBox
             {
-                Content = "记住我的选择，不再询问（可随时在托盘菜单改回）",
+                Content = "记住此选择，以后不再询问（可在托盘菜单修改）",
                 FontSize = 12.5,
                 Foreground = System.Windows.Media.Brushes.DimGray,
                 Margin = new Thickness(0, 16, 0, 0),
@@ -272,7 +293,7 @@ namespace HerMemory
             var key = CleanAscii(KeyBox.Text);
             if (url.Length == 0 || key.Length == 0)
             {
-                ParamStatus.Text = "请先填写 API 地址与 API Key。";
+                ParamStatus.Text = "请填写 API 地址与 API Key。";
                 ParamStatus.Foreground = Brush("#C62828");
                 return;
             }
@@ -294,22 +315,22 @@ namespace HerMemory
             {
                 ModelCombo.ItemsSource = ids;
                 ModelCombo.SelectedIndex = 0;
-                ParamStatus.Text = $"获取成功：{ids.Count} 个可用模型，请选择默认模型。";
+                ParamStatus.Text = $"已获取 {ids.Count} 个可用模型，请选择默认模型。";
                 ParamStatus.Foreground = Brush("#2E7D32");
             }
             else if (code == "401" || code == "403")
             {
-                ParamStatus.Text = $"[{code}] 认证未通过——请检查 API Key。";
+                ParamStatus.Text = $"[{code}] 认证未通过，请检查 API Key。";
                 ParamStatus.Foreground = Brush("#C62828");
             }
             else if (code == "000" || code.Length == 0)
             {
-                ParamStatus.Text = "[连接超时] 无法连接该地址——检查网络，或关闭代理后重试。";
+                ParamStatus.Text = "[连接超时] 无法连接该地址，请检查网络或代理设置。";
                 ParamStatus.Foreground = Brush("#C62828");
             }
             else
             {
-                ParamStatus.Text = $"[{code}] 获取失败——请核对地址与 Key。";
+                ParamStatus.Text = $"[{code}] 获取失败，请核对地址与 Key。";
                 ParamStatus.Foreground = Brush("#C62828");
             }
             BtnModels.IsEnabled = true;
@@ -322,7 +343,7 @@ namespace HerMemory
             var model = ModelCombo.SelectedItem as string ?? "";
             if (url.Length == 0 || key.Length == 0 || model.Length == 0)
             {
-                ParamStatus.Text = "地址、Key、模型三项都填好才能继续。";
+                ParamStatus.Text = "请完整填写地址与 Key，并选择模型。";
                 ParamStatus.Foreground = Brush("#C62828");
                 return;
             }
@@ -343,8 +364,9 @@ namespace HerMemory
         {
             ShowPage("PageInstall");
             InstallBar.Value = 2;
-            InstallTitle.Text = "正在安装……（首次约 5-10 分钟）";
+            InstallTitle.Text = "正在安装，首次约 5-10 分钟。";
             InstallDetail.Text = "";
+            StartTips();
 
             Task.Run(async () =>
             {
@@ -398,7 +420,7 @@ namespace HerMemory
                         Dispatcher.Invoke(() =>
                         {
                             InstallTitle.Text = "安装未成功";
-                            InstallDetail.Text += Environment.NewLine + "已完成的步骤会自动跳过——修正后点“重新安装”即可续装。";
+                            InstallDetail.Text += Environment.NewLine + "已完成步骤将自动跳过；排除问题后点击“重新安装”继续。";
                         });
                         // 答案文件保留：续装还要用（成功才删）
                         Dispatcher.Invoke(() => AddRetryButton());
@@ -410,6 +432,7 @@ namespace HerMemory
                     _answersPath = null;
 
                     // 3. 微信扫码
+                    StopTips();
                     Dispatcher.Invoke(() => { ShowPage("PageQr"); StartQrFlow(); });
                 }
                 catch (Exception ex)
@@ -424,8 +447,31 @@ namespace HerMemory
             });
         }
 
+        private void StartTips()
+        {
+            var lines = new List<string>();
+            try
+            {
+                if (_repoRoot != null)
+                    lines.AddRange(File.ReadAllLines(Path.Combine(_repoRoot, "docs", "INSTALL_TIPS.md"))
+                        .Select(l => l.Trim())
+                        .Where(l => l.Length > 0 && !l.StartsWith("#")));
+            }
+            catch { }
+            if (lines.Count == 0) lines.Add("安装进行中，请稍候。");
+            var i = 0;
+            InstallTip.Text = "提示：" + lines[0];
+            _tipTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(6) };
+            _tipTimer.Tick += (_, _) => { i = (i + 1) % lines.Count; InstallTip.Text = "提示：" + lines[i]; };
+            _tipTimer.Start();
+        }
+
+        private void StopTips() => _tipTimer?.Stop();
+
         private void AddRetryButton()
         {
+            StopTips();
+
             if (InstallTitle.Text != "安装未成功" && InstallTitle.Text != "安装出错") return;
             // 复用扫码页的重试思路：这里直接放一个"重新安装"按钮
             var btn = new System.Windows.Controls.Button { Content = "重新安装", Style = (Style)Resources["AccentButton"], Margin = new Thickness(0, 18, 0, 0) };
@@ -448,7 +494,7 @@ namespace HerMemory
             SetQr("正在检查微信接入状态……");
             if (EnvHasWeixin()) { await AfterWechatAsync(); return; }
 
-            SetQr("正在拉起微信接入向导……浏览器将自动打开二维码页面。");
+            SetQr("正在启动微信接入，浏览器将自动打开二维码页面。");
             try
             {
                 bool urlOpened = false;
@@ -486,7 +532,7 @@ namespace HerMemory
                                 {
                                     Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
                                     urlOpened = true;
-                                    SetQr("二维码已在浏览器打开——请用微信扫码并确认（约 8 分钟内有效）。");
+                                    SetQr("二维码已在浏览器打开，请使用微信扫码确认（8 分钟内有效）。");
                                 }
                                 catch { }
                             }
@@ -517,7 +563,7 @@ namespace HerMemory
             }
             catch (Exception ex)
             {
-                SetQr("微信接入出错：" + ex.Message);
+                SetQr("微信接入异常：" + ex.Message);
                 Dispatcher.Invoke(() => BtnQrRetry.Visibility = Visibility.Visible);
             }
         }
@@ -603,7 +649,7 @@ namespace HerMemory
                 Upsert("WEIXIN_DM_POLICY", "allowlist");
                 Upsert("WEIXIN_ALLOWED_USERS", wxUserId);
                 File.WriteAllLines(envFile, lines, new UTF8Encoding(false));
-                SetQr("微信已连接：仅允许你的微信 ID（首条消息直达）。");
+                SetQr("微信已连接，消息授权仅限当前微信 ID。");
             }
             catch { }
         }
@@ -619,15 +665,15 @@ namespace HerMemory
             });
             if (!taskExists)
             {
-                SetQr("安装 gateway 服务（约一两分钟）……");
+                SetQr("正在安装 gateway 服务，约一两分钟。");
                 await Task.Run(() => RunCapture(HermsExe, "gateway install", 600));
             }
 
-            var warn = taskExists ? "" : "（gateway 计划任务未注册成功——不影响微信使用，可在托盘功能里补装）";
+            var warn = taskExists ? "" : "（gateway 计划任务未注册，不影响微信使用，可稍后补装）";
             Dispatcher.Invoke(() =>
             {
-                DoneText.Text = "你的 HerMemory 已就绪。" + warn + Environment.NewLine +
-                    "① 打开微信，给它发第一句话——它会自我介绍并引导完成剩余部署。" + Environment.NewLine +
+                DoneText.Text = "HerMemory 已就绪。" + warn + Environment.NewLine +
+                    "在微信发送首条消息，AI 将自我介绍并引导完成剩余部署。" + Environment.NewLine +
                     "② 记忆是纯文本：vault\\HerMemory\\memory\\ 下任何文件随时可看可改，开新对话即生效。";
                 ShowPage("PageDone");
             });
@@ -645,7 +691,7 @@ namespace HerMemory
             Dispatcher.Invoke(() =>
             {
                 DoneText.Text = "安装完成（微信暂未接入）。" + Environment.NewLine +
-                    "随时可重新接入：双击桌面的 gateway-run.bat，或在向导里重跑。";
+                    "可随时重新接入：运行 gateway-run.bat 或重新运行安装向导。";
                 ShowPage("PageDone");
             });
         }
@@ -686,7 +732,7 @@ namespace HerMemory
             if (delVault)
             {
                 var r = System.Windows.MessageBox.Show(this,
-                    "最后确认：删除整个 vault？\n\n里面是你的全部文档与 AI 记忆，删除后不可恢复。",
+                    "最后确认：删除整个 vault？其中为全部文档与 AI 记忆，删除后不可恢复。",
                     "删除 vault", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
                 if (r != MessageBoxResult.Yes) { UninsVault.IsChecked = false; return; }
             }
@@ -727,7 +773,7 @@ namespace HerMemory
             }
             catch { }
 
-            SetUnins("移除开机自启与偏好设置……", 25);
+            SetUnins("移除自启项与偏好设置……", 25);
             try
             {
                 using (var k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run", true))
@@ -789,7 +835,7 @@ namespace HerMemory
             SetUnins("卸载完成。", 100);
             Dispatcher.Invoke(() =>
             {
-                UninsStatus.Text = delExe ? "卸载完成——本程序文件也将被移除。" : "卸载完成。已移除全部软件痕迹。" + (delVault ? "" : "（vault 已保留）");
+                UninsStatus.Text = delExe ? "卸载完成——本程序文件也将被移除。" : "卸载完成，已移除全部软件痕迹。" + (delVault ? "" : "（vault 已保留）");
                 BtnUninsClose.Visibility = Visibility.Visible;
             });
         }

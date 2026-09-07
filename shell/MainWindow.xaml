@@ -40,8 +40,28 @@
                 <TextBlock FontSize="32" FontWeight="Bold" Foreground="{DynamicResource Ink}" Margin="0,0,0,14">HerMemory. <Run Foreground="#0E7490">Your memory.</Run><LineBreak/><Run FontSize="17" FontStyle="Italic" Foreground="#0E7490">Memory that grows with you.</Run></TextBlock>
             </StackPanel>
             <StackPanel Grid.Row="1" VerticalAlignment="Center">
-                <TextBlock x:Name="HomeStatus" Margin="0,22,0,0" FontSize="15" FontWeight="SemiBold" Foreground="{DynamicResource Ink}" Text="正在检查网关状态……"/>
-                <TextBlock Style="{StaticResource Body}" Margin="0,6,0,0" Text="AI 的对话走微信；关机或停止网关后它不在线，启动即回来。"/>
+                <TextBlock x:Name="HomeStatus" Margin="0,22,0,0" FontSize="15" FontWeight="SemiBold" Foreground="{DynamicResource Ink}" Text="正在检查 Gateway 状态……"/>
+                <TextBlock Style="{StaticResource Body}" Margin="0,6,0,0" Text="微信通过 Gateway 连接 HerMemory。"/>
+                <TextBlock Style="{StaticResource Label}" Text="记忆档位（当前档加粗显示）"/>
+                <Grid Margin="0,4,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="90"/><ColumnDefinition Width="110"/><ColumnDefinition Width="110"/><ColumnDefinition Width="110"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="26"/><RowDefinition Height="26"/><RowDefinition Height="26"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Grid.Column="1" Text="紧凑" FontSize="12.5" Foreground="#546E7A"/>
+                    <TextBlock Grid.Row="0" Grid.Column="2" Text="标准" FontSize="12.5" Foreground="#546E7A"/>
+                    <TextBlock Grid.Row="0" Grid.Column="3" Text="详细" FontSize="12.5" Foreground="#546E7A"/>
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="MEMORY" FontSize="12.5" Foreground="#546E7A"/>
+                    <TextBlock x:Name="TierM1" Grid.Row="1" Grid.Column="1" Text="2200" FontSize="12.5" Foreground="#546E7A"/>
+                    <TextBlock x:Name="TierM2" Grid.Row="1" Grid.Column="2" Text="5000" FontSize="12.5" Foreground="#546E7A"/>
+                    <TextBlock x:Name="TierM3" Grid.Row="1" Grid.Column="3" Text="10000" FontSize="12.5" Foreground="#546E7A"/>
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="USER" FontSize="12.5" Foreground="#546E7A"/>
+                    <TextBlock x:Name="TierU1" Grid.Row="2" Grid.Column="1" Text="1375" FontSize="12.5" Foreground="#546E7A"/>
+                    <TextBlock x:Name="TierU2" Grid.Row="2" Grid.Column="2" Text="3000" FontSize="12.5" Foreground="#546E7A"/>
+                    <TextBlock x:Name="TierU3" Grid.Row="2" Grid.Column="3" Text="5000" FontSize="12.5" Foreground="#546E7A"/>
+                </Grid>
                 <StackPanel Orientation="Horizontal" Margin="0,22,0,0">
                     <Button x:Name="HomeStart" Content="启动" Style="{StaticResource AccentButton}" Click="HomeCtl_Click"/>
                     <Button x:Name="HomeStop" Content="停止" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="HomeCtl_Click"/>
@@ -51,7 +71,7 @@
                 </StackPanel>
                 <TextBlock x:Name="HomeHint" Style="{StaticResource Body}" Foreground="#90A4AE" Margin="0,18,0,0"/>
                 <TextBlock Style="{StaticResource Body}" Foreground="#B0BEC5" Margin="0,14,0,0"
-                           Text="关闭窗口 = 最小化到托盘（首次会询问）；托盘右键有全部设置。记忆文件：vault\HerMemory\memory\（改完开新对话即生效）。"/>
+                           Text="关闭窗口默认最小化到托盘，可在托盘菜单修改；记忆文件位于 vault\HerMemory\memory\，修改后开启新对话生效。"/>
             </StackPanel>
         </Grid>
 
@@ -63,8 +83,8 @@
             </Grid.RowDefinitions>
             <TextBlock Grid.Row="0" FontSize="32" FontWeight="Bold" Foreground="{DynamicResource Ink}" Margin="0,0,0,14">HerMemory. <Run Foreground="#0E7490">Your memory.</Run><LineBreak/><Run FontSize="17" FontStyle="Italic" Foreground="#0E7490">Memory that grows with you.</Run></TextBlock>
             <StackPanel Grid.Row="2" Margin="0,10,0,0" VerticalAlignment="Top">
-                <TextBlock Style="{StaticResource Body}" Text="即将安装：Hermes 内核（约 5-10 分钟，需联网）+ 记忆库 + 微信接入。"/>
-                <TextBlock Style="{StaticResource Body}" Text="安装完成后，AI 直接出现在你的微信里；你的全部记忆是纯文本文件，随时可看可改可带走。"/>
+                <TextBlock Style="{StaticResource Body}" Text="即将安装 Hermes 内核（约 5-10 分钟，需联网）、记忆库与微信接入。"/>
+                <TextBlock Style="{StaticResource Body}" Text="安装完成后，AI 将接入微信；全部记忆为纯文本文件，可随时查看、修改与迁移。"/>
                 <TextBlock x:Name="PrecheckStatus" Margin="0,18,0,0" FontSize="13" Foreground="#78909C" Text="正在检查环境……"/>
             </StackPanel>
             <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,0,0,0">
@@ -73,7 +93,7 @@
                 <Button Content="卸载 HerMemory" Style="{StaticResource GhostButton}" Margin="14,0,0,0" Click="BtnUninstall_Click"/>
             </StackPanel>
             <TextBlock Grid.Row="4" Margin="0,14,0,0" FontSize="11.5" Foreground="#B0BEC5"
-                       Text="提示：符号链接步骤需要开发者模式或管理员权限（右键“以管理员身份运行”可免去设置）。"/>
+                       Text="符号链接需要开发者模式或管理员权限；以管理员身份运行可免去设置。"/>
         </Grid>
 
         <!-- ===== 页 2：参数收集 ===== -->
@@ -110,6 +130,7 @@
                 <TextBlock x:Name="InstallTitle" Text="正在安装……" FontSize="19" FontWeight="SemiBold" Foreground="{DynamicResource Ink}"/>
                 <ProgressBar x:Name="InstallBar" Height="8" Minimum="0" Maximum="100" Margin="0,20,0,6"/>
                 <TextBlock x:Name="InstallDetail" FontSize="12" Foreground="#90A4AE" TextWrapping="Wrap" MaxHeight="180"/>
+                <TextBlock x:Name="InstallTip" FontSize="12" Foreground="#0E7490" TextWrapping="Wrap" Margin="0,10,0,0"/>
             </StackPanel>
         </Grid>
 
@@ -134,10 +155,10 @@
                 <TextBlock Style="{StaticResource Body}" Margin="0,14,0,0"
                            Text="将移除：Hermes 内核与全部配置（%LOCALAPPDATA%\hermes）、微信接入凭据、gateway 计划任务与登录项、托盘开机自启注册表、偏好设置。网关会先停止。"/>
                 <TextBlock Style="{StaticResource Body}" Foreground="#C62828" Margin="0,10,0,0"
-                           Text="注意：vault（你的文档与记忆）默认保留——那是你的资产，与本软件无关。"/>
-                <CheckBox x:Name="UninsVault" Content="同时删除 vault（你的文档与记忆，全部抹除，不可恢复）"
+                           Text="vault（文档与记忆）默认保留，不属于卸载范围。"/>
+                <CheckBox x:Name="UninsVault" Content="同时删除 vault（文档与记忆，不可恢复）"
                           Margin="0,14,0,0" FontSize="13" Foreground="#C62828"/>
-                <CheckBox x:Name="UninsExe" Content="同时删除本程序文件（HerMemory.exe 自身）"
+                <CheckBox x:Name="UninsExe" Content="同时删除本程序文件（HerMemory.exe）"
                           Margin="0,8,0,0" FontSize="13"/>
                 <StackPanel Orientation="Horizontal" Margin="0,22,0,0">
                     <Button x:Name="BtnUninsRun" Content="执行卸载" Style="{StaticResource AccentButton}" Background="#C62828" Click="BtnUninsRun_Click"/>
