@@ -23,7 +23,7 @@ $WebDavUser = "hermemory"
 $SRC = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 function Log([string]$m)  { Write-Host "[HerMemory] $m" -ForegroundColor Cyan }
-function Ok([string]$m)   { Write-Host "[ok] $m" -ForegroundColor Green }
+function Ok([string]$m)   { Write-Host "[完成] $m" -ForegroundColor Green }
 function Warn([string]$m) { Write-Host "[note] $m" -ForegroundColor Yellow }
 function Die([string]$m)  { Write-Host "[error] $m" -ForegroundColor Red; exit 1 }
 
@@ -32,12 +32,12 @@ $StateFile = Join-Path $HermesHome "hermemory-install.state"
 New-Item -ItemType Directory -Force -Path $HermesHome | Out-Null
 function Test-Done([string]$step) { (Test-Path $StateFile) -and ((Get-Content $StateFile -ErrorAction SilentlyContinue) -contains $step) }
 function Mark-Done([string]$step) { if (-not (Test-Done $step)) { Add-Content -Path $StateFile -Value $step } }
-Log "断点状态：$StateFile（中断后重跑会跳过已完成步骤；删除此文件可全部重来）"
+Log "安装状态文件：$StateFile（已完成的步骤在重新安装时自动跳过）"
 
 # ---------- 0. 环境检查 ----------
 if ($env:OS -ne "Windows_NT") { Die "本脚本仅用于 Windows 原生路径；Linux/macOS 用 install.sh" }
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) { Die "缺 git：先安装 Git for Windows（https://git-scm.com）" }
-Log "建议：另开一个窗口打开 docs\INSTALL.md，边装边看——每一步在做什么都在里面"
+Log "建议：另开一个窗口打开 docs\INSTALL.md，对照查看每一步说明"
 
 # ---------- 1. vault 位置（定名，不询问——路径被提示词与文档广泛引用，固定避免漂移） ----------
 $VaultDir = "$HOME\vault"
@@ -45,9 +45,9 @@ Log "vault（同步根）：$VaultDir"
 
 # ---------- 2. 上游内核（官方安装器，pin tag；本脚本不自研内核安装） ----------
 if (Test-Done "upstream") {
-    Log "上游内核：已完成（断点跳过）"
+    Log "上游内核：已完成（自动跳过）"
 } elseif ((Test-Path (Join-Path $HermesHome "bin\hermes.cmd")) -or (Get-Command hermes -ErrorAction SilentlyContinue)) {
-    Log "上游内核：检测到已安装，补记断点"
+    Log "上游内核：检测到已安装，跳过"
     Mark-Done "upstream"
 } else {
     if ($SkipUpstream) { Die "hermes CLI 不可用，且指定了 -SkipUpstream" }
@@ -98,7 +98,7 @@ function LinkOne([string]$src, [string]$dst) {
     if (Test-Path $dst) {
         $bak = "$dst.pre-hermemory.$(Get-Date -Format yyyyMMddHHmmss)"
         Move-Item $dst $bak
-        Warn "agent 侧已有真实文件 $dst —— 已备份为 $bak 再建软链"
+        Warn "检测到已有文件 $dst，已备份为 $bak 后建立软链"
     }
     try { New-Item -ItemType SymbolicLink -Path $dst -Target $src -Force | Out-Null; Ok "软链：$dst" }
     catch { Die "创建符号链接失败（需要管理员权限或开发者模式）。开启方法：设置 → 更新与安全 → 开发者选项 → 开发人员模式；或以管理员重跑本脚本。已完成的步骤不会丢失。" }
@@ -129,7 +129,7 @@ if ($LASTEXITCODE -eq 0) { Ok "对话时间标签 [HH:MM]：已开启" } else { 
 
 # ---------- 9. 记忆档位 ----------
 if (Test-Done "memory-tier") {
-    Log "记忆档位：已完成（断点跳过）"
+    Log "记忆档位：已完成（自动跳过）"
 } else {
 Log "MEMORY/USER容量设置"
 Write-Host "提升容量会增强AI记忆力，但可能降低专注度，建议选择1-2档"
@@ -150,7 +150,7 @@ Mark-Done "memory-tier"
 
 # ---------- 9.5/9.6 配置 AI（用户流程 2：引导打印一次 + 验活循环无上限；完成后 AI 上线） ----------
 if (Test-Done "config-ai") {
-    Log "配置 AI：已完成（断点跳过——要重配就删状态文件）"
+    Log "配置 AI：已完成（自动跳过）"
 } else {
 Write-Host "HerMemory本身永久免费"
 Write-Host "但AI每次回答都会消耗服务商的算力"
@@ -224,7 +224,7 @@ while ($true) {
 Log "安装 gateway 服务（消息通道 + 定时任务，可能需要一两分钟）……"
 & hermes gateway install 2>$null | Out-Null
 if ($LASTEXITCODE -eq 0) { Ok "gateway 服务已安装（消息 + 定时任务，登录自启）" }
-else { Warn "hermes gateway install 未成功——后补：hermes gateway install" }
+else { Warn "hermes gateway install 未成功。可稍后手动执行：hermes gateway install" }
 
 # ---------- 11. 脚本下线 ----------
 # 设计（用户流程 2）：key 配置完成后 AI 上线，脚本下线。
@@ -249,5 +249,5 @@ Write-Host "  1. hermes         —— 启动 AI：首次对话它主动采档�
 Write-Host "                      然后按 docs/ONBOARDING.md 引导你连接微信、配置同步"
 Write-Host "  2. 改 $VaultDir\HerMemory\memory\ 下任何文件 → 开新对话即生效"
 Write-Host ""
-Log "最后一句话：启动 AI 后，把「部署待办」发给它——剩下的配置它来引导。"
+Log "启动 AI 后，将「部署待办」发送给 AI，后续配置将由它引导完成。"
 Log "文档：docs\INSTALL.md（部署）｜docs\GUIDE.md（使用）｜docs\README_REBORN.md（导出包内给下一个 agent 的恢复指引）"

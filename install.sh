@@ -29,7 +29,7 @@ WEBDAV_USER="hermemory"
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # 本仓库（壳）位置
 
 log()  { printf '\033[36m[HerMemory]\033[0m %s\n' "$*"; }
-ok()   { printf '\033[32m[ok]\033[0m %s\n' "$*"; }
+ok()   { printf '\033[32m[完成]\033[0m %s\n' "$*"; }
 warn() { printf '\033[33m[注意]\033[0m %s\n' "$*"; }
 die()  { printf '\033[31m[错误]\033[0m %s\n' "$*" >&2; exit 1; }
 
@@ -38,7 +38,7 @@ STATE_FILE="$HERMES_HOME/.hermemory-install-state"
 mkdir -p "$HERMES_HOME"; touch "$STATE_FILE"
 done_step() { grep -qx "$1" "$STATE_FILE" 2>/dev/null; }
 mark_done() { done_step "$1" || echo "$1" >> "$STATE_FILE"; }
-log "断点状态：$STATE_FILE（中断后重跑会跳过已完成步骤；删除此文件可全部重来）"
+log "安装状态文件：$STATE_FILE（已完成的步骤在重新安装时自动跳过）"
 
 # ---------- 0. 环境检查 ----------
 [[ "$(uname -s)" == "Linux" ]] || die "仅支持 Linux（headless）。PC 端装机路径见 docs/INSTALL.md（待实测）。"
@@ -46,7 +46,7 @@ log "断点状态：$STATE_FILE（中断后重跑会跳过已完成步骤；删�
 command -v git  >/dev/null || die "缺 git：先 apt install git"
 command -v curl >/dev/null || die "缺 curl：先 apt install curl"
 
-log "建议：另开一个终端/窗口打开 docs/INSTALL.md，边装边看——每一步在做什么都在里面"
+log "建议：另开一个终端窗口打开 docs/INSTALL.md，对照查看每一步说明"
 
 # ---------- 1. vault 位置（定名，不询问——路径被提示词与文档广泛引用，固定避免漂移） ----------
 VAULT_DIR="$HOME/vault"
@@ -58,7 +58,7 @@ if [ -x "$HOME/.local/bin/hermes" ]; then
     log "上游已安装：hermes CLI 就绪（跳过获取与 setup）"
     mark_done upstream
 elif done_step upstream; then
-    log "上游内核：已完成（断点跳过）"
+    log "上游内核：已完成（自动跳过）"
 else
     if [ ! -f "$UPSTREAM_DIR/setup-hermes.sh" ]; then
         BUNDLE_ZIP=""
@@ -135,7 +135,7 @@ link_one() { # link_one <同步侧文件> <agent侧路径>
     elif [ -e "$dst" ] && [ ! -L "$dst" ]; then
         local bak="$dst.pre-hermemory.$(date +%s)"
         mv "$dst" "$bak"
-        warn "agent 侧已有真实文件 $dst —— 已备份为 $bak 再建软链"
+        warn "检测到已有文件 $dst，已备份为 $bak 后建立软链"
         ln -s "$src" "$dst"
     else
         ln -sfn "$src" "$dst"
@@ -181,7 +181,7 @@ hermes config set display.timestamps true >/dev/null 2>&1 \
 
 # ---------- 9. 记忆档位（新手引导1：多档可选） ----------
 if done_step memory-tier; then
-    log "记忆档位：已完成（断点跳过）"
+    log "记忆档位：已完成（自动跳过）"
 else
 log "MEMORY/USER容量设置"
 echo "提升容量会增强AI记忆力，但可能降低专注度，建议选择1-2档"
@@ -204,7 +204,7 @@ ok "记忆档位：MEMORY $MEM_LIMIT / USER $USER_LIMIT 字符（随时改档：
 
 # ---------- 9.5/9.6 配置 AI（用户流程 2：引导打印一次 + 验活循环无上限；完成后 AI 上线） ----------
 if done_step config-ai; then
-    log "配置 AI：已完成（断点跳过——要重配就删状态文件）"
+    log "配置 AI：已完成（自动跳过）"
 else
 echo "HerMemory本身永久免费"
 echo "但AI每次回答都会消耗服务商的算力"
@@ -289,7 +289,7 @@ if hermes gateway install >/dev/null 2>&1; then
         ok "服务 WorkingDirectory 固定为 \$HOME（AGENTS.md 目录链单点）：$unit"
     done
 else
-    warn "hermes gateway install 未成功——微信等通道与 cron 暂不可用。后补：hermes gateway install"
+    warn "hermes gateway install 未成功，微信等通道与定时任务暂不可用。可稍后手动执行：hermes gateway install"
 fi
 
 # ---------- 11. 脚本下线 ----------
@@ -318,5 +318,5 @@ echo "  1. hermes              —— 启动 AI：首次对话它主动采档案
 echo "                            然后按 docs/ONBOARDING.md 引导你连接微信、配置同步"
 echo "  2. 改 $VAULT_DIR/HerMemory/memory/ 下任何文件 → 开新对话即生效"
 echo ""
-log "最后一句话：启动 AI 后，把「部署待办」发给它——剩下的配置它来引导。"
+log "启动 AI 后，将「部署待办」发送给 AI，后续配置将由它引导完成。"
 log "文档：docs/INSTALL.md（部署）｜docs/GUIDE.md（使用）｜docs/ONBOARDING.md（AI 的部署手册）"

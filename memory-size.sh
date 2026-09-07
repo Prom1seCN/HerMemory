@@ -27,4 +27,4 @@ fi
 
 hermes config set memory.memory_char_limit "$MEM_LIMIT"
 hermes config set memory.user_char_limit   "$USER_LIMIT"
-echo "[ok] MEMORY $MEM_LIMIT / USER $USER_LIMIT 字符。开新对话生效。"
+echo "[完成] MEMORY $MEM_LIMIT / USER $USER_LIMIT 字符。开新对话生效。"

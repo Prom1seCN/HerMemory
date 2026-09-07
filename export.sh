@@ -25,7 +25,7 @@ while getopts "o:" opt; do
 done
 
 log()  { printf '\033[36m[HerMemory]\033[0m %s\n' "$*"; }
-ok()   { printf '\033[32m[ok]\033[0m %s\n' "$*"; }
+ok()   { printf '\033[32m[完成]\033[0m %s\n' "$*"; }
 warn() { printf '\033[33m[注意]\033[0m %s\n' "$*"; }
 die()  { printf '\033[31m[错误]\033[0m %s\n' "$*" >&2; exit 1; }
 
