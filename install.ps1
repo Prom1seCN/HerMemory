@@ -254,6 +254,9 @@ while ($true) {
 & hermes config set OPENAI_BASE_URL $provBase | Out-Null
 & hermes config set OPENAI_API_KEY $apiKey | Out-Null
 & hermes config set model $provModel | Out-Null
+# 双保险：确认两项确实落在 .env（个别环境 config set 会静默漏写 base_url）
+if (-not (Select-String -Path "$HermesHome\.env" -Pattern "^OPENAI_BASE_URL=" -Quiet)) { Add-Content -Path "$HermesHome\.env" -Value "OPENAI_BASE_URL=$provBase" }
+if (-not (Select-String -Path "$HermesHome\.env" -Pattern "^OPENAI_API_KEY=" -Quiet)) { Add-Content -Path "$HermesHome\.env" -Value "OPENAI_API_KEY=$apiKey" }
 Ok "配置完成（模型：$provModel）"
 Mark-Done "config-ai"
 }

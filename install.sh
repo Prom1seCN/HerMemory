@@ -297,6 +297,9 @@ done
 hermes config set OPENAI_BASE_URL "$PROV_BASE" >/dev/null
 hermes config set OPENAI_API_KEY "$API_KEY" >/dev/null
 hermes config set model "$PROV_MODEL" >/dev/null
+# 双保险：确认两项确实落在 .env
+grep -q "^OPENAI_BASE_URL=" "$HERMES_HOME/.env" 2>/dev/null || echo "OPENAI_BASE_URL=$PROV_BASE" >> "$HERMES_HOME/.env"
+grep -q "^OPENAI_API_KEY="  "$HERMES_HOME/.env" 2>/dev/null || echo "OPENAI_API_KEY=$API_KEY"  >> "$HERMES_HOME/.env"
 ok "配置完成（模型：$PROV_MODEL）"
 mark_done config-ai
 fi
