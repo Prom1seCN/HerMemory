@@ -231,8 +231,9 @@ if ((Test-Path $envFile) -and (Select-String -Path $envFile -Pattern "WEIXIN_ACC
     Write-Host "即将打开配置向导，请按提示操作："
     Write-Host "  1. 在平台菜单中选择 Weixin / WeChat"
     Write-Host "  2. 用微信扫描终端上的二维码并确认（二维码会超时，超时可重试）"
-    Write-Host "  3. 消息授权建议选择「仅允许列表内用户」，直接回车即可（已预填你的微信 ID）"
-    Write-Host "  4. 向导内其余选项保持默认；不想现在配置可关闭向导窗口跳过"
+    Write-Host "  3. 终端二维码扫不出时：把向导打印的链接发给微信「文件传输助手」，手机点开即可扫码"
+    Write-Host "  4. 消息授权建议选择「仅允许列表内用户」，直接回车即可（已预填你的微信 ID）"
+    Write-Host "  5. 向导内其余选项保持默认；不想现在配置可关闭向导窗口跳过"
     while ($true) {
         $wxNow = Read-Host "现在扫码连接微信？[Y/n]"
         if (-not $wxNow) { $wxNow = "Y" }
