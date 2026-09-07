@@ -142,9 +142,10 @@ link_one() { # link_one <同步侧文件> <agent侧路径>
     ok "软链：$dst → $src"
 }
 link_one "$VAULT_DIR/HerMemory/memory/SOUL.md"   "$HERMES_HOME/SOUL.md"
-link_one "$VAULT_DIR/HerMemory/memory/AGENTS.md" "$HERMES_HOME/AGENTS.md"
-# AGENTS.md 的注入槽位是"会话工作目录链"（git 根→cwd），不是 HERMES_HOME——必须在 $HOME 根放一份
-link_one "$VAULT_DIR/HerMemory/memory/AGENTS.md" "$HOME/AGENTS.md"
+# AGENTS.md 的注入槽位是"会话工作目录链"（git 根→cwd），不是 HERMES_HOME。
+# 槽位用 .hermes.md（Hermes 专属、优先级最前）：用户可见文件仍是 vault 里的 AGENTS.md，
+# 且不会污染机器上其他遵循 AGENTS 约定的工具（Codex CLI 等不读 .hermes.md）。
+link_one "$VAULT_DIR/HerMemory/memory/AGENTS.md" "$HOME/.hermes.md"
 link_one "$VAULT_DIR/HerMemory/memory/MEMORY.md" "$HERMES_HOME/memories/MEMORY.md"
 link_one "$VAULT_DIR/HerMemory/memory/USER.md"   "$HERMES_HOME/memories/USER.md"
 

@@ -111,9 +111,10 @@ function LinkOne([string]$src, [string]$dst) {
     catch { Die "创建符号链接失败（需要管理员权限或开发者模式）。开启方法：设置 → 更新与安全 → 开发者选项 → 开发人员模式；或以管理员重跑本脚本。已完成的步骤不会丢失。" }
 }
 LinkOne "$VaultDir\HerMemory\memory\SOUL.md"   "$HermesHome\SOUL.md"
-LinkOne "$VaultDir\HerMemory\memory\AGENTS.md" "$HermesHome\AGENTS.md"
-# AGENTS.md 的注入槽位是"会话工作目录链"（git 根→cwd），不是 HERMES_HOME——必须在 HOME 根放一份
-LinkOne "$VaultDir\HerMemory\memory\AGENTS.md" "$HOME\AGENTS.md"
+# AGENTS.md 的注入槽位是"会话工作目录链"（git 根→cwd），不是 HERMES_HOME。
+# 槽位用 .hermes.md（Hermes 专属、优先级最前）：用户可见文件仍是 vault 里的 AGENTS.md，
+# 且不会污染机器上其他遵循 AGENTS 约定的工具（Codex CLI 等不读 .hermes.md）。
+LinkOne "$VaultDir\HerMemory\memory\AGENTS.md" "$HOME\.hermes.md"
 LinkOne "$VaultDir\HerMemory\memory\MEMORY.md" "$HermesHome\memories\MEMORY.md"
 LinkOne "$VaultDir\HerMemory\memory\USER.md"   "$HermesHome\memories\USER.md"
 
