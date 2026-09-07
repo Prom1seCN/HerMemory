@@ -37,11 +37,10 @@ Log "安装状态文件：$StateFile（已完成的步骤在重新安装时自�
 # ---------- 0. 环境检查 ----------
 if ($env:OS -ne "Windows_NT") { Die "本脚本仅用于 Windows 原生路径；Linux/macOS 用 install.sh" }
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) { Die "缺 git：先安装 Git for Windows（https://git-scm.com）" }
-Log "建议：另开一个窗口打开 docs\INSTALL.md，对照查看每一步说明"
+Log "可在 docs\INSTALL.md 查看安装说明"
 
 # ---------- 1. vault 位置（定名，不询问——路径被提示词与文档广泛引用，固定避免漂移） ----------
 $VaultDir = "$HOME\vault"
-Log "vault（同步根）：$VaultDir"
 
 # ---------- 2. 上游内核（官方安装器，pin tag；本脚本不自研内核安装） ----------
 if (Test-Done "upstream") {
@@ -86,7 +85,7 @@ foreach ($f in @("MEMORY.md","USER.md","SOUL.md","AGENTS.md","AUTOMATION.md")) {
 # ---------- 4.5 使用文档进同步范围 ----------
 New-Item -ItemType Directory -Force -Path "$VaultDir\HerMemory\docs" | Out-Null
 Copy-Item "$SRC\docs\*" "$VaultDir\HerMemory\docs\" -Recurse -Force
-Ok "使用文档已铺：HerMemory\docs\（随同步走；问 agent「怎么用」它自己会读）"
+Ok "使用文档已铺：HerMemory\docs/"
 
 # ---------- 5. 软链四件（官方注入槽位）----------
 # NTFS 符号链接需要管理员权限或开发者模式（Win10 1703+ 设置→更新→开发者选项）。
@@ -132,10 +131,13 @@ if (Test-Done "memory-tier") {
     Log "记忆档位：已完成（自动跳过）"
 } else {
 Log "MEMORY/USER容量设置"
+
 Write-Host "提升容量会增强AI记忆力，但可能降低专注度，建议选择1-2档"
+
 Write-Host "  1.紧凑：2200/1375 [默认]"
 Write-Host "  2.标准：5000/3000"
 Write-Host "  3.详细：10000/5000"
+
 $choice = Read-Host "请选择记忆档位（1/2/3）"
 switch ($choice) {
     "2" { $memLimit = 5000;  $userLimit = 3000 }
@@ -154,13 +156,17 @@ if (Test-Done "config-ai") {
 } else {
 Write-Host "HerMemory本身永久免费"
 Write-Host "但AI每次回答都会消耗服务商的算力"
+
 Write-Host "需要你获取："
+
 Write-Host "1.Base URL：AI去哪里干活"
 Write-Host "通常以https开头，v1结尾"
 Write-Host "控制台里可能叫：API地址 / OpenAI兼容地址"
+
 Write-Host "2.APIkey：AI如何计费"
 Write-Host "一长串字符，常以sk-开头，也可能没有规律"
 Write-Host "控制台里可能叫：API key / API密钥"
+
 
 $atUrl = $true
 while ($true) {
@@ -255,7 +261,7 @@ if ((Test-Path $envFile) -and (Select-String -Path $envFile -Pattern "WEIXIN_ACC
     Write-Host ""
     Write-Host "  完成后向导自动结束；不想现在配置可关闭向导窗口跳过"
     while ($true) {
-        $wxNow = Read-Host "现在扫码连接微信？[Y/n]"
+        $wxNow = Read-Host "现在扫码连接微信？[y/n]"
         if (-not $wxNow) { $wxNow = "Y" }
         if ($wxNow -match "^[Nn]") { break }
         & hermes gateway setup
@@ -265,7 +271,7 @@ if ((Test-Path $envFile) -and (Select-String -Path $envFile -Pattern "WEIXIN_ACC
             break
         }
         Warn "微信尚未配置成功（二维码可能已超时）"
-        $retry = Read-Host "重新打开向导扫码？[Y/n]"
+        $retry = Read-Host "重新打开向导扫码？[y/n]"
         if ($retry -match "^[Nn]") { break }
     }
     if ($wxConfigured) {

@@ -46,11 +46,10 @@ log "安装状态文件：$STATE_FILE（已完成的步骤在重新安装时自�
 command -v git  >/dev/null || die "缺 git：先 apt install git"
 command -v curl >/dev/null || die "缺 curl：先 apt install curl"
 
-log "建议：另开一个终端窗口打开 docs/INSTALL.md，对照查看每一步说明"
+log "可在 docs/INSTALL.md 查看安装说明"
 
 # ---------- 1. vault 位置（定名，不询问——路径被提示词与文档广泛引用，固定避免漂移） ----------
 VAULT_DIR="$HOME/vault"
-log "vault（同步根）：$VAULT_DIR —— 用户文档直接放这里，HerMemory/ 子目录放四核心文件"
 
 # ---------- 2. 安装上游 Hermes（pin tag，官方脚本） ----------
 # 本体获取四层：同目录本体包 → 服务器直链 → GitHub clone
@@ -121,7 +120,7 @@ done
 # ---------- 4.5 使用文档进同步范围（AI 可读、多端可读） ----------
 mkdir -p "$VAULT_DIR/HerMemory/docs"
 cp -R "$SRC/docs/." "$VAULT_DIR/HerMemory/docs/"
-ok "使用文档已铺：HerMemory/docs/（随同步走；问 agent「怎么用」它自己会读）"
+ok "使用文档已铺：HerMemory/docs/"
 
 # ---------- 5. 软链四件（官方注入槽位，零代码） ----------
 #   SOUL.md  → $HERMES_HOME/SOUL.md            （身份槽 slot#1）
@@ -184,10 +183,13 @@ if done_step memory-tier; then
     log "记忆档位：已完成（自动跳过）"
 else
 log "MEMORY/USER容量设置"
+
 echo "提升容量会增强AI记忆力，但可能降低专注度，建议选择1-2档"
+
 echo "  1.紧凑：2200/1375 [默认]"
 echo "  2.标准：5000/3000"
 echo "  3.详细：10000/5000"
+
 read -rp "请选择记忆档位（1/2/3）: " MEM_CHOICE
 MEM_CHOICE="${MEM_CHOICE:-1}"
 case "$MEM_CHOICE" in
@@ -208,13 +210,17 @@ if done_step config-ai; then
 else
 echo "HerMemory本身永久免费"
 echo "但AI每次回答都会消耗服务商的算力"
+
 echo "需要你获取："
+
 echo "1.Base URL：AI去哪里干活"
 echo "通常以https开头，v1结尾"
 echo "控制台里可能叫：API地址 / OpenAI兼容地址"
+
 echo "2.APIkey：AI如何计费"
 echo "一长串字符，常以sk-开头，也可能没有规律"
 echo "控制台里可能叫：API key / API密钥"
+
 
 AT_URL=1
 while true; do
@@ -309,7 +315,7 @@ else
     echo ""
     echo "  完成后向导自动结束；不想现在配置可按 Ctrl+C 跳过"
     while true; do
-        read -rp "现在扫码连接微信？[Y/n]: " WX_NOW
+        read -rp "现在扫码连接微信？[y/n]: " WX_NOW
         WX_NOW="${WX_NOW:-Y}"
         [[ "$WX_NOW" =~ ^[Nn] ]] && break
         hermes gateway setup || true
@@ -319,7 +325,7 @@ else
             break
         fi
         warn "微信尚未配置成功（二维码可能已超时）"
-        read -rp "重新打开向导扫码？[Y/n]: " WX_RETRY
+        read -rp "重新打开向导扫码？[y/n]: " WX_RETRY
         [[ "$WX_RETRY" =~ ^[Nn] ]] && break
     done
     if [ "$WX_CONFIGURED" = "1" ]; then

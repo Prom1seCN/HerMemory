@@ -13,10 +13,13 @@ if [ $# -ge 2 ]; then
     MEM_LIMIT="$1"; USER_LIMIT="$2"
 else
     echo "MEMORY/USER容量设置"
+
     echo "提升容量会增强AI记忆力，但可能降低专注度，建议选择1-2档"
+
     echo "  1.紧凑：2200/1375 [默认]"
     echo "  2.标准：5000/3000"
     echo "  3.详细：10000/5000"
+
     read -rp "请选择记忆档位（1/2/3）: " CHOICE
     case "${CHOICE:-1}" in
         2) MEM_LIMIT=5000;  USER_LIMIT=3000  ;;
