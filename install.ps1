@@ -27,6 +27,13 @@ function Ok([string]$m)   { Write-Host "[ok] $m" -ForegroundColor Green }
 function Warn([string]$m) { Write-Host "[note] $m" -ForegroundColor Yellow }
 function Die([string]$m)  { Write-Host "[error] $m" -ForegroundColor Red; exit 1 }
 
+# ---------- 断点续装（状态文件记录已完成步骤；删除它 = 全部重来） ----------
+$StateFile = Join-Path $HermesHome "hermemory-install.state"
+New-Item -ItemType Directory -Force -Path $HermesHome | Out-Null
+function Test-Done([string]$step) { (Test-Path $StateFile) -and ((Get-Content $StateFile -ErrorAction SilentlyContinue) -contains $step) }
+function Mark-Done([string]$step) { if (-not (Test-Done $step)) { Add-Content -Path $StateFile -Value $step } }
+Log "断点状态：$StateFile（中断后重跑会跳过已完成步骤；删除此文件可全部重来）"
+
 # ---------- 0. 环境检查 ----------
 if ($env:OS -ne "Windows_NT") { Die "本脚本仅用于 Windows 原生路径；Linux/macOS 用 install.sh" }
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) { Die "缺 git：先安装 Git for Windows（https://git-scm.com）" }
@@ -37,7 +44,12 @@ $VaultDir = "$HOME\vault"
 Log "vault（同步根）：$VaultDir"
 
 # ---------- 2. 上游内核（官方安装器，pin tag；本脚本不自研内核安装） ----------
-if (-not (Get-Command hermes -ErrorAction SilentlyContinue)) {
+if (Test-Done "upstream") {
+    Log "上游内核：已完成（断点跳过）"
+} elseif ((Test-Path (Join-Path $HermesHome "bin\hermes.cmd")) -or (Get-Command hermes -ErrorAction SilentlyContinue)) {
+    Log "上游内核：检测到已安装，补记断点"
+    Mark-Done "upstream"
+} else {
     if ($SkipUpstream) { Die "hermes CLI 不可用，且指定了 -SkipUpstream" }
     try {
         Invoke-WebRequest -Uri "https://github.com" -Method Head -TimeoutSec 10 -UseBasicParsing | Out-Null
@@ -52,9 +64,12 @@ if (-not (Get-Command hermes -ErrorAction SilentlyContinue)) {
         Warn "hermes 未进当前会话 PATH；刷新后重试或手动确认 %LOCALAPPDATA%\hermes\bin"
         $env:Path += ";$HermesHome\bin"
     }
-    Ok "hermes CLI 就绪"
-} else {
-    Log "hermes 已安装，跳过上游安装器（版本以现有 venv 为准）"
+    if (Get-Command hermes -ErrorAction SilentlyContinue) {
+        Ok "hermes CLI 就绪"
+        Mark-Done "upstream"
+    } else {
+        Die "hermes CLI 安装未成功——排除后重跑（已完成步骤会自动跳过）"
+    }
 }
 
 # ---------- 3. vault 结构 ----------
@@ -113,6 +128,9 @@ if ($LASTEXITCODE -eq 0) { Ok "界面语言：中文（静态 UI 消息，官方
 if ($LASTEXITCODE -eq 0) { Ok "对话时间标签 [HH:MM]：已开启" } else { Warn "display.timestamps 写入失败（不致命）" }
 
 # ---------- 9. 记忆档位 ----------
+if (Test-Done "memory-tier") {
+    Log "记忆档位：已完成（断点跳过）"
+} else {
 Log "选择记忆容量档位（MEMORY.md / USER.md 字符上限，影响 agent 写记忆的预算）："
 Write-Host "  1) 紧凑  2200 / 1375  （上游默认，≈1300 token）"
 Write-Host "  2) 标准  8000 / 5000  （≈4700 token，日常推荐）"
@@ -128,8 +146,13 @@ switch ($choice) {
 & hermes config set memory.memory_char_limit $memLimit | Out-Null
 & hermes config set memory.user_char_limit $userLimit | Out-Null
 Ok "记忆档位：MEMORY $memLimit / USER $userLimit 字符（随时改档：bash memory-size.sh）"
+Mark-Done "memory-tier"
+}
 
 # ---------- 9.5/9.6 配置 AI（用户流程 2：填地址+key，失败可重输；验活通过才写配置，完成后 AI 上线） ----------
+if (Test-Done "config-ai") {
+    Log "配置 AI：已完成（断点跳过——要重配就删状态文件）"
+} else {
 Log "配置 AI（API 地址 + API key，输错可重输；不想装了直接关窗口）"
 Write-Host "还没有 key？先去领免费额度（浏览器操作，详见 docs\INSTALL.md）："
 Write-Host "  阿里云百炼 https://bailian.console.aliyun.com | 腾讯云混元 https://console.cloud.tencent.com/hunyuan | 硅基流动 https://cloud.siliconflow.cn"
@@ -195,6 +218,8 @@ while ($true) {
 & hermes config set custom_providers.$provName.model $provModel | Out-Null
 & hermes config set custom_providers.$provName.api_key $apiKey | Out-Null
 & hermes config set model $provModel | Out-Null
+Mark-Done "config-ai"
+}
 
 # ---------- 10. gateway 服务（消息通道 + cron；上游在 Windows 用 schtasks 自启） ----------
 & hermes gateway install 2>$null | Out-Null

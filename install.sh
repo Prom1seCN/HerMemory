@@ -33,6 +33,13 @@ ok()   { printf '\033[32m[ok]\033[0m %s\n' "$*"; }
 warn() { printf '\033[33m[注意]\033[0m %s\n' "$*"; }
 die()  { printf '\033[31m[错误]\033[0m %s\n' "$*" >&2; exit 1; }
 
+# ---------- 断点续装（状态文件记录已完成步骤；删除它 = 全部重来） ----------
+STATE_FILE="$HERMES_HOME/.hermemory-install-state"
+mkdir -p "$HERMES_HOME"; touch "$STATE_FILE"
+done_step() { grep -qx "$1" "$STATE_FILE" 2>/dev/null; }
+mark_done() { done_step "$1" || echo "$1" >> "$STATE_FILE"; }
+log "断点状态：$STATE_FILE（中断后重跑会跳过已完成步骤；删除此文件可全部重来）"
+
 # ---------- 0. 环境检查 ----------
 [[ "$(uname -s)" == "Linux" ]] || die "仅支持 Linux（headless）。PC 端装机路径见 docs/INSTALL.md（待实测）。"
 [[ $EUID -ne 0 ]] || die "不要用 root 跑安装器；用普通用户 + sudo。"
@@ -47,44 +54,53 @@ log "vault（同步根）：$VAULT_DIR —— 用户文档直接放这里，HerM
 
 # ---------- 2. 安装上游 Hermes（pin tag，官方脚本） ----------
 # 本体获取四层：同目录本体包 → 服务器直链 → GitHub clone
-if [ -d "$UPSTREAM_DIR" ] && [ -e "$UPSTREAM_DIR/setup-hermes.sh" ]; then
-    log "上游已存在：$UPSTREAM_DIR（跳过获取）"
+if [ -x "$HOME/.local/bin/hermes" ]; then
+    log "上游已安装：hermes CLI 就绪（跳过获取与 setup）"
+    mark_done upstream
+elif done_step upstream; then
+    log "上游内核：已完成（断点跳过）"
 else
-    BUNDLE_ZIP=""
-    for c in "$SRC/hermes-agent-bundle.zip" "$PWD/hermes-agent-bundle.zip"; do
-        [ -f "$c" ] && BUNDLE_ZIP="$c" && break
-    done
-    if [ -n "$BUNDLE_ZIP" ]; then
-        log "检测到本地本体包：$BUNDLE_ZIP"
-    elif [ -n "$OFFLINE_BUNDLE_URL" ]; then
-        log "从直链下载上游本体包……"
-        if curl -fL --retry 2 --max-time 600 -o /tmp/hermes-agent-bundle.zip "$OFFLINE_BUNDLE_URL"; then
-            BUNDLE_ZIP=/tmp/hermes-agent-bundle.zip
+    if [ ! -f "$UPSTREAM_DIR/setup-hermes.sh" ]; then
+        BUNDLE_ZIP=""
+        for c in "$SRC/hermes-agent-bundle.zip" "$PWD/hermes-agent-bundle.zip"; do
+            [ -f "$c" ] && BUNDLE_ZIP="$c" && break
+        done
+        if [ -n "$BUNDLE_ZIP" ]; then
+            log "检测到本地本体包：$BUNDLE_ZIP"
+        elif [ -n "$OFFLINE_BUNDLE_URL" ]; then
+            log "从直链下载上游本体包……"
+            if curl -fL --retry 2 --max-time 600 -o /tmp/hermes-agent-bundle.zip "$OFFLINE_BUNDLE_URL"; then
+                BUNDLE_ZIP=/tmp/hermes-agent-bundle.zip
+            else
+                warn "直链下载失败，转 GitHub clone"
+            fi
+        fi
+        if [ -n "$BUNDLE_ZIP" ]; then
+            command -v unzip >/dev/null || die "解压本体包需要 unzip：sudo apt install unzip（或删掉包转 GitHub clone）"
+            mkdir -p "$UPSTREAM_DIR"
+            unzip -qo "$BUNDLE_ZIP" -d "$UPSTREAM_DIR" || die "本体包解压失败（包损坏？重新下载）"
+            local_tag=""
+            [ -f "$UPSTREAM_DIR/HERMES_BUNDLE_TAG" ] && local_tag="$(cat "$UPSTREAM_DIR/HERMES_BUNDLE_TAG")"
+            if [ -n "$local_tag" ] && [ "$local_tag" != "$PINNED_HERMES_TAG" ]; then
+                die "本体包版本（$local_tag）与发行版 pin（$PINNED_HERMES_TAG）不一致——请换用匹配版本的本体包"
+            fi
+            ok "上游 Hermes 本体已就位（本体包，$PINNED_HERMES_TAG）"
         else
-            warn "直链下载失败，转 GitHub clone"
+            log "clone 上游 Hermes $PINNED_HERMES_TAG ..."
+            git clone --depth 1 --branch "$PINNED_HERMES_TAG" "$UPSTREAM_REPO" "$UPSTREAM_DIR"
         fi
-    fi
-    if [ -n "$BUNDLE_ZIP" ]; then
-        command -v unzip >/dev/null || die "解压本体包需要 unzip：sudo apt install unzip（或删掉包转 GitHub clone）"
-        mkdir -p "$UPSTREAM_DIR"
-        unzip -qo "$BUNDLE_ZIP" -d "$UPSTREAM_DIR" || die "本体包解压失败（包损坏？重新下载）"
-        local_tag=""
-        [ -f "$UPSTREAM_DIR/HERMES_BUNDLE_TAG" ] && local_tag="$(cat "$UPSTREAM_DIR/HERMES_BUNDLE_TAG")"
-        if [ -n "$local_tag" ] && [ "$local_tag" != "$PINNED_HERMES_TAG" ]; then
-            die "本体包版本（$local_tag）与发行版 pin（$PINNED_HERMES_TAG）不一致——请换用匹配版本的本体包"
-        fi
-        ok "上游 Hermes 本体已就位（本体包，$PINNED_HERMES_TAG）"
     else
-        log "clone 上游 Hermes $PINNED_HERMES_TAG ..."
-        git clone --depth 1 --branch "$PINNED_HERMES_TAG" "$UPSTREAM_REPO" "$UPSTREAM_DIR"
+        log "上游源码已在：$UPSTREAM_DIR（跳过获取，继续 setup）"
     fi
-fi
 
-log "运行官方 setup-hermes.sh（uv + venv + hermes CLI，首次 1-5 分钟）..."
-# stdin 喂两个 n：① 跳过 ripgrep 可选安装 ② 跳过 key 配置向导（零商业：key 沿用官方流程，用户稍后自配）
-printf 'n\nn\n' | (cd "$UPSTREAM_DIR" && bash setup-hermes.sh) || die "上游 setup 失败，见上方输出"
-export PATH="$HOME/.local/bin:$PATH"
-command -v hermes >/dev/null || die "hermes CLI 不可用（~/.local/bin 不在 PATH？）"
+    log "运行官方 setup-hermes.sh（uv + venv + hermes CLI，首次 1-5 分钟）..."
+    # stdin 喂两个 n：① 跳过 ripgrep 可选安装 ② 跳过 key 配置向导（零商业：key 沿用官方流程，用户稍后自配）
+    printf 'n\nn\n' | (cd "$UPSTREAM_DIR" && bash setup-hermes.sh) || die "上游 setup 失败，见上方输出"
+    export PATH="$HOME/.local/bin:$PATH"
+    command -v hermes >/dev/null || die "hermes CLI 不可用（~/.local/bin 不在 PATH？）"
+    ok "hermes CLI 就绪"
+    mark_done upstream
+fi
 ok "hermes CLI 就绪"
 
 # ---------- 3. vault 结构 ----------
@@ -164,6 +180,9 @@ hermes config set display.timestamps true >/dev/null 2>&1 \
     || warn "display.timestamps 写入失败（不致命）"
 
 # ---------- 9. 记忆档位（新手引导1：多档可选） ----------
+if done_step memory-tier; then
+    log "记忆档位：已完成（断点跳过）"
+else
 log "选择记忆容量档位（MEMORY.md / USER.md 字符上限，影响 agent 写记忆的预算）："
 echo "  1) 紧凑  2200 / 1375  （上游默认，≈1300 token，注意力最集中）"
 echo "  2) 标准  8000 / 5000  （≈4700 token，日常推荐）"
@@ -180,9 +199,14 @@ case "$MEM_CHOICE" in
 esac
 hermes config set memory.memory_char_limit "$MEM_LIMIT"  >/dev/null
 hermes config set memory.user_char_limit   "$USER_LIMIT" >/dev/null
+mark_done memory-tier
+fi
 ok "记忆档位：MEMORY $MEM_LIMIT / USER $USER_LIMIT 字符（随时改档：bash memory-size.sh）"
 
 # ---------- 9.5/9.6 配置 AI（用户流程 2：填地址+key，失败可重输；验活通过才写配置，完成后 AI 上线） ----------
+if done_step config-ai; then
+    log "配置 AI：已完成（断点跳过——要重配就删状态文件）"
+else
 log "配置 AI（API 地址 + API key，输错可重输；不想装了按 Ctrl+C 退出）"
 echo "还没有 key？先去领免费额度（浏览器操作，详见 docs/INSTALL.md）："
 echo "  阿里云百炼 https://bailian.console.aliyun.com ｜ 腾讯云混元 https://console.cloud.tencent.com/hunyuan ｜ 硅基流动 https://cloud.siliconflow.cn"
@@ -251,6 +275,8 @@ hermes config set custom_providers.$PROV_NAME.api_mode chat_completions >/dev/nu
 hermes config set custom_providers.$PROV_NAME.model "$PROV_MODEL" >/dev/null
 hermes config set custom_providers.$PROV_NAME.api_key "$API_KEY" >/dev/null
 hermes config set model "$PROV_MODEL" >/dev/null
+mark_done config-ai
+fi
 
 # ---------- 10. gateway 服务（消息通道 + cron） ----------
 if hermes gateway install >/dev/null 2>&1; then
