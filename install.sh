@@ -254,7 +254,7 @@ while true; do
     i=1
     for m in "${MODEL_LIST[@]}"; do echo "  [$i] $m"; i=$((i+1)); done
     while true; do
-        read -rp "选默认模型序号 [1]: " MODEL_PICK
+        read -rp "请选择模型序号: " MODEL_PICK
         MODEL_PICK="${MODEL_PICK:-1}"
         if [[ "$MODEL_PICK" =~ ^[0-9]+$ ]] && [ "$MODEL_PICK" -ge 1 ] && [ "$MODEL_PICK" -le ${#MODEL_LIST[@]} ]; then
             PROV_MODEL="${MODEL_LIST[$((MODEL_PICK-1))]}"
@@ -274,6 +274,7 @@ done
 fi
 
 # ---------- 10. gateway 服务（消息通道 + cron） ----------
+log "写入 AI 配置完成，安装 gateway 服务（消息通道 + 定时任务）……"
 if hermes gateway install >/dev/null 2>&1; then
     ok "gateway 服务已安装（消息 + 定时任务）"
     # AGENTS.md 走 cwd 目录链：服务必须以 $HOME 为 WorkingDirectory

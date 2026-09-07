@@ -204,11 +204,12 @@ while ($true) {
     Ok "连接正常，检测到 $($ids.Count) 个可用模型。"
     for ($i = 0; $i -lt $ids.Count; $i++) { Write-Host ("  [{0}] {1}" -f ($i + 1), $ids[$i]) }
     while ($true) {
-        $pick = Read-Host "选默认模型序号 [1]"
+        $pick = Read-Host "请选择模型序号"
         if (-not $pick) { $pick = "1" }
         if ($pick -match "^\d+$" -and [int]$pick -ge 1 -and [int]$pick -le $ids.Count) { $provModel = $ids[[int]$pick - 1]; break }
         Warn "序号无效——重新选择"
     }
+    Log "写入 AI 配置……"
     & hermes config set custom_providers.$provName.base_url $provBase | Out-Null
     & hermes config set custom_providers.$provName.api_mode chat_completions | Out-Null
     & hermes config set custom_providers.$provName.model $provModel | Out-Null
@@ -220,6 +221,7 @@ while ($true) {
 }
 
 # ---------- 10. gateway 服务（消息通道 + cron；上游在 Windows 用 schtasks 自启） ----------
+Log "安装 gateway 服务（消息通道 + 定时任务，可能需要一两分钟）……"
 & hermes gateway install 2>$null | Out-Null
 if ($LASTEXITCODE -eq 0) { Ok "gateway 服务已安装（消息 + 定时任务，登录自启）" }
 else { Warn "hermes gateway install 未成功——后补：hermes gateway install" }
