@@ -108,5 +108,19 @@ namespace HerMemory
             }
             catch { return false; }
         }
+
+        // —— 关闭行为记忆：HKCU\Software\HerMemory\CloseAction（"tray" = 点 X 直接最小化不再询问；缺省 = 每次询问） ——
+        public static bool CloseMinimizeEnabled()
+        {
+            using var k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\HerMemory");
+            return k?.GetValue("CloseAction") as string == "tray";
+        }
+
+        public static void SetCloseMinimize(bool enabled)
+        {
+            using var k = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(@"Software\HerMemory");
+            if (enabled) k.SetValue("CloseAction", "tray");
+            else k.DeleteValue("CloseAction", false);
+        }
     }
 }

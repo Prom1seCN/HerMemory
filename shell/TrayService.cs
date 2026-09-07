@@ -55,6 +55,12 @@ namespace HerMemory
                 CheckOnClick = true,
                 Checked = AutostartEnabled(),
             };
+            var miMinimize = new System.Windows.Forms.ToolStripMenuItem("关闭时最小化到托盘", null, (_, _) =>
+                HermesCtl.SetCloseMinimize(!HermesCtl.CloseMinimizeEnabled()))
+            {
+                CheckOnClick = true,
+                Checked = HermesCtl.CloseMinimizeEnabled(),
+            };
             var miExit = new System.Windows.Forms.ToolStripMenuItem("退出", null, (_, _) =>
             {
                 App.RequestExit();
@@ -70,7 +76,9 @@ namespace HerMemory
             _menu.Items.Add(miMain);
             _menu.Items.Add(miWizard);
             _menu.Items.Add(miUnins);
+            _menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
             _menu.Items.Add(miAuto);
+            _menu.Items.Add(miMinimize);
             _menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
             _menu.Items.Add(miExit);
 
