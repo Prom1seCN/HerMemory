@@ -168,6 +168,7 @@ Mark-Done "memory-tier"
 if (Test-Done "config-ai") {
     Log "配置 AI：已完成（自动跳过）"
 } else {
+Write-Host ""
 Write-Host "HerMemory本身永久免费"
 Write-Host "但AI每次回答都会消耗服务商的算力"
 Write-Host ""
@@ -194,7 +195,9 @@ while ($true) {
     if ($atUrl) {
         Log "第一步：验证 API 地址"
         while ($true) {
+            Write-Host ""
             $provBase = (Read-Host "请输入 API 地址").Trim()
+            Write-Host ""
             # 只保留可见 ASCII——剔除复制粘贴混入的零宽/全角/控制字符
             $provBase = ($provBase -replace "[^\x21-\x7E]", "").TrimEnd("/")
             Log "正在验证 API 地址……"
@@ -219,7 +222,9 @@ while ($true) {
     }
 
     Log "第二步：验证 API Key（输入 1 返回上一步）"
+    Write-Host ""
     $secKey = Read-Host -AsSecureString "请输入 API Key（输入可能不显示）"
+    Write-Host ""
     $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secKey)
     $apiKey = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr).Trim()
     $apiKey = ($apiKey -replace "[^\x21-\x7E]", "")

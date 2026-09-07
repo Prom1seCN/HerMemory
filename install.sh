@@ -186,12 +186,15 @@ if done_step memory-tier; then
     log "记忆档位：已完成（自动跳过）"
 else
 log "MEMORY/USER容量设置"
+echo ""
 
 echo "提升容量会增强AI记忆力，但可能降低专注度，建议选择1-2档"
+echo ""
 
 echo "  1.紧凑：2200/1375 [默认]"
 echo "  2.标准：5000/3000"
 echo "  3.详细：10000/5000"
+echo ""
 
 read -rp "请选择记忆档位（1/2/3）: " MEM_CHOICE
 MEM_CHOICE="${MEM_CHOICE:-1}"
@@ -211,18 +214,23 @@ ok "记忆档位：MEMORY $MEM_LIMIT / USER $USER_LIMIT 字符（随时改档：
 if done_step config-ai; then
     log "配置 AI：已完成（自动跳过）"
 else
+echo ""
 echo "HerMemory本身永久免费"
 echo "但AI每次回答都会消耗服务商的算力"
+echo ""
 
 echo "需要你获取："
+echo ""
 
-echo "1.Base URL：AI去哪里干活"
+echo "1.Base URL"
 echo "通常以https开头，v1结尾"
 echo "控制台里可能叫：API地址 / OpenAI兼容地址"
+echo ""
 
-echo "2.APIkey：AI如何计费"
+echo "2.APIkey"
 echo "一长串字符，常以sk-开头，也可能没有规律"
 echo "控制台里可能叫：API key / API密钥"
+echo ""
 
 
 AT_URL=1
@@ -230,7 +238,9 @@ while true; do
     if [ "$AT_URL" = "1" ]; then
         log "第一步：验证 API 地址"
         while true; do
+            echo ""
             read -rp "请输入 API 地址: " PROV_BASE
+            echo ""
             # 只保留可见 ASCII——剔除复制粘贴混入的零宽/全角/控制字符
             PROV_BASE=$(printf '%s' "$PROV_BASE" | LC_ALL=C tr -d '\000-\040\177-\377')
             PROV_BASE="${PROV_BASE%/}"
@@ -252,7 +262,9 @@ while true; do
     fi
 
     log "第二步：验证 API Key（输入 1 返回上一步）"
+    echo ""
     read -rsp "请输入 API Key（输入可能不显示）: " API_KEY
+    echo ""
     echo ""
     API_KEY=$(printf '%s' "$API_KEY" | LC_ALL=C tr -d '\000-\040\177-\377')
     if [ "$API_KEY" = "1" ]; then AT_URL=1; continue; fi
