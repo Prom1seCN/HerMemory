@@ -250,20 +250,38 @@ while ($true) {
     Warn "序号无效——重新选择"
 }
 
-# 上游机制：自定义 OpenAI 兼容端点 = .env 的 OPENAI_BASE_URL / OPENAI_API_KEY（key 只进 .env，config 只存模型名）
-& hermes config set OPENAI_BASE_URL $provBase | Out-Null
-& hermes config set OPENAI_API_KEY $apiKey | Out-Null
-& hermes config set model $provModel | Out-Null
-# 双保险：确认两项确实落在 .env（个别环境 config set 会静默漏写 base_url）
-if (-not (Select-String -Path "$HermesHome\.env" -Pattern "^OPENAI_BASE_URL=" -Quiet)) { Add-Content -Path "$HermesHome\.env" -Value "OPENAI_BASE_URL=$provBase" }
-if (-not (Select-String -Path "$HermesHome\.env" -Pattern "^OPENAI_API_KEY=" -Quiet)) { Add-Content -Path "$HermesHome\.env" -Value "OPENAI_API_KEY=$apiKey" }
-# 双保险 2：config 的 model.base_url 出厂默认指向 openrouter，必须改成本端点，否则路由走错门
+# 上游机制（model_setup_flows._model_flow_custom，逐条对应）：
+#   key 存 .env 的 HERMES_CUSTOM_<主机>_API_KEY；config model 段 = provider custom +
+#   base_url + api_key ${ENV引用} + api_mode。绝不能写 OPENAI_API_KEY——
+#   auto 路由见到它会劫持到 OpenRouter（auth.py resolve_provider）。
+$u = [uri]$provBase
+$hostId = $u.Host
+if ($u.Port -gt 0) { $hostId = "${hostId}_$($u.Port)" }
+$keyEnv = "HERMES_CUSTOM_" + (($hostId.ToUpper()) -replace "[^A-Z0-9]+", "_").Trim("_") + "_API_KEY"
+& hermes config set $keyEnv $apiKey | Out-Null
+if (-not (Select-String -Path "$HermesHome\.env" -Pattern ("^" + $keyEnv + "=") -Quiet)) { Add-Content -Path "$HermesHome\.env" -Value "$keyEnv=$apiKey" }
+# 清除会劫持路由的 OPENAI_*（上游 auxiliary_client 明确告警的 env 污染场景）
+& hermes config unset OPENAI_API_KEY 2>$null | Out-Null
+& hermes config unset OPENAI_BASE_URL 2>$null | Out-Null
+(Get-Content "$HermesHome\.env") | Where-Object { $_ -notmatch "^OPENAI_API_KEY=" -and $_ -notmatch "^OPENAI_BASE_URL=" } | Set-Content "$HermesHome\.env" -Encoding UTF8
+& hermes config set model.default $provModel | Out-Null
+& hermes config set model.provider custom | Out-Null
 & hermes config set model.base_url $provBase | Out-Null
+& hermes config set model.api_key ('${' + $keyEnv + '}') | Out-Null
+& hermes config set model.api_mode chat_completions | Out-Null
+# 落盘验证：provider/custom 与 key 引用缺一不可，缺则直改文件
 $cfgPath = Join-Path $HermesHome "config.yaml"
-if (-not (Select-String -Path $cfgPath -Pattern ([regex]::Escape($provBase)) -Quiet)) {
+if (-not (Select-String -Path $cfgPath -Pattern "provider: custom" -Quiet)) {
     $cfgText = Get-Content $cfgPath -Raw
-    $cfgText = $cfgText -replace "(?m)^(\s*base_url:).*$", ("`$1 " + $provBase)
+    $cfgText = $cfgText -replace "(?m)^(  provider:).*$", "  provider: custom"
     Set-Content -Path $cfgPath -Value $cfgText -Encoding UTF8 -NoNewline
+}
+if (-not (Select-String -Path $cfgPath -Pattern ([regex]::Escape("api_key: `${$keyEnv}")) -Quiet)) {
+    $cfgText = Get-Content $cfgPath -Raw
+    if ($cfgText -match "(?m)^  base_url: .*$") {
+        $cfgText = $cfgText -replace "(?m)^(  base_url: .*)$", ("`$1`n  api_key: `${" + $keyEnv + "}`n  api_mode: chat_completions")
+        Set-Content -Path $cfgPath -Value $cfgText -Encoding UTF8 -NoNewline
+    }
 }
 Ok "配置完成（模型：$provModel）"
 Mark-Done "config-ai"

@@ -293,16 +293,28 @@ while true; do
     warn "序号无效——重新选择"
 done
 
-# 上游机制：自定义 OpenAI 兼容端点 = .env 的 OPENAI_BASE_URL / OPENAI_API_KEY（key 只进 .env，config 只存模型名）
-hermes config set OPENAI_BASE_URL "$PROV_BASE" >/dev/null
-hermes config set OPENAI_API_KEY "$API_KEY" >/dev/null
-hermes config set model "$PROV_MODEL" >/dev/null
-# 双保险：确认两项确实落在 .env
-grep -q "^OPENAI_BASE_URL=" "$HERMES_HOME/.env" 2>/dev/null || echo "OPENAI_BASE_URL=$PROV_BASE" >> "$HERMES_HOME/.env"
-grep -q "^OPENAI_API_KEY="  "$HERMES_HOME/.env" 2>/dev/null || echo "OPENAI_API_KEY=$API_KEY"  >> "$HERMES_HOME/.env"
-# 双保险 2：config 的 model.base_url 出厂默认指向 openrouter，必须改成本端点
-hermes config set model.base_url "$PROV_BASE" >/dev/null 2>&1
-grep -q "$PROV_BASE" "$HERMES_HOME/config.yaml" 2>/dev/null || sed -i "0,/^\(  base_url:\).*/s//\1 $PROV_BASE/" "$HERMES_HOME/config.yaml"
+# 上游机制（_model_flow_custom）：key 存 .env 的 HERMES_CUSTOM_<主机>_API_KEY；
+# config model 段 = provider custom + base_url + api_key ${ENV引用} + api_mode。
+# 绝不能写 OPENAI_API_KEY——auto 路由见到它会劫持到 OpenRouter。
+HOSTPORT=$(printf '%s' "$PROV_BASE" | sed -E 's#^https?://([^/]+).*#\1#')
+SLUG=$(printf '%s' "$HOSTPORT" | tr '[:lower:]' '[:upper:]' | sed -E 's/[^A-Z0-9]+/_/g; s/^_+//; s/_+$//')
+KEY_ENV="HERMES_CUSTOM_${SLUG}_API_KEY"
+hermes config set "$KEY_ENV" "$API_KEY" >/dev/null
+grep -q "^${KEY_ENV}=" "$HERMES_HOME/.env" 2>/dev/null || echo "${KEY_ENV}=$API_KEY" >> "$HERMES_HOME/.env"
+# 清除会劫持路由的 OPENAI_*（上游明确告警的 env 污染场景）
+hermes config unset OPENAI_API_KEY >/dev/null 2>&1
+hermes config unset OPENAI_BASE_URL >/dev/null 2>&1
+sed -i '/^OPENAI_API_KEY=/d; /^OPENAI_BASE_URL=/d' "$HERMES_HOME/.env"
+hermes config set model.default "$PROV_MODEL" >/dev/null
+hermes config set model.provider custom >/dev/null
+hermes config set model.base_url "$PROV_BASE" >/dev/null
+hermes config set model.api_key "\${${KEY_ENV}}" >/dev/null
+hermes config set model.api_mode chat_completions >/dev/null
+# 落盘验证：缺则直改文件
+grep -q "provider: custom" "$HERMES_HOME/config.yaml" 2>/dev/null || sed -i 's/^  provider: .*/  provider: custom/' "$HERMES_HOME/config.yaml"
+if ! grep -q 'api_key: \${'"$KEY_ENV"'}' "$HERMES_HOME/config.yaml" 2>/dev/null; then
+    sed -i "/^  base_url: /a\\  api_key: \\${${KEY_ENV}}\\  api_mode: chat_completions" "$HERMES_HOME/config.yaml"
+fi
 ok "配置完成（模型：$PROV_MODEL）"
 mark_done config-ai
 fi
