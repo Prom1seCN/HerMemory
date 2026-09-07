@@ -30,6 +30,25 @@
     </Window.Resources>
 
     <Grid Margin="56,44,56,36">
+        <!-- ===== 主界面（托盘模式的日常页） ===== -->
+        <Grid x:Name="PageHome" Visibility="Collapsed">
+            <StackPanel VerticalAlignment="Center">
+                <TextBlock Text="HerMemory" Style="{StaticResource H1}"/>
+                <TextBlock Text="Your memory." Style="{StaticResource Slogan}"/>
+                <TextBlock x:Name="HomeStatus" Margin="0,22,0,0" FontSize="15" FontWeight="SemiBold" Foreground="#0F172A" Text="正在检查网关状态……"/>
+                <TextBlock Style="{StaticResource Body}" Margin="0,6,0,0" Text="AI 的对话走微信；关机或停止网关后它不在线，启动即回来。"/>
+                <StackPanel Orientation="Horizontal" Margin="0,22,0,0">
+                    <Button x:Name="HomeStart" Content="启动" Style="{StaticResource AccentButton}" Click="HomeCtl_Click"/>
+                    <Button x:Name="HomeStop" Content="停止" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="HomeCtl_Click"/>
+                    <Button x:Name="HomeRestart" Content="重启" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="HomeCtl_Click"/>
+                    <Button Content="打开使用文档" Style="{StaticResource GhostButton}" Margin="24,0,0,0" Click="BtnGuide_Click"/>
+                </StackPanel>
+                <TextBlock x:Name="HomeHint" Style="{StaticResource Body}" Foreground="#90A4AE" Margin="0,18,0,0"/>
+                <TextBlock Style="{StaticResource Body}" Foreground="#B0BEC5" Margin="0,14,0,0"
+                           Text="关闭窗口 = 最小化到托盘（首次会询问）；托盘右键有全部设置。记忆文件：vault\HerMemory\memory\（改完开新对话即生效）。"/>
+            </StackPanel>
+        </Grid>
+
         <!-- ===== 页 1：欢迎 / 预检 ===== -->
         <Grid x:Name="PageWelcome">
             <Grid.RowDefinitions>

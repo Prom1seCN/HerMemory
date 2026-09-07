@@ -5,41 +5,35 @@ using System.IO;
 namespace HerMemory
 {
     /// <summary>
-    /// 托盘常驻（阶段 C）：三态图标 + 启停/重启/日志/自启菜单。
-    /// 图标程序生成（菱形=记忆水晶剪影），三态同形变色——形状与颜色分离，logo 定稿后替换。
+    /// 托盘常驻：三态图标（形状与颜色分离，logo 定稿后替换形状）+ 菜单。
+    /// 图标只生成一次缓存（必须在 STA 线程渲染——RenderTargetBitmap 在 MTA 线程会抛异常被吞，
+    /// 这是"恒青 bug"的另一半根因：状态变了但新图标生成失败，旧图标原地不动）。
     /// </summary>
     public class TrayService : IDisposable
     {
         private readonly System.Windows.Forms.NotifyIcon _icon;
         private readonly System.Windows.Forms.ContextMenuStrip _menu;
         private readonly System.Windows.Forms.Timer _poll;
-        private string _state = "unknown";          // running / stopped / unknown
+        private readonly System.Drawing.Icon _icoRun, _icoStop, _icoUnknown;
+        private string _state = "unknown";
         private bool _busy;
 
+        /// <summary>状态变化（state: running/stopped/unknown, raw: 原始输出）。</summary>
+        public event Action<string, string>? StatusChanged;
+        /// <summary>左键单击托盘（用户要求：打开主界面）。</summary>
+        public event Action? OpenMain;
+        /// <summary>菜单点"安装向导"。</summary>
         public event Action? OpenWizard;
 
-        private string HermesHome => Environment.GetEnvironmentVariable("HERMES_HOME")
-            ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "hermes");
-
-        private string HermsExe
-        {
-            get
-            {
-                var p = Path.Combine(HermesHome, "bin", "hermes.exe");
-                return File.Exists(p) ? p : "hermes";
-            }
-        }
-
-        private string LogsDir => Path.Combine(HermesHome, "logs");
-
-        public static bool IsInstalled() =>
-            File.Exists(Path.Combine(
-                Environment.GetEnvironmentVariable("HERMES_HOME")
-                ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "hermes"),
-                "bin", "hermes.exe"));
+        private string LogsDir => HermesCtl.LogsDir;
 
         public TrayService()
         {
+            // 图标三态缓存：构造函数运行在 WPF 主线程（STA），渲染合法
+            _icoRun = MakeIcon("#22D3EE");
+            _icoStop = MakeIcon("#90A4AE");
+            _icoUnknown = MakeIcon("#EF5350");
+
             _menu = new System.Windows.Forms.ContextMenuStrip();
 
             var miStatus = new System.Windows.Forms.ToolStripMenuItem("状态：检测中…") { Enabled = false };
@@ -51,6 +45,7 @@ namespace HerMemory
                 if (Directory.Exists(LogsDir))
                     Process.Start(new ProcessStartInfo("explorer.exe", $"\"{LogsDir}\"") { UseShellExecute = true });
             });
+            var miMain = new System.Windows.Forms.ToolStripMenuItem("打开主界面", null, (_, _) => OpenMain?.Invoke());
             var miWizard = new System.Windows.Forms.ToolStripMenuItem("安装向导…", null, (_, _) => OpenWizard?.Invoke());
             var miAuto = new System.Windows.Forms.ToolStripMenuItem("开机自启", null, (_, _) => ToggleAutostart())
             {
@@ -59,8 +54,7 @@ namespace HerMemory
             };
             var miExit = new System.Windows.Forms.ToolStripMenuItem("退出", null, (_, _) =>
             {
-                Dispose();
-                System.Windows.Application.Current.Shutdown();
+                App.RequestExit();
             });
 
             _menu.Items.Add(miStatus);
@@ -70,6 +64,7 @@ namespace HerMemory
             _menu.Items.Add(miRestart);
             _menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
             _menu.Items.Add(miLogs);
+            _menu.Items.Add(miMain);
             _menu.Items.Add(miWizard);
             _menu.Items.Add(miAuto);
             _menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
@@ -77,12 +72,13 @@ namespace HerMemory
 
             _icon = new System.Windows.Forms.NotifyIcon
             {
-                Icon = MakeIcon("#22D3EE"),
+                Icon = _icoRun,
                 Text = "HerMemory",
                 Visible = true,
                 ContextMenuStrip = _menu,
             };
-            _icon.DoubleClick += (_, _) => RunGw("status", silent: false);
+            _icon.MouseClick += (_, a) => { if (a.Button == System.Windows.Forms.MouseButtons.Left) OpenMain?.Invoke(); };
+            _icon.DoubleClick += (_, _) => OpenMain?.Invoke();
 
             _poll = new System.Windows.Forms.Timer { Interval = 10_000 };
             _poll.Tick += async (_, _) => await PollAsync(miStatus);
@@ -90,60 +86,58 @@ namespace HerMemory
             _ = PollAsync(miStatus);
         }
 
-        // —— 状态轮询：hermes gateway status 输出含 running/stopped ——
         private async Task PollAsync(System.Windows.Forms.ToolStripMenuItem miStatus)
         {
             if (_busy) return;
             _busy = true;
-            try
+            var (state, raw) = await Task.Run(() =>
             {
-                var text = await Task.Run(() => RunCapture(HermsExe, "gateway status", 15)) ?? "";
-                var lower = text.ToLowerInvariant();
+                var raw = HermesCtl.RawStatus();
+                var lower = raw.ToLowerInvariant();
                 // 顺序关键："not running" 也包含 "running"——必须先判否定
-                if (lower.Contains("not running") || lower.Contains("stopped")) _state = "stopped";
-                else if (lower.Contains("running")) _state = "running";
-                else _state = "unknown";
-            }
-            catch { _state = "unknown"; }
+                if (lower.Contains("not running") || lower.Contains("stopped")) return ("stopped", raw);
+                if (lower.Contains("running")) return ("running", raw);
+                return ("unknown", raw);
+            });
+            _state = state;
             _busy = false;
 
-            var color = _state switch
-            {
-                "running" => "#22D3EE",
-                "stopped" => "#90A4AE",
-                _ => "#EF5350",
-            };
-            var label = _state switch
-            {
-                "running" => "状态：运行中",
-                "stopped" => "状态：已停止",
-                _ => "状态：未知",
-            };
             try
             {
-                _icon.Icon?.Dispose();
-                _icon.Icon = MakeIcon(color);
-                _icon.Text = "HerMemory — " + label;
-                miStatus.Text = label;
+                _icon.Icon = state switch
+                {
+                    "running" => _icoRun,
+                    "stopped" => _icoStop,
+                    _ => _icoUnknown,
+                };
+                _icon.Text = "HerMemory — " + state switch
+                {
+                    "running" => "运行中",
+                    "stopped" => "已停止",
+                    _ => "状态未知",
+                };
+                miStatus.Text = _icon.Text["HerMemory — ".Length..];
             }
             catch { }
+            StatusChanged?.Invoke(state, raw);
         }
 
         private void RunGw(string cmd, bool silent = true)
         {
+            _poll.Stop(); // 命令执行期间暂停轮询，避免状态抖动
             Task.Run(() =>
             {
-                var r = RunCapture(HermsExe, $"gateway {cmd}", 120);
+                var r = HermesCtl.Run($"gateway {cmd}", 120);
                 if (!silent)
                 {
-                    var brief = (r ?? "").Trim();
+                    var brief = r.Trim();
                     if (brief.Length > 300) brief = brief[..300];
-                    _icon.ShowBalloonTip(4000, "HerMemory", string.IsNullOrWhiteSpace(brief) ? "命令已执行。" : brief, System.Windows.Forms.ToolTipIcon.Info);
+                    _icon.ShowBalloonTip(4000, "HerMemory",
+                        string.IsNullOrWhiteSpace(brief) ? "命令已执行。" : brief,
+                        System.Windows.Forms.ToolTipIcon.Info);
                 }
-                _busy = false; // 触发下轮轮询刷新
                 _poll.Start();
             });
-            _poll.Stop(); // 执行命令期间暂停轮询，避免状态抖动
         }
 
         // —— 开机自启：HKCU Run 键（默认关；用户勾选即开） ——
@@ -215,28 +209,6 @@ namespace HerMemory
                 foreach (var png in pngs) bw.Write(png);
             }
             return new Icon(new MemoryStream(outMs.ToArray()));
-        }
-
-        private static string? RunCapture(string exe, string args, int timeoutSec)
-        {
-            try
-            {
-                var psi = new ProcessStartInfo
-                {
-                    FileName = exe,
-                    Arguments = args,
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true,
-                };
-                using var p = Process.Start(psi)!;
-                var so = p.StandardOutput.ReadToEnd();
-                var se = p.StandardError.ReadToEnd();
-                p.WaitForExit(timeoutSec * 1000);
-                return so + se;
-            }
-            catch { return null; }
         }
 
         public void Dispose()

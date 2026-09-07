@@ -1,0 +1,91 @@
+using System.Diagnostics;
+using System.IO;
+
+namespace HerMemory
+{
+    /// <summary>exe 与托盘共用的 hermes 操作层。</summary>
+    internal static class HermesCtl
+    {
+        public static string HermesHome => Environment.GetEnvironmentVariable("HERMES_HOME")
+            ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "hermes");
+
+        public static string HermsExe
+        {
+            get
+            {
+                var p = Path.Combine(HermesHome, "bin", "hermes.exe");
+                return File.Exists(p) ? p : "hermes";
+            }
+        }
+
+        public static string LogsDir => Path.Combine(HermesHome, "logs");
+
+        public static bool Installed =>
+            File.Exists(Path.Combine(HermesHome, "bin", "hermes.exe"));
+
+        /// <summary>gateway 原始状态输出。注意停止时输出为 "✗ Gateway is not running"——包含 "running"。</summary>
+        public static string RawStatus(int timeoutSec = 15)
+        {
+            try
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = HermsExe,
+                    Arguments = "gateway status",
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true,
+                };
+                using var p = Process.Start(psi)!;
+                var so = p.StandardOutput.ReadToEnd();
+                var se = p.StandardError.ReadToEnd();
+                p.WaitForExit(timeoutSec * 1000);
+                return so + se;
+            }
+            catch { return ""; }
+        }
+
+        /// <summary>状态三分类。顺序关键：先判否定，"not running" 也包含 "running"。</summary>
+        public static string State()
+        {
+            var lower = RawStatus().ToLowerInvariant();
+            if (lower.Contains("not running") || lower.Contains("stopped")) return "stopped";
+            if (lower.Contains("running")) return "running";
+            return "unknown";
+        }
+
+        public static string Run(string args, int timeoutSec = 120)
+        {
+            try
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = HermsExe,
+                    Arguments = args,
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true,
+                };
+                using var p = Process.Start(psi)!;
+                var so = p.StandardOutput.ReadToEnd();
+                var se = p.StandardError.ReadToEnd();
+                p.WaitForExit(timeoutSec * 1000);
+                return so + se;
+            }
+            catch { return ""; }
+        }
+
+        public static bool EnvHasWeixin()
+        {
+            try
+            {
+                var env = Path.Combine(HermesHome, ".env");
+                return File.Exists(env) && File.ReadAllLines(env)
+                    .Any(l => l.StartsWith("WEIXIN_ACCOUNT_ID=", StringComparison.Ordinal));
+            }
+            catch { return false; }
+        }
+    }
+}

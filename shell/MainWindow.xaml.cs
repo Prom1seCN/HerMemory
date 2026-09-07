@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
 using System.Text;
@@ -29,10 +29,169 @@ namespace HerMemory
         private string? _provBase, _provModel;
         private CancellationTokenSource? _qrCts;
 
+        /// <summary>托盘模式：默认开主界面（日常页），X 询问最小化/退出。</summary>
+        public bool HomeMode { get; set; }
+        /// <summary>托盘菜单"退出"置位：跳过最小化询问，真退出。</summary>
+        public static bool ReallyExit;
+
         public MainWindow()
         {
             InitializeComponent();
-            Loaded += async (_, _) => await RunPrecheckAsync();
+            Loaded += async (_, _) =>
+            {
+                if (HomeMode)
+                {
+                    ShowPage("PageHome");
+                    UpdateHomeStatus(HermesCtl.State());
+                }
+                else
+                {
+                    await RunPrecheckAsync();
+                }
+            };
+        }
+
+        // ================= 主界面（托盘模式日常页） =================
+        private System.Windows.Threading.DispatcherTimer? _homeTimer;
+
+        public void StartHomeLoop()
+        {
+            _homeTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
+            _homeTimer.Tick += async (_, _) => UpdateHomeStatus(await Task.Run(HermesCtl.State));
+            _homeTimer.Start();
+        }
+
+        public void UpdateHomeStatus(string state)
+        {
+            HomeStatus.Text = state switch
+            {
+                "running" => "● 运行中——AI 在线（微信可对话）",
+                "stopped" => "○ 已停止——微信不响应，点启动即回来",
+                _ => "● 状态未知——点重启恢复",
+            };
+            HomeStatus.Foreground = Brush(state switch
+            {
+                "running" => "#2E7D32",
+                "stopped" => "#90A4AE",
+                _ => "#C62828",
+            });
+            HomeHint.Text = state == "running"
+                ? "改 vault\\HerMemory\\memory\\ 下的记忆文件后开新对话生效；改配置（API 地址/Key）需重启网关。"
+                : "";
+        }
+
+        private bool _homeBusy;
+
+        private async void HomeCtl_Click(object sender, RoutedEventArgs e)
+        {
+            if (_homeBusy) return;
+            _homeBusy = true;
+            var cmd = sender == HomeStart ? "start" : sender == HomeStop ? "stop" : "restart";
+            HomeStatus.Text = (cmd == "stop" ? "正在停止" : "正在" + (cmd == "restart" ? "重启" : "启动")) + "……";
+            HomeStatus.Foreground = Brush("#78909C");
+            await Task.Run(() => HermesCtl.Run($"gateway {cmd}", 120));
+            UpdateHomeStatus(await Task.Run(HermesCtl.State));
+            _homeBusy = false;
+        }
+
+        // ================= 关闭行为：首次 X 询问（最小化到托盘 / 退出，可记住选择） =================
+        protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+        {
+            if (ReallyExit || !HomeMode) { base.OnClosing(e); return; }
+
+            var saved = ReadCloseAction();
+            if (saved == "tray") { e.Cancel = true; HideToTray(); return; }
+            if (saved == "exit") { base.OnClosing(e); return; }
+
+            e.Cancel = true;
+            var remember = false;
+            var choice = ShowCloseDialog(out remember);
+            if (remember && choice != null) WriteCloseAction(choice);
+            if (choice == "tray") HideToTray();
+            else if (choice == "exit") { ReallyExit = true; Close(); }
+        }
+
+        private void HideToTray()
+        {
+            Hide();
+            WindowState = WindowState.Minimized;
+        }
+
+        public void ShowFromTray()
+        {
+            Show();
+            WindowState = WindowState.Normal;
+            Activate();
+        }
+
+        private string? ShowCloseDialog(out bool remember)
+        {
+            remember = false;
+            var dlg = new Window
+            {
+                Title = "HerMemory",
+                Width = 430,
+                Height = 190,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                Owner = this,
+                ResizeMode = ResizeMode.NoResize,
+                Background = new System.Windows.Media.SolidColorBrush(
+                    (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#FAFBFC")),
+            };
+            var rememberBox = new System.Windows.Controls.CheckBox
+            {
+                Content = "记住我的选择，不再询问",
+                FontSize = 12.5,
+                Foreground = System.Windows.Media.Brushes.DimGray,
+                Margin = new Thickness(0, 16, 0, 0),
+            };
+            string? result = null;
+            var stack = new System.Windows.Controls.StackPanel { Margin = new Thickness(28, 24, 28, 18) };
+            stack.Children.Add(new TextBlock
+            {
+                Text = "要退出 HerMemory，还是最小化到系统托盘？",
+                FontSize = 14.5,
+                TextWrapping = TextWrapping.Wrap,
+                Foreground = new System.Windows.Media.SolidColorBrush(
+                    System.Windows.Media.Color.FromArgb(255, 15, 23, 42)),
+            });
+            stack.Children.Add(new TextBlock
+            {
+                Text = "最小化后 AI 仍在后台运行（看系统托盘图标）。",
+                FontSize = 12,
+                Foreground = System.Windows.Media.Brushes.Gray,
+                Margin = new Thickness(0, 6, 0, 0),
+            });
+            stack.Children.Add(rememberBox);
+            var row = new System.Windows.Controls.StackPanel
+            {
+                Orientation = System.Windows.Controls.Orientation.Horizontal,
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Right,
+                Margin = new Thickness(0, 18, 0, 0),
+            };
+            var bTray = new System.Windows.Controls.Button { Content = "最小化到托盘", Style = (Style)Resources["AccentButton"], Padding = new Thickness(18, 8, 18, 8) };
+            var bExit = new System.Windows.Controls.Button { Content = "退出", Style = (Style)Resources["GhostButton"], Margin = new Thickness(12, 0, 0, 0), Padding = new Thickness(18, 8, 18, 8) };
+            bTray.Click += (_, _) => { result = "tray"; dlg.Close(); };
+            bExit.Click += (_, _) => { result = "exit"; dlg.Close(); };
+            row.Children.Add(bTray);
+            row.Children.Add(bExit);
+            stack.Children.Add(row);
+            dlg.Content = stack;
+            dlg.ShowDialog();
+            remember = rememberBox.IsChecked == true;
+            return result;
+        }
+
+        private static string? ReadCloseAction()
+        {
+            using var k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\HerMemory");
+            return k?.GetValue("CloseAction") as string;
+        }
+
+        private static void WriteCloseAction(string action)
+        {
+            using var k = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(@"Software\HerMemory");
+            k.SetValue("CloseAction", action);
         }
 
         // ================= 页 1：预检 =================

@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 
 namespace HerMemory
 {
@@ -7,6 +7,12 @@ namespace HerMemory
         private TrayService? _tray;
         private MainWindow? _wizard;
         private static Mutex? _single;
+
+        public static void RequestExit()
+        {
+            global::HerMemory.MainWindow.ReallyExit = true;
+            Current?.Shutdown();
+        }
 
         protected override void OnStartup(StartupEventArgs e)
         {
@@ -20,16 +26,27 @@ namespace HerMemory
                 return;
             }
 
-            if (TrayService.IsInstalled())
+            if (HermesCtl.Installed)
             {
-                // 托盘模式（已安装）：常驻后台，无窗口
+                // 已安装：托盘 + 主界面双开（用户要求的默认形态）
                 _tray = new TrayService();
                 _tray.OpenWizard += () => Dispatcher.Invoke(ShowWizard);
+                _tray.OpenMain += () => Dispatcher.Invoke(ShowMain);
+                _wizard = new MainWindow { HomeMode = true };
+                _wizard.Closed += (_, _) => _wizard = null;
+                _tray.StatusChanged += (state, _) => Dispatcher.Invoke(() => _wizard?.UpdateHomeStatus(state));
+                _wizard.Show();
             }
             else
             {
                 ShowWizard();
             }
+        }
+
+        private void ShowMain()
+        {
+            if (_wizard != null) _wizard.ShowFromTray();
+            else ShowWizard();
         }
 
         private void ShowWizard()
@@ -42,8 +59,7 @@ namespace HerMemory
             }
             else
             {
-                _wizard.WindowState = WindowState.Normal;
-                _wizard.Activate();
+                _wizard.ShowFromTray();
             }
         }
 
