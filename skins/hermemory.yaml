@@ -61,8 +61,8 @@ spinner:
 
 branding:
   agent_name: "HerMemory"
-  welcome: "HerMemory. Your memory. — 记忆库已就绪。/help 查看命令。"
-  goodbye: "HerMemory. Your memory."
+  welcome: "HerMemory. Your memory. Memory that grows with you. — 记忆库已就绪。/help 查看命令。"
+  goodbye: "HerMemory. Your memory. Memory that grows with you."
   response_label: " HerMemory "
   prompt_symbol: "❯"
   help_header: "HerMemory 命令"

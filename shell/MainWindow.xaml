@@ -34,7 +34,7 @@
         <Grid x:Name="PageHome" Visibility="Collapsed">
             <StackPanel VerticalAlignment="Center">
                 <TextBlock Text="HerMemory" Style="{StaticResource H1}"/>
-                <TextBlock Text="Your memory." Style="{StaticResource Slogan}"/>
+                <TextBlock Style="{StaticResource Slogan}">Your memory.<LineBreak/>Memory that grows with you.</TextBlock>
                 <TextBlock x:Name="HomeStatus" Margin="0,22,0,0" FontSize="15" FontWeight="SemiBold" Foreground="#0F172A" Text="正在检查网关状态……"/>
                 <TextBlock Style="{StaticResource Body}" Margin="0,6,0,0" Text="AI 的对话走微信；关机或停止网关后它不在线，启动即回来。"/>
                 <StackPanel Orientation="Horizontal" Margin="0,22,0,0">
@@ -42,6 +42,7 @@
                     <Button x:Name="HomeStop" Content="停止" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="HomeCtl_Click"/>
                     <Button x:Name="HomeRestart" Content="重启" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="HomeCtl_Click"/>
                     <Button Content="打开使用文档" Style="{StaticResource GhostButton}" Margin="24,0,0,0" Click="BtnGuide_Click"/>
+                    <Button Content="卸载" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="BtnUninstall_Click"/>
                 </StackPanel>
                 <TextBlock x:Name="HomeHint" Style="{StaticResource Body}" Foreground="#90A4AE" Margin="0,18,0,0"/>
                 <TextBlock Style="{StaticResource Body}" Foreground="#B0BEC5" Margin="0,14,0,0"
@@ -56,7 +57,7 @@
                 <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
             <TextBlock Grid.Row="0" Text="HerMemory" Style="{StaticResource H1}"/>
-            <TextBlock Grid.Row="1" Text="Your memory." Style="{StaticResource Slogan}"/>
+            <TextBlock Grid.Row="1" Style="{StaticResource Slogan}">Your memory.<LineBreak/>Memory that grows with you.</TextBlock>
             <StackPanel Grid.Row="2" Margin="0,22,0,0" VerticalAlignment="Top">
                 <TextBlock Style="{StaticResource Body}" Text="即将安装：Hermes 内核（约 5-10 分钟，需联网）+ 记忆库 + 微信接入。"/>
                 <TextBlock Style="{StaticResource Body}" Text="安装完成后，AI 直接出现在你的微信里；你的全部记忆是纯文本文件，随时可看可改可带走。"/>
