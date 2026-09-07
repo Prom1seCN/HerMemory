@@ -340,8 +340,8 @@ if ($gwTask) {
 
 # ---------- 12. 自检脚本（配置区写入实际路径） ----------
 $chk = Get-Content "$SRC\sync_check.sh" -Raw
-$chk = $chk -replace '^(HERMES_HOME=).*', ('$1"' + ($HermesHome -replace '\','/') + '"')
-$chk = $chk -replace '^(SYNC_ROOT=).*', ('$1"' + ($VaultDir -replace '\','/') + '"')
+$chk = $chk -replace '^(HERMES_HOME=).*', ('$1"' + $HermesHome.Replace('\','/') + '"')
+$chk = $chk -replace '^(SYNC_ROOT=).*', ('$1"' + $VaultDir.Replace('\','/') + '"')
 Set-Content -Path "$HermesHome\sync_check.sh" -Value $chk -Encoding UTF8
 Ok "自检脚本已就位：$HermesHome\sync_check.sh（agent 终端工具走 Git Bash，可直接执行）"
 
