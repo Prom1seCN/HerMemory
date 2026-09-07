@@ -228,12 +228,18 @@ if ((Test-Path $envFile) -and (Select-String -Path $envFile -Pattern "WEIXIN_ACC
     Ok "微信通道：已配置（跳过扫码）"
 } else {
     Log "微信接入（推荐现在完成——完成后 AI 直接出现在你的微信里）"
-    Write-Host "即将打开配置向导，请按提示操作："
-    Write-Host "  1. 在平台菜单中选择 Weixin / WeChat"
-    Write-Host "  2. 用微信扫描终端上的二维码并确认（二维码会超时，超时可重试）"
-    Write-Host "  3. 终端二维码扫不出时：把向导打印的链接发给微信「文件传输助手」，手机点开即可扫码"
-    Write-Host "  4. 消息授权建议选择「仅允许列表内用户」，直接回车即可（已预填你的微信 ID）"
-    Write-Host "  5. 向导内其余选项保持默认；不想现在配置可关闭向导窗口跳过"
+    Write-Host "即将打开英文配置向导，请对照下面的中文答题卡操作："
+    Write-Host ""
+    Write-Host "  向导问题（英文原文）                              → 你该输入"
+    Write-Host "  ─────────────────────────────────────────────"
+    Write-Host "  Select platform（选择平台）                        → Weixin / WeChat 对应的数字"
+    Write-Host "  终端出现二维码                                     → 用微信扫码并确认；扫不出就把向导打印"
+    Write-Host "                                                       的链接发给微信「文件传输助手」，手机点开扫码"
+    Write-Host "  How should direct messages be authorized?         → 输入 3（不要选默认的 1）"
+    Write-Host "  Allowed Weixin user IDs                           → 直接回车（已预填你的微信 ID）"
+    Write-Host "  其余提示                                           → 直接回车保持默认"
+    Write-Host ""
+    Write-Host "  完成后向导自动结束；不想现在配置可关闭向导窗口跳过"
     while ($true) {
         $wxNow = Read-Host "现在扫码连接微信？[Y/n]"
         if (-not $wxNow) { $wxNow = "Y" }
@@ -249,7 +255,7 @@ if ((Test-Path $envFile) -and (Select-String -Path $envFile -Pattern "WEIXIN_ACC
         if ($retry -match "^[Nn]") { break }
     }
     if ($wxConfigured) {
-        # 兜底：确保扫码人本人在允许列表内，否则首条微信消息会被拦截
+        # 兜底：统一消息授权为 allowlist（防止向导默认的 pairing 拦截首条微信消息）
         $wxUserId = ""
         $acctDir = Join-Path $HermesHome "weixin\accounts"
         $latest = Get-ChildItem -Path $acctDir -Filter "*.json" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 1
@@ -258,9 +264,18 @@ if ((Test-Path $envFile) -and (Select-String -Path $envFile -Pattern "WEIXIN_ACC
         }
         if ($wxUserId) {
             $envLines = Get-Content $envFile -ErrorAction SilentlyContinue
-            if (-not ($envLines -match "WEIXIN_DM_POLICY"))    { Add-Content -Path $envFile -Value "WEIXIN_DM_POLICY=allowlist" }
-            if (-not ($envLines -match "WEIXIN_ALLOWED_USERS")) { Add-Content -Path $envFile -Value "WEIXIN_ALLOWED_USERS=$wxUserId" }
-            Ok "已将你的微信 ID 加入允许列表（首条消息直达）"
+            if ($envLines -match "WEIXIN_DM_POLICY") {
+                $envLines = $envLines -replace "^WEIXIN_DM_POLICY=.*", "WEIXIN_DM_POLICY=allowlist"
+            } else {
+                $envLines += "WEIXIN_DM_POLICY=allowlist"
+            }
+            if ($envLines -match "WEIXIN_ALLOWED_USERS") {
+                $envLines = $envLines -replace "^WEIXIN_ALLOWED_USERS=.*", "WEIXIN_ALLOWED_USERS=$wxUserId"
+            } else {
+                $envLines += "WEIXIN_ALLOWED_USERS=$wxUserId"
+            }
+            Set-Content -Path $envFile -Value $envLines -Encoding ASCII
+            Ok "消息授权：仅允许你的微信 ID（首条消息直达）"
         }
     }
 }

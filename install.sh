@@ -280,12 +280,18 @@ if grep -q "WEIXIN_ACCOUNT_ID" "$HERMES_HOME/.env" 2>/dev/null; then
     ok "微信通道：已配置（跳过扫码）"
 else
     log "微信接入（推荐现在完成——完成后 AI 直接出现在你的微信里）"
-    echo "即将打开配置向导，请按提示操作："
-    echo "  1. 在平台菜单中选择 Weixin / WeChat"
-    echo "  2. 用微信扫描终端上的二维码并确认（二维码会超时，超时可重试）"
-    echo "  3. 终端二维码扫不出时：把向导打印的链接发给微信「文件传输助手」，手机点开即可扫码"
-    echo "  4. 消息授权建议选择「仅允许列表内用户」，直接回车即可（已预填你的微信 ID）"
-    echo "  5. 向导内其余选项保持默认；不想现在配置可按 Ctrl+C 跳过"
+    echo "即将打开英文配置向导，请对照下面的中文答题卡操作："
+    echo ""
+    echo "  向导问题（英文原文）                              → 你该输入"
+    echo "  ─────────────────────────────────────────────"
+    echo "  Select platform（选择平台）                        → Weixin / WeChat 对应的数字"
+    echo "  终端出现二维码                                     → 用微信扫码并确认；扫不出就把向导打印"
+    echo "                                                       的链接发给微信「文件传输助手」，手机点开扫码"
+    echo "  How should direct messages be authorized?         → 输入 3（不要选默认的 1）"
+    echo "  Allowed Weixin user IDs                           → 直接回车（已预填你的微信 ID）"
+    echo "  其余提示                                           → 直接回车保持默认"
+    echo ""
+    echo "  完成后向导自动结束；不想现在配置可按 Ctrl+C 跳过"
     while true; do
         read -rp "现在扫码连接微信？[Y/n]: " WX_NOW
         WX_NOW="${WX_NOW:-Y}"
@@ -301,15 +307,23 @@ else
         [[ "$WX_RETRY" =~ ^[Nn] ]] && break
     done
     if [ "$WX_CONFIGURED" = "1" ]; then
-        # 兜底：确保扫码人本人在允许列表内，否则首条微信消息会被拦截
+        # 兜底：统一消息授权为 allowlist（防止向导默认的 pairing 拦截首条微信消息）
         WX_USER_ID=$(python3 -c "
 import json, glob, os
 files = sorted(glob.glob(os.path.expanduser('~/.hermes/weixin/accounts/*.json')), key=os.path.getmtime)
 print(json.load(open(files[-1])).get('user_id', '') if files else '')" 2>/dev/null || true)
         if [ -n "$WX_USER_ID" ]; then
-            grep -q "WEIXIN_DM_POLICY"    "$HERMES_HOME/.env" 2>/dev/null || echo "WEIXIN_DM_POLICY=allowlist" >> "$HERMES_HOME/.env"
-            grep -q "WEIXIN_ALLOWED_USERS" "$HERMES_HOME/.env" 2>/dev/null || echo "WEIXIN_ALLOWED_USERS=$WX_USER_ID" >> "$HERMES_HOME/.env"
-            ok "已将你的微信 ID 加入允许列表（首条消息直达）"
+            if grep -q "WEIXIN_DM_POLICY" "$HERMES_HOME/.env" 2>/dev/null; then
+                sed -i "s|^WEIXIN_DM_POLICY=.*|WEIXIN_DM_POLICY=allowlist|" "$HERMES_HOME/.env"
+            else
+                echo "WEIXIN_DM_POLICY=allowlist" >> "$HERMES_HOME/.env"
+            fi
+            if grep -q "WEIXIN_ALLOWED_USERS" "$HERMES_HOME/.env" 2>/dev/null; then
+                sed -i "s|^WEIXIN_ALLOWED_USERS=.*|WEIXIN_ALLOWED_USERS=$WX_USER_ID|" "$HERMES_HOME/.env"
+            else
+                echo "WEIXIN_ALLOWED_USERS=$WX_USER_ID" >> "$HERMES_HOME/.env"
+            fi
+            ok "消息授权：仅允许你的微信 ID（首条消息直达）"
         fi
     fi
 fi
