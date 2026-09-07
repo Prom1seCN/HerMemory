@@ -10,3 +10,8 @@ Thumbs.db
 .DS_Store
 *.swp
 skins/hero-options.html
+
+# exe 构建产物
+shell/bin/
+shell/obj/
+shell/publish/

@@ -1,0 +1,117 @@
+<Window x:Class="HerMemory.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="HerMemory 安装向导" Height="600" Width="800"
+        WindowStartupLocation="CenterScreen" Background="#FAFBFC"
+        ResizeMode="CanMinimize">
+    <Window.Resources>
+        <Style x:Key="PageGrid" TargetType="Grid"/>
+        <Style x:Key="H1" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="32"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Foreground" Value="#0F172A"/>
+        </Style>
+        <Style x:Key="Slogan" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="17"/>
+            <Setter Property="Foreground" Value="#0E7490"/>
+            <Setter Property="Margin" Value="0,2,0,0"/>
+        </Style>
+        <Style x:Key="Body" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="13.5"/>
+            <Setter Property="Foreground" Value="#546E7A"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="Margin" Value="0,3"/>
+        </Style>
+        <Style x:Key="RadioTile" TargetType="RadioButton">
+            <Setter Property="Margin" Value="0,0,18,0"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="56,44,56,36">
+        <!-- ===== 页 1：欢迎 / 预检 ===== -->
+        <Grid x:Name="PageWelcome">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <TextBlock Grid.Row="0" Text="HerMemory" Style="{StaticResource H1}"/>
+            <TextBlock Grid.Row="1" Text="Your memory." Style="{StaticResource Slogan}"/>
+            <StackPanel Grid.Row="2" Margin="0,22,0,0" VerticalAlignment="Top">
+                <TextBlock Style="{StaticResource Body}" Text="即将安装：Hermes 内核（约 5-10 分钟，需联网）+ 记忆库 + 微信接入。"/>
+                <TextBlock Style="{StaticResource Body}" Text="安装完成后，AI 直接出现在你的微信里；你的全部记忆是纯文本文件，随时可看可改可带走。"/>
+                <TextBlock x:Name="PrecheckStatus" Margin="0,18,0,0" FontSize="13" Foreground="#78909C" Text="正在检查环境……"/>
+            </StackPanel>
+            <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,0,0,0">
+                <Button x:Name="BtnStart" Content="开始安装" Style="{StaticResource AccentButton}" IsEnabled="False" Click="BtnStart_Click"/>
+                <Button Content="查看安装说明" Style="{StaticResource GhostButton}" Margin="14,0,0,0" Click="BtnDocs_Click"/>
+            </StackPanel>
+            <TextBlock Grid.Row="4" Margin="0,14,0,0" FontSize="11.5" Foreground="#B0BEC5"
+                       Text="提示：符号链接步骤需要开发者模式或管理员权限（右键“以管理员身份运行”可免去设置）。"/>
+        </Grid>
+
+        <!-- ===== 页 2：参数收集 ===== -->
+        <Grid x:Name="PageParams" Visibility="Collapsed">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <StackPanel>
+                <TextBlock Text="记忆容量" Style="{StaticResource Label}"/>
+                <StackPanel Orientation="Horizontal">
+                    <RadioButton x:Name="Tier1" Content="紧凑（推荐）" GroupName="tier" IsChecked="True" Style="{StaticResource RadioTile}"/>
+                    <RadioButton x:Name="Tier2" Content="标准" GroupName="tier" Style="{StaticResource RadioTile}"/>
+                    <RadioButton x:Name="Tier3" Content="详细" GroupName="tier" Style="{StaticResource RadioTile}"/>
+                </StackPanel>
+                <TextBlock Text="API 地址（服务商控制台的 OpenAI 兼容地址，通常以 /v1 结尾）" Style="{StaticResource Label}"/>
+                <TextBox x:Name="UrlBox" Style="{StaticResource FieldBox}"/>
+                <TextBlock Text="API Key（服务商控制台生成）" Style="{StaticResource Label}"/>
+                <TextBox x:Name="KeyBox" Style="{StaticResource FieldBox}"/>
+                <Grid Margin="0,16,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <Button Grid.Column="0" x:Name="BtnModels" Content="获取模型列表" Style="{StaticResource GhostButton}" Click="BtnModels_Click"/>
+                    <ComboBox Grid.Column="1" x:Name="ModelCombo" Style="{StaticResource FieldCombo}" Margin="12,0,0,0"/>
+                    <Button Grid.Column="2" x:Name="BtnNext" Content="下一步：安装" Style="{StaticResource AccentButton}" Margin="12,0,0,0" Click="BtnNext_Click"/>
+                </Grid>
+                <TextBlock x:Name="ParamStatus" Margin="0,12,0,0" FontSize="12.5" Foreground="#78909C"/>
+            </StackPanel>
+        </Grid>
+
+        <!-- ===== 页 3：安装进行中 ===== -->
+        <Grid x:Name="PageInstall" Visibility="Collapsed">
+            <StackPanel VerticalAlignment="Center">
+                <TextBlock x:Name="InstallTitle" Text="正在安装……" FontSize="19" FontWeight="SemiBold" Foreground="#0F172A"/>
+                <ProgressBar x:Name="InstallBar" Height="8" Minimum="0" Maximum="100" Margin="0,20,0,6"/>
+                <TextBlock x:Name="InstallDetail" FontSize="12" Foreground="#90A4AE" TextWrapping="Wrap" MaxHeight="180"/>
+            </StackPanel>
+        </Grid>
+
+        <!-- ===== 页 4：微信扫码 ===== -->
+        <Grid x:Name="PageQr" Visibility="Collapsed">
+            <StackPanel VerticalAlignment="Center">
+                <TextBlock Text="连接微信" FontSize="19" FontWeight="SemiBold" Foreground="#0F172A"/>
+                <TextBlock x:Name="QrStatus" Style="{StaticResource Body}" Margin="0,14,0,0"
+                           Text="正在拉起微信接入……浏览器将自动打开二维码页面，请用微信扫码并确认。"/>
+                <TextBlock x:Name="QrHint" Style="{StaticResource Body}" Foreground="#90A4AE"/>
+                <StackPanel Orientation="Horizontal" Margin="0,22,0,0">
+                    <Button x:Name="BtnQrRetry" Content="重新拉起二维码" Style="{StaticResource GhostButton}" Visibility="Collapsed" Click="BtnQrRetry_Click"/>
+                    <Button x:Name="BtnQrSkip" Content="暂不接入，跳过" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="BtnQrSkip_Click"/>
+                </StackPanel>
+            </StackPanel>
+        </Grid>
+
+        <!-- ===== 页 5：完成 ===== -->
+        <Grid x:Name="PageDone" Visibility="Collapsed">
+            <StackPanel VerticalAlignment="Center">
+                <TextBlock Text="安装完成" FontSize="26" FontWeight="Bold" Foreground="#0F172A"/>
+                <TextBlock x:Name="DoneText" Style="{StaticResource Body}" Margin="0,16,0,0" LineHeight="22"/>
+                <StackPanel Orientation="Horizontal" Margin="0,26,0,0">
+                    <Button x:Name="BtnGuide" Content="打开使用文档" Style="{StaticResource GhostButton}" Click="BtnGuide_Click"/>
+                    <Button Content="完成" Style="{StaticResource AccentButton}" Margin="14,0,0,0" Click="BtnFinish_Click"/>
+                </StackPanel>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>
