@@ -23,21 +23,28 @@ namespace HerMemory
         public static bool Installed =>
             File.Exists(Path.Combine(HermesHome, "bin", "hermes.exe"));
 
+        /// <summary>统一构造 hermes 进程：NO_COLOR 关颜色码（URL 提取与关键词答题都依赖干净输出）。</summary>
+        private static ProcessStartInfo HermsPsi(string args)
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = HermsExe,
+                Arguments = args,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+            };
+            psi.EnvironmentVariables["NO_COLOR"] = "1";
+            return psi;
+        }
+
         /// <summary>gateway 原始状态输出。注意停止时输出为 "✗ Gateway is not running"——包含 "running"。</summary>
         public static string RawStatus(int timeoutSec = 15)
         {
             try
             {
-                var psi = new ProcessStartInfo
-                {
-                    FileName = HermsExe,
-                    Arguments = "gateway status",
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true,
-                };
-                using var p = Process.Start(psi)!;
+                using var p = Process.Start(HermsPsi("gateway status"))!;
                 var so = p.StandardOutput.ReadToEnd();
                 var se = p.StandardError.ReadToEnd();
                 p.WaitForExit(timeoutSec * 1000);
@@ -59,16 +66,7 @@ namespace HerMemory
         {
             try
             {
-                var psi = new ProcessStartInfo
-                {
-                    FileName = HermsExe,
-                    Arguments = args,
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true,
-                };
-                using var p = Process.Start(psi)!;
+                using var p = Process.Start(HermsPsi(args))!;
                 var so = p.StandardOutput.ReadToEnd();
                 var se = p.StandardError.ReadToEnd();
                 p.WaitForExit(timeoutSec * 1000);

@@ -54,11 +54,15 @@ namespace HerMemory
         // ================= 主界面（托盘模式日常页） =================
         private System.Windows.Threading.DispatcherTimer? _homeTimer;
 
-        public void StartHomeLoop()
+        /// <summary>托盘模式点"安装向导"：回向导首页重跑预检（本机已装时多步会自动跳过）。</summary>
+        public void GoWelcome()
         {
-            _homeTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
-            _homeTimer.Tick += async (_, _) => UpdateHomeStatus(await Task.Run(HermesCtl.State));
-            _homeTimer.Start();
+            ShowFromTray();
+            ShowPage("PageWelcome");
+            PrecheckStatus.Text = "正在检查环境……";
+            PrecheckStatus.Foreground = Brush("#78909C");
+            BtnStart.IsEnabled = false;
+            _ = RunPrecheckAsync();
         }
 
         public void UpdateHomeStatus(string state)
@@ -454,32 +458,37 @@ namespace HerMemory
                     CreateNoWindow = true,
                     StandardOutputEncoding = Encoding.UTF8,
                 };
+                psi.EnvironmentVariables["NO_COLOR"] = "1"; // 颜色码会污染 URL 提取与关键词答题
                 using var p = Process.Start(psi)!;
                 StdinWriter = p.StandardInput;
                 StdinWriter.AutoFlush = true;
                 var readerTask = Task.Run(() =>
                 {
-                    while (!p.StandardOutput.EndOfStream)
+                    try
                     {
-                        var line = p.StandardOutput.ReadLine();
-                        if (line == null) break;
-                        // 自动开浏览器：提取二维码链接
-                        var idx = line.IndexOf("https://liteapp.weixin.qq.com", StringComparison.OrdinalIgnoreCase);
-                        if (!urlOpened && idx >= 0)
+                        while (!p.StandardOutput.EndOfStream)
                         {
-                            var url = line[idx..].Trim();
-                            var end = url.IndexOfAny(new[] { ' ', '\t', ')' });
-                            if (end > 0) url = url[..end];
-                            try
+                            var line = p.StandardOutput.ReadLine();
+                            if (line == null) break;
+                            // 自动开浏览器：提取二维码链接
+                            var idx = line.IndexOf("https://liteapp.weixin.qq.com", StringComparison.OrdinalIgnoreCase);
+                            if (!urlOpened && idx >= 0)
                             {
-                                Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
-                                urlOpened = true;
-                                SetQr("二维码已在浏览器打开——请用微信扫码并确认（约 8 分钟内有效）。");
+                                var url = line[idx..].Trim();
+                                var end = url.IndexOfAny(new[] { ' ', '\t', ')', '\x1b' });
+                                if (end > 0) url = url[..end];
+                                try
+                                {
+                                    Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+                                    urlOpened = true;
+                                    SetQr("二维码已在浏览器打开——请用微信扫码并确认（约 8 分钟内有效）。");
+                                }
+                                catch { }
                             }
-                            catch { }
+                            FeedWizardAnswer(line);
                         }
-                        FeedWizardAnswer(line);
                     }
+                    catch { }
                 });
                 _ = Task.Run(() => { try { p.StandardError.ReadToEnd(); } catch { } });
 

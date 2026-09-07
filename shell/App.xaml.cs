@@ -70,10 +70,8 @@ namespace HerMemory
                 _wizard.Closed += (_, _) => _wizard = null;
                 _wizard.Show();
             }
-            else
-            {
-                _wizard.ShowFromTray();
-            }
+            else if (_wizard.HomeMode) _wizard.GoWelcome();
+            else _wizard.ShowFromTray();
         }
 
         protected override void OnExit(ExitEventArgs e)
