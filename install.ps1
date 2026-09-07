@@ -257,6 +257,14 @@ while ($true) {
 # 双保险：确认两项确实落在 .env（个别环境 config set 会静默漏写 base_url）
 if (-not (Select-String -Path "$HermesHome\.env" -Pattern "^OPENAI_BASE_URL=" -Quiet)) { Add-Content -Path "$HermesHome\.env" -Value "OPENAI_BASE_URL=$provBase" }
 if (-not (Select-String -Path "$HermesHome\.env" -Pattern "^OPENAI_API_KEY=" -Quiet)) { Add-Content -Path "$HermesHome\.env" -Value "OPENAI_API_KEY=$apiKey" }
+# 双保险 2：config 的 model.base_url 出厂默认指向 openrouter，必须改成本端点，否则路由走错门
+& hermes config set model.base_url $provBase | Out-Null
+$cfgPath = Join-Path $HermesHome "config.yaml"
+if (-not (Select-String -Path $cfgPath -Pattern ([regex]::Escape($provBase)) -Quiet)) {
+    $cfgText = Get-Content $cfgPath -Raw
+    $cfgText = $cfgText -replace "(?m)^(\s*base_url:).*$", ("`$1 " + $provBase)
+    Set-Content -Path $cfgPath -Value $cfgText -Encoding UTF8 -NoNewline
+}
 Ok "配置完成（模型：$provModel）"
 Mark-Done "config-ai"
 }

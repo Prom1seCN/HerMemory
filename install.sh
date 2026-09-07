@@ -300,6 +300,9 @@ hermes config set model "$PROV_MODEL" >/dev/null
 # 双保险：确认两项确实落在 .env
 grep -q "^OPENAI_BASE_URL=" "$HERMES_HOME/.env" 2>/dev/null || echo "OPENAI_BASE_URL=$PROV_BASE" >> "$HERMES_HOME/.env"
 grep -q "^OPENAI_API_KEY="  "$HERMES_HOME/.env" 2>/dev/null || echo "OPENAI_API_KEY=$API_KEY"  >> "$HERMES_HOME/.env"
+# 双保险 2：config 的 model.base_url 出厂默认指向 openrouter，必须改成本端点
+hermes config set model.base_url "$PROV_BASE" >/dev/null 2>&1
+grep -q "$PROV_BASE" "$HERMES_HOME/config.yaml" 2>/dev/null || sed -i "0,/^\(  base_url:\).*/s//\1 $PROV_BASE/" "$HERMES_HOME/config.yaml"
 ok "配置完成（模型：$PROV_MODEL）"
 mark_done config-ai
 fi
