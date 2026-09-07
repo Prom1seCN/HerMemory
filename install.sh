@@ -184,7 +184,7 @@ if done_step memory-tier; then
     log "记忆档位：已完成（断点跳过）"
 else
 log "MEMORY/USER容量设置"
-echo "tips：高档会提升AI记忆力，但可能降低专注度"
+echo "提升容量会增强AI记忆力，但可能降低专注度，建议选择1-2档"
 echo "  1.紧凑：2200/1375 [默认]"
 echo "  2.标准：5000/3000"
 echo "  3.详细：10000/5000"
