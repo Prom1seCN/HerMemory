@@ -293,11 +293,9 @@ while true; do
     warn "序号无效——重新选择"
 done
 
-PROV_NAME="custom"
-hermes config set custom_providers.$PROV_NAME.base_url "$PROV_BASE" >/dev/null
-hermes config set custom_providers.$PROV_NAME.api_mode chat_completions >/dev/null
-hermes config set custom_providers.$PROV_NAME.model "$PROV_MODEL" >/dev/null
-hermes config set custom_providers.$PROV_NAME.api_key "$API_KEY" >/dev/null
+# 上游机制：自定义 OpenAI 兼容端点 = .env 的 OPENAI_BASE_URL / OPENAI_API_KEY（key 只进 .env，config 只存模型名）
+hermes config set OPENAI_BASE_URL "$PROV_BASE" >/dev/null
+hermes config set OPENAI_API_KEY "$API_KEY" >/dev/null
 hermes config set model "$PROV_MODEL" >/dev/null
 ok "配置完成（模型：$PROV_MODEL）"
 mark_done config-ai
