@@ -263,8 +263,7 @@ while true; do
 
     log "第二步：验证 API Key（输入 1 返回上一步）"
     echo ""
-    read -rsp "请输入 API Key（输入可能不显示）: " API_KEY
-    echo ""
+    read -rp "请输入 API Key: " API_KEY
     echo ""
     API_KEY=$(printf '%s' "$API_KEY" | LC_ALL=C tr -d '\000-\040\177-\377')
     if [ "$API_KEY" = "1" ]; then AT_URL=1; continue; fi

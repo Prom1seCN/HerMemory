@@ -223,12 +223,9 @@ while ($true) {
 
     Log "第二步：验证 API Key（输入 1 返回上一步）"
     Write-Host ""
-    $secKey = Read-Host -AsSecureString "请输入 API Key（输入可能不显示）"
+    $apiKey = (Read-Host "请输入 API Key").Trim()
     Write-Host ""
-    $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secKey)
-    $apiKey = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr).Trim()
     $apiKey = ($apiKey -replace "[^\x21-\x7E]", "")
-    [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
     if ($apiKey -eq "1") { $atUrl = $true; continue }
     if (-not $apiKey) { Warn "key 不能为空——重新输入"; continue }
 
