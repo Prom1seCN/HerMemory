@@ -15,8 +15,6 @@ param(
 
 # 控制台代码页自愈：系统全局 UTF-8（CP65001）下 PS5.1 会双写中文——无论从 bat 还是直接跑本脚本，先归位 GBK
 try { & chcp.com 936 2>$null | Out-Null } catch {}
-    [switch]$SkipUpstream
-)
 
 $ErrorActionPreference = "Stop"
 # 境内服务商普遍要求 TLS 1.2+；Windows 自带 PS 5.1 默认协商老协议，不强制会连不上
