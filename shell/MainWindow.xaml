@@ -33,8 +33,7 @@
         <!-- ===== 主界面（托盘模式的日常页） ===== -->
         <Grid x:Name="PageHome" Visibility="Collapsed">
             <StackPanel VerticalAlignment="Center">
-                <TextBlock Text="HerMemory" Style="{StaticResource H1}"/>
-                <TextBlock Style="{StaticResource Slogan}">Your memory.<LineBreak/>Memory that grows with you.</TextBlock>
+                <TextBlock FontSize="32" FontWeight="Bold" Foreground="#0F172A">HerMemory. <Run Foreground="#0E7490">Your memory.</Run><LineBreak/><Run FontSize="17" FontStyle="Italic" Foreground="#0E7490">&#12288;&#12288;Memory that grows with you.</Run></TextBlock>
                 <TextBlock x:Name="HomeStatus" Margin="0,22,0,0" FontSize="15" FontWeight="SemiBold" Foreground="#0F172A" Text="正在检查网关状态……"/>
                 <TextBlock Style="{StaticResource Body}" Margin="0,6,0,0" Text="AI 的对话走微信；关机或停止网关后它不在线，启动即回来。"/>
                 <StackPanel Orientation="Horizontal" Margin="0,22,0,0">
@@ -56,8 +55,7 @@
                 <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/>
                 <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
-            <TextBlock Grid.Row="0" Text="HerMemory" Style="{StaticResource H1}"/>
-            <TextBlock Grid.Row="1" Style="{StaticResource Slogan}">Your memory.<LineBreak/>Memory that grows with you.</TextBlock>
+            <TextBlock Grid.Row="0" FontSize="32" FontWeight="Bold" Foreground="#0F172A">HerMemory. <Run Foreground="#0E7490">Your memory.</Run><LineBreak/><Run FontSize="17" FontStyle="Italic" Foreground="#0E7490">&#12288;&#12288;Memory that grows with you.</Run></TextBlock>
             <StackPanel Grid.Row="2" Margin="0,22,0,0" VerticalAlignment="Top">
                 <TextBlock Style="{StaticResource Body}" Text="即将安装：Hermes 内核（约 5-10 分钟，需联网）+ 记忆库 + 微信接入。"/>
                 <TextBlock Style="{StaticResource Body}" Text="安装完成后，AI 直接出现在你的微信里；你的全部记忆是纯文本文件，随时可看可改可带走。"/>
