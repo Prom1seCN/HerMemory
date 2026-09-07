@@ -648,6 +648,146 @@ namespace HerMemory
 
         private void BtnFinish_Click(object sender, RoutedEventArgs e) => Close();
 
+        // ================= 卸载 =================
+        private static string VaultDir => Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "vault");
+
+        private void BtnUninstall_Click(object sender, RoutedEventArgs e)
+        {
+            _homeTimer?.Stop();
+            ShowPage("PageUninstall");
+        }
+
+        private void BtnUninsCancel_Click(object sender, RoutedEventArgs e)
+        {
+            UninsBar.Visibility = Visibility.Collapsed;
+            ShowPage(HomeMode ? "PageHome" : "PageWelcome");
+            if (HomeMode) UpdateHomeStatus(HermesCtl.State());
+        }
+
+        private void BtnUninsRun_Click(object sender, RoutedEventArgs e)
+        {
+            var delVault = UninsVault.IsChecked == true;
+            var delExe = UninsExe.IsChecked == true;
+            if (delVault)
+            {
+                var r = System.Windows.MessageBox.Show(this,
+                    "最后确认：删除整个 vault？\n\n里面是你的全部文档与 AI 记忆，删除后不可恢复。",
+                    "删除 vault", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
+                if (r != MessageBoxResult.Yes) { UninsVault.IsChecked = false; return; }
+            }
+            BtnUninsRun.IsEnabled = false;
+            BtnUninsCancel.IsEnabled = false;
+            UninsBar.Visibility = Visibility.Visible;
+            UninsBar.Value = 2;
+            _ = Task.Run(() => DoUninstall(delVault, delExe));
+        }
+
+        private void SetUnins(string text, int? pct = null) => Dispatcher.Invoke(() =>
+        {
+            UninsStatus.Text = text;
+            if (pct.HasValue) UninsBar.Value = pct.Value;
+        });
+
+        private void DoUninstall(bool delVault, bool delExe)
+        {
+            SetUnins("停止网关……", 5);
+            HermesCtl.Run("gateway stop", 60);
+
+            SetUnins("移除登录项与计划任务……", 15);
+            try
+            {
+                var vbs = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                    "Microsoft", "Windows", "Start Menu", "Programs", "Startup", "Hermes_Gateway.vbs");
+                if (File.Exists(vbs)) File.Delete(vbs);
+            }
+            catch { }
+            try
+            {
+                var q = HermesCtl.RunCaptureRaw("schtasks", "/Query /FO LIST", 30) ?? "";
+                foreach (System.Text.RegularExpressions.Match m in
+                    System.Text.RegularExpressions.Regex.Matches(q, @"TaskName:\s*(\S*hermes\S*)", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                {
+                    HermesCtl.RunCaptureRaw("schtasks", $"/Delete /TN \"{m.Groups[1].Value}\" /F", 30);
+                }
+            }
+            catch { }
+
+            SetUnins("移除开机自启与偏好设置……", 25);
+            try
+            {
+                using (var k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run", true))
+                    k?.DeleteValue("HerMemory", false);
+                Microsoft.Win32.Registry.CurrentUser.DeleteSubKeyTree(@"Software\HerMemory", false);
+            }
+            catch { }
+
+            SetUnins("移除注入槽位……", 35);
+            try
+            {
+                var slot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".hermes.md");
+                if (File.Exists(slot) && ((new FileInfo(slot).Attributes & FileAttributes.ReparsePoint) != 0
+                    || new FileInfo(slot).Length == 0)) File.Delete(slot);
+            }
+            catch { }
+
+            var hh = HermesCtl.HermesHome;
+            if (Directory.Exists(hh))
+            {
+                var tops = Directory.GetFileSystemEntries(hh);
+                for (int i = 0; i < tops.Length; i++)
+                {
+                    SetUnins($"移除内核与配置（{i + 1}/{tops.Length}）……", 35 + (int)(45.0 * (i + 1) / tops.Length));
+                    try
+                    {
+                        if (Directory.Exists(tops[i])) Directory.Delete(tops[i], true);
+                        else File.Delete(tops[i]);
+                    }
+                    catch { }
+                }
+                try { Directory.Delete(hh, true); } catch { }
+            }
+
+            var pct = 80;
+            if (delVault)
+            {
+                SetUnins("删除 vault……", pct);
+                try { if (Directory.Exists(VaultDir)) Directory.Delete(VaultDir, true); } catch { }
+                pct = 92;
+            }
+
+            if (delExe)
+            {
+                // 自删：进程退出后由 cmd 延迟删除 exe 自身
+                var exe = Environment.ProcessPath;
+                if (exe != null && File.Exists(exe))
+                {
+                    try
+                    {
+                        Process.Start(new ProcessStartInfo("cmd.exe",
+                            $"/c ping -n 3 127.0.0.1 > nul & del /f /q \"{exe}\"")
+                        { CreateNoWindow = true, UseShellExecute = false });
+                    }
+                    catch { }
+                }
+            }
+
+            SetUnins("卸载完成。", 100);
+            Dispatcher.Invoke(() =>
+            {
+                UninsStatus.Text = delExe ? "卸载完成——本程序文件也将被移除。" : "卸载完成。已移除全部软件痕迹。" + (delVault ? "" : "（vault 已保留）");
+                BtnUninsClose.Visibility = Visibility.Visible;
+            });
+        }
+
+        private void BtnUninsDone_Click(object sender, RoutedEventArgs e) => App.RequestExit();
+
+        public void ShowUninstall()
+        {
+            _homeTimer?.Stop();
+            ShowPage("PageUninstall");
+        }
+
         // ================= 工具 =================
         private static string CleanAscii(string s) =>
             new string(s.Where(c => c >= 0x21 && c <= 0x7E).ToArray());

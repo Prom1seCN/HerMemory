@@ -32,6 +32,7 @@ namespace HerMemory
                 _tray = new TrayService();
                 _tray.OpenWizard += () => Dispatcher.Invoke(ShowWizard);
                 _tray.OpenMain += () => Dispatcher.Invoke(ShowMain);
+                _tray.OpenUninstall += () => Dispatcher.Invoke(ShowUninstall);
                 _wizard = new MainWindow { HomeMode = true };
                 _wizard.Closed += (_, _) => _wizard = null;
                 _tray.StatusChanged += (state, _) => Dispatcher.Invoke(() => _wizard?.UpdateHomeStatus(state));
@@ -47,6 +48,18 @@ namespace HerMemory
         {
             if (_wizard != null) _wizard.ShowFromTray();
             else ShowWizard();
+        }
+
+        private void ShowUninstall()
+        {
+            if (_wizard == null)
+            {
+                _wizard = new MainWindow { HomeMode = true };
+                _wizard.Closed += (_, _) => _wizard = null;
+                _wizard.Show();
+            }
+            else _wizard.ShowFromTray();
+            _wizard.ShowUninstall();
         }
 
         private void ShowWizard()

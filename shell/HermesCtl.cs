@@ -77,6 +77,29 @@ namespace HerMemory
             catch { return ""; }
         }
 
+        /// <summary>任意命令捕获（卸载器用：schtasks 等）。</summary>
+        public static string? RunCaptureRaw(string exe, string args, int timeoutSec)
+        {
+            try
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = exe,
+                    Arguments = args,
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true,
+                };
+                using var p = Process.Start(psi)!;
+                var so = p.StandardOutput.ReadToEnd();
+                var se = p.StandardError.ReadToEnd();
+                p.WaitForExit(timeoutSec * 1000);
+                return so + se;
+            }
+            catch { return null; }
+        }
+
         public static bool EnvHasWeixin()
         {
             try

@@ -24,6 +24,8 @@ namespace HerMemory
         public event Action? OpenMain;
         /// <summary>菜单点"安装向导"。</summary>
         public event Action? OpenWizard;
+        /// <summary>菜单点"卸载"。</summary>
+        public event Action? OpenUninstall;
 
         private string LogsDir => HermesCtl.LogsDir;
 
@@ -47,6 +49,7 @@ namespace HerMemory
             });
             var miMain = new System.Windows.Forms.ToolStripMenuItem("打开主界面", null, (_, _) => OpenMain?.Invoke());
             var miWizard = new System.Windows.Forms.ToolStripMenuItem("安装向导…", null, (_, _) => OpenWizard?.Invoke());
+            var miUnins = new System.Windows.Forms.ToolStripMenuItem("卸载…", null, (_, _) => OpenUninstall?.Invoke());
             var miAuto = new System.Windows.Forms.ToolStripMenuItem("开机自启", null, (_, _) => ToggleAutostart())
             {
                 CheckOnClick = true,
@@ -66,6 +69,7 @@ namespace HerMemory
             _menu.Items.Add(miLogs);
             _menu.Items.Add(miMain);
             _menu.Items.Add(miWizard);
+            _menu.Items.Add(miUnins);
             _menu.Items.Add(miAuto);
             _menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
             _menu.Items.Add(miExit);

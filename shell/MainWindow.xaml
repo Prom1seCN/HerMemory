@@ -1,4 +1,4 @@
-<Window x:Class="HerMemory.MainWindow"
+﻿<Window x:Class="HerMemory.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="HerMemory" Height="600" Width="800"
@@ -65,6 +65,7 @@
             <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,0,0,0">
                 <Button x:Name="BtnStart" Content="开始安装" Style="{StaticResource AccentButton}" IsEnabled="False" Click="BtnStart_Click"/>
                 <Button Content="查看安装说明" Style="{StaticResource GhostButton}" Margin="14,0,0,0" Click="BtnDocs_Click"/>
+                <Button Content="卸载 HerMemory" Style="{StaticResource GhostButton}" Margin="14,0,0,0" Click="BtnUninstall_Click"/>
             </StackPanel>
             <TextBlock Grid.Row="4" Margin="0,14,0,0" FontSize="11.5" Foreground="#B0BEC5"
                        Text="提示：符号链接步骤需要开发者模式或管理员权限（右键“以管理员身份运行”可免去设置）。"/>
@@ -118,6 +119,28 @@
                     <Button x:Name="BtnQrRetry" Content="重新拉起二维码" Style="{StaticResource GhostButton}" Visibility="Collapsed" Click="BtnQrRetry_Click"/>
                     <Button x:Name="BtnQrSkip" Content="暂不接入，跳过" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="BtnQrSkip_Click"/>
                 </StackPanel>
+            </StackPanel>
+        </Grid>
+
+        <!-- ===== 页 6：卸载 ===== -->
+        <Grid x:Name="PageUninstall" Visibility="Collapsed">
+            <StackPanel>
+                <TextBlock Text="卸载 HerMemory" FontSize="22" FontWeight="Bold" Foreground="#0F172A"/>
+                <TextBlock Style="{StaticResource Body}" Margin="0,14,0,0"
+                           Text="将移除：Hermes 内核与全部配置（%LOCALAPPDATA%\hermes）、微信接入凭据、gateway 计划任务与登录项、托盘开机自启注册表、偏好设置。网关会先停止。"/>
+                <TextBlock Style="{StaticResource Body}" Foreground="#C62828" Margin="0,10,0,0"
+                           Text="注意：vault（你的文档与记忆）默认保留——那是你的资产，与本软件无关。"/>
+                <CheckBox x:Name="UninsVault" Content="同时删除 vault（你的文档与记忆，全部抹除，不可恢复）"
+                          Margin="0,14,0,0" FontSize="13" Foreground="#C62828"/>
+                <CheckBox x:Name="UninsExe" Content="同时删除本程序文件（HerMemory.exe 自身）"
+                          Margin="0,8,0,0" FontSize="13"/>
+                <StackPanel Orientation="Horizontal" Margin="0,22,0,0">
+                    <Button x:Name="BtnUninsRun" Content="执行卸载" Style="{StaticResource AccentButton}" Background="#C62828" Click="BtnUninsRun_Click"/>
+                    <Button x:Name="BtnUninsCancel" Content="取消" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="BtnUninsCancel_Click"/>
+                </StackPanel>
+                <TextBlock x:Name="UninsStatus" Style="{StaticResource Body}" Margin="0,16,0,0"/>
+                <ProgressBar x:Name="UninsBar" Height="8" Minimum="0" Maximum="100" Margin="0,10,0,0" Visibility="Collapsed"/>
+                <Button x:Name="BtnUninsClose" Content="退出" Style="{StaticResource AccentButton}" Margin="0,18,0,0" Visibility="Collapsed" Click="BtnUninsDone_Click"/>
             </StackPanel>
         </Grid>
 
