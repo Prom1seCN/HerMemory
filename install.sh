@@ -182,68 +182,75 @@ hermes config set memory.memory_char_limit "$MEM_LIMIT"  >/dev/null
 hermes config set memory.user_char_limit   "$USER_LIMIT" >/dev/null
 ok "记忆档位：MEMORY $MEM_LIMIT / USER $USER_LIMIT 字符（随时改档：bash memory-size.sh）"
 
-# ---------- 9.5 配置 AI（用户流程 2：填 API 地址 + key，现场选模型；完成后 AI 上线，脚本下线） ----------
-log "配置 AI（API 地址 + API key）"
+# ---------- 9.5/9.6 配置 AI（用户流程 2：填地址+key，失败可重输；验活通过才写配置，完成后 AI 上线） ----------
+log "配置 AI（API 地址 + API key，输错可重输；不想装了按 Ctrl+C 退出）"
 echo "还没有 key？先去领免费额度（浏览器操作，详见 docs/INSTALL.md）："
 echo "  阿里云百炼 https://bailian.console.aliyun.com ｜ 腾讯云混元 https://console.cloud.tencent.com/hunyuan ｜ 硅基流动 https://cloud.siliconflow.cn"
-echo ""
-read -rp "API 地址（服务商控制台提供，一般以 /v1 结尾）: " PROV_BASE
-[[ "$PROV_BASE" =~ ^https?:// ]] || die "API 地址要以 http(s):// 开头"
-read -rsp "API key（输入不会显示在屏幕上）: " API_KEY
-echo ""
-[ -n "$API_KEY" ] || die "key 不能为空"
-
-# 模型现场选：拉该地址的实时模型列表，用户选一个——型号下架/升级都不影响（列表拉不到才手填）
-PROV_NAME="custom"
-log "获取可用模型列表……"
-MODELS_JSON=$(curl -s --max-time 15 "$PROV_BASE/models" -H "Authorization: Bearer $API_KEY" || true)
-PROV_MODEL=""
-if echo "$MODELS_JSON" | grep -q '"id"'; then
-    mapfile -t MODEL_LIST < <(echo "$MODELS_JSON" | grep -o '"id" *: *"[^"]*"' | sed 's/.*"id" *: *"//;s/"$//')
-    if [ ${#MODEL_LIST[@]} -gt 0 ]; then
-        i=1
-        for m in "${MODEL_LIST[@]}"; do echo "  [$i] $m"; i=$((i+1)); done
-        read -rp "选默认模型序号 [1]: " MODEL_PICK
-        MODEL_PICK="${MODEL_PICK:-1}"
-        [[ "$MODEL_PICK" =~ ^[0-9]+$ ]] && [ "$MODEL_PICK" -ge 1 ] && [ "$MODEL_PICK" -le ${#MODEL_LIST[@]} ] \
-            || die "序号无效"
-        PROV_MODEL="${MODEL_LIST[$((MODEL_PICK-1))]}"
+while true; do
+    read -rp "API 地址（服务商控制台提供，一般以 /v1 结尾）: " PROV_BASE
+    if [[ "$PROV_BASE" =~ ^https?:// ]]; then
+        PROV_BASE="${PROV_BASE%/}"
     else
-        read -rp "列表为空——手动输入模型名: " PROV_MODEL
+        warn "API 地址要以 http(s):// 开头——重新输入"; continue
     fi
-else
-    read -rp "列表拉取失败（服务商可能不支持）——手动输入模型名: " PROV_MODEL
-fi
-[ -n "$PROV_MODEL" ] || die "模型名不能为空"
+    read -rsp "API key（输入不会显示在屏幕上）: " API_KEY
+    echo ""
+    [ -n "$API_KEY" ] || { warn "key 不能为空——重新输入"; continue; }
 
-# 写入走上游原生机制：custom_providers 四件套 + 设为主模型（与 _model_flow_custom 落盘结构一致）
+    PROV_NAME="custom"
+    log "获取可用模型列表……"
+    MODELS_JSON=$(curl -s --max-time 15 "$PROV_BASE/models" -H "Authorization: Bearer $API_KEY" || true)
+    PROV_MODEL=""
+    if echo "$MODELS_JSON" | grep -q '"id"'; then
+        mapfile -t MODEL_LIST < <(echo "$MODELS_JSON" | grep -o '"id" *: *"[^"]*"' | sed 's/.*"id" *: *"//;s/"$//')
+        if [ ${#MODEL_LIST[@]} -gt 0 ]; then
+            i=1
+            for m in "${MODEL_LIST[@]}"; do echo "  [$i] $m"; i=$((i+1)); done
+            read -rp "选默认模型序号 [1]: " MODEL_PICK
+            MODEL_PICK="${MODEL_PICK:-1}"
+            if [[ "$MODEL_PICK" =~ ^[0-9]+$ ]] && [ "$MODEL_PICK" -ge 1 ] && [ "$MODEL_PICK" -le ${#MODEL_LIST[@]} ]; then
+                PROV_MODEL="${MODEL_LIST[$((MODEL_PICK-1))]}"
+            else
+                warn "序号无效——重新输入"; continue
+            fi
+        else
+            read -rp "列表为空——手动输入模型名: " PROV_MODEL
+        fi
+    else
+        read -rp "列表拉取失败（服务商可能不支持）——手动输入模型名: " PROV_MODEL
+    fi
+    [ -n "$PROV_MODEL" ] || { warn "模型名不能为空——重新输入"; continue; }
+
+    log "正在测试连通……"
+    HTTP_CODE=$(curl -s --max-time 20 -o /tmp/hm_probe.json -w "%{http_code}" \
+        "$PROV_BASE/chat/completions" \
+        -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
+        -d "{\"model\":\"$PROV_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":8}" || echo 000)
+    if [ "$HTTP_CODE" = "200" ] && grep -q "choices" /tmp/hm_probe.json 2>/dev/null; then
+        rm -f /tmp/hm_probe.json
+        ok "通了，额度可用（模型：$PROV_MODEL）"
+        break
+    fi
+    case "$HTTP_CODE" in
+        401)      warn "key 不对，检查有没有粘全" ;;
+        404)      warn "地址不对（检查是否以 /v1 结尾）" ;;
+        429|403)  warn "额度不可用（余额为零或未领取免费额度）" ;;
+        000)      warn "连不上服务商（网络问题）" ;;
+        400|500)  grep -qi "model" /tmp/hm_probe.json 2>/dev/null \
+                      && warn "所选模型不可用（换一个型号试试）" \
+                      || warn "验活失败（HTTP $HTTP_CODE）——检查 key 与地址" ;;
+        *)        warn "验活失败（HTTP $HTTP_CODE）——检查 key 与地址" ;;
+    esac
+    rm -f /tmp/hm_probe.json
+    warn "——重新输入（不想装了按 Ctrl+C 退出）"
+done
+
+# 验活通过才写配置（上游原生机制：custom_providers 四件套 + 设为主模型，与 _model_flow_custom 落盘结构一致）
 hermes config set custom_providers.$PROV_NAME.base_url "$PROV_BASE" >/dev/null
 hermes config set custom_providers.$PROV_NAME.api_mode chat_completions >/dev/null
 hermes config set custom_providers.$PROV_NAME.model "$PROV_MODEL" >/dev/null
 hermes config set custom_providers.$PROV_NAME.api_key "$API_KEY" >/dev/null
 hermes config set model "$PROV_MODEL" >/dev/null
-# ---------- 9.6 验活（纯脚本护城河：坏 key 绝不交给 AI） ----------
-log "正在测试连通……"
-HTTP_CODE=$(curl -s --max-time 20 -o /tmp/hm_probe.json -w "%{http_code}" \
-    "$PROV_BASE/chat/completions" \
-    -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
-    -d "{\"model\":\"$PROV_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":8}" || echo 000)
-if [ "$HTTP_CODE" = "200" ] && grep -q "choices" /tmp/hm_probe.json 2>/dev/null; then
-    rm -f /tmp/hm_probe.json
-    ok "通了，额度可用（模型：$PROV_MODEL）"
-else
-    rm -f /tmp/hm_probe.json
-    case "$HTTP_CODE" in
-        401) die "key 不对，检查有没有粘全" ;;
-        404) die "地址不对（检查是否以 /v1 结尾）" ;;
-        429|403) die "额度不可用（余额为零或未领取免费额度）" ;;
-        000) die "连不上服务商（网络问题），稍后重跑 install.sh 或手动跑 hermes setup" ;;
-        400|500) grep -qi "model" /tmp/hm_probe.json 2>/dev/null \
-            && die "所选模型不可用（已下架？）——重跑 install.sh 重新选模型，或手动换一个型号" \
-            || die "验活失败（HTTP $HTTP_CODE）——检查 key 与地址，或改用 hermes setup 官方向导" ;;
-        *) die "验活失败（HTTP $HTTP_CODE）——检查 key 与地址，或改用 hermes setup 官方向导" ;;
-    esac
-fi
 
 # ---------- 10. gateway 服务（消息通道 + cron） ----------
 if hermes gateway install >/dev/null 2>&1; then

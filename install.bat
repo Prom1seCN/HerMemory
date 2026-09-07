@@ -1,5 +1,4 @@
 @echo off
-chcp 65001 >nul
 echo ============================================
 echo   HerMemory installer (Windows)
 echo   Details: docs\INSTALL.md

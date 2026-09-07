@@ -14,6 +14,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+# 境内服务商普遍要求 TLS 1.2+；Windows 自带 PS 5.1 默认协商老协议，不强制会连不上
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 $HermesHome = $env:HERMES_HOME; if (-not $HermesHome) { $HermesHome = "$env:LOCALAPPDATA\hermes" }
 $UpstreamRepo = "https://github.com/NousResearch/hermes-agent.git"
 $WebDavPort = 5005
@@ -127,70 +129,72 @@ switch ($choice) {
 & hermes config set memory.user_char_limit $userLimit | Out-Null
 Ok "记忆档位：MEMORY $memLimit / USER $userLimit 字符（随时改档：bash memory-size.sh）"
 
-# ---------- 9.5 配置 AI（用户流程 2：填 API 地址 + key，现场选模型；完成后 AI 上线，脚本下线） ----------
-Log "配置 AI（API 地址 + API key）"
+# ---------- 9.5/9.6 配置 AI（用户流程 2：填地址+key，失败可重输；验活通过才写配置，完成后 AI 上线） ----------
+Log "配置 AI（API 地址 + API key，输错可重输；不想装了直接关窗口）"
 Write-Host "还没有 key？先去领免费额度（浏览器操作，详见 docs\INSTALL.md）："
 Write-Host "  阿里云百炼 https://bailian.console.aliyun.com | 腾讯云混元 https://console.cloud.tencent.com/hunyuan | 硅基流动 https://cloud.siliconflow.cn"
-$provBase = Read-Host "API 地址（服务商控制台提供，一般以 /v1 结尾）"
-if ($provBase -notmatch "^https?://") { Die "API 地址要以 http(s):// 开头" }
-$secKey = Read-Host -AsSecureString "API key（输入不会显示在屏幕上）"
-$bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secKey)
-$apiKey = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
-[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
-if (-not $apiKey) { Die "key 不能为空" }
+while ($true) {
+    $provBase = Read-Host "API 地址（服务商控制台提供，一般以 /v1 结尾）"
+    if ($provBase -notmatch "^https?://") { Warn "API 地址要以 http(s):// 开头——重新输入"; continue }
+    $provBase = $provBase.TrimEnd("/")
+    $secKey = Read-Host -AsSecureString "API key（输入不会显示在屏幕上）"
+    $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secKey)
+    $apiKey = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+    [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+    if (-not $apiKey) { Warn "key 不能为空——重新输入"; continue }
 
-# 模型现场选：拉该地址的实时模型列表，用户选一个——型号下架/升级都不影响（列表拉不到才手填）
-$provName = "custom"
-$provModel = $null
-Log "获取可用模型列表……"
-try { $models = Invoke-RestMethod -Uri "$provBase/models" -Headers @{ Authorization = "Bearer $apiKey" } -TimeoutSec 15 } catch {}
-if ($models -and $models.data) {
-    $ids = @($models.data | ForEach-Object { $_.id })
-    if ($ids.Count -gt 0) {
-        for ($i = 0; $i -lt $ids.Count; $i++) { Write-Host ("  [{0}] {1}" -f ($i + 1), $ids[$i]) }
-        $pick = Read-Host "选默认模型序号 [1]"
-        if (-not $pick) { $pick = "1" }
-        if ($pick -match "^\d+$" -and [int]$pick -ge 1 -and [int]$pick -le $ids.Count) { $provModel = $ids[[int]$pick - 1] }
-        else { Die "序号无效" }
+    $provName = "custom"
+    $provModel = $null
+    Log "获取可用模型列表……"
+    try { $models = Invoke-RestMethod -Uri "$provBase/models" -Headers @{ Authorization = "Bearer $apiKey" } -TimeoutSec 15 } catch {}
+    if ($models -and $models.data) {
+        $ids = @($models.data | ForEach-Object { $_.id })
+        if ($ids.Count -gt 0) {
+            for ($i = 0; $i -lt $ids.Count; $i++) { Write-Host ("  [{0}] {1}" -f ($i + 1), $ids[$i]) }
+            $pick = Read-Host "选默认模型序号 [1]"
+            if (-not $pick) { $pick = "1" }
+            if ($pick -match "^\d+$" -and [int]$pick -ge 1 -and [int]$pick -le $ids.Count) { $provModel = $ids[[int]$pick - 1] }
+            else { Warn "序号无效——重新输入"; continue }
+        } else {
+            $provModel = Read-Host "列表为空——手动输入模型名"
+        }
     } else {
-        $provModel = Read-Host "列表为空——手动输入模型名"
+        $provModel = Read-Host "列表拉取失败（服务商可能不支持）——手动输入模型名"
     }
-} else {
-    $provModel = Read-Host "列表拉取失败（服务商可能不支持）——手动输入模型名"
-}
-if (-not $provModel) { Die "模型名不能为空" }
+    if (-not $provModel) { Warn "模型名不能为空——重新输入"; continue }
 
-# 写入走上游原生机制：custom_providers 四件套 + 设为主模型（与 _model_flow_custom 落盘结构一致）
+    Log "正在测试连通……"
+    $httpCode = 0
+    $respBody = ""
+    $body = '{"model":"' + $provModel + '","messages":[{"role":"user","content":"hi"}],"max_tokens":8}'
+    try {
+        $resp = Invoke-WebRequest -Uri "$provBase/chat/completions" -Method Post -Headers @{ Authorization = "Bearer $apiKey" } -ContentType "application/json" -Body $body -TimeoutSec 20 -UseBasicParsing
+        $httpCode = [int]$resp.StatusCode; $respBody = $resp.Content
+    } catch {
+        if ($_.Exception.Response) { $httpCode = [int]$_.Exception.Response.StatusCode }
+        if ($_.ErrorDetails -and $_.ErrorDetails.Message) { $respBody = $_.ErrorDetails.Message }
+    }
+    if ($httpCode -eq 200 -and $respBody -match "choices") {
+        Ok "通了，额度可用（模型：$provModel）"
+        break
+    }
+    switch ($httpCode) {
+        401 { Warn "key 不对，检查有没有粘全" }
+        404 { Warn "地址不对（检查是否以 /v1 结尾）" }
+        { $_ -eq 429 -or $_ -eq 403 } { Warn "额度不可用（余额为零或未领取免费额度）" }
+        0 { Warn "连不上服务商（网络问题）" }
+        { $_ -eq 400 -or $_ -eq 500 } { if ($respBody -match "model") { Warn "所选模型不可用（换一个型号试试）" } else { Warn "验活失败（HTTP $httpCode）——检查 key 与地址" } }
+        default { Warn "验活失败（HTTP $httpCode）——检查 key 与地址" }
+    }
+    Warn "——重新输入（不想装了直接关窗口）"
+}
+
+# 验活通过才写配置（上游原生机制：custom_providers 四件套 + 设为主模型）
 & hermes config set custom_providers.$provName.base_url $provBase | Out-Null
 & hermes config set custom_providers.$provName.api_mode chat_completions | Out-Null
 & hermes config set custom_providers.$provName.model $provModel | Out-Null
 & hermes config set custom_providers.$provName.api_key $apiKey | Out-Null
 & hermes config set model $provModel | Out-Null
-
-# ---------- 9.6 验活（纯脚本护城河：坏 key 绝不交给 AI） ----------
-Log "正在测试连通……"
-$httpCode = 0
-$respBody = ""
-$body = '{"model":"' + $provModel + '","messages":[{"role":"user","content":"hi"}],"max_tokens":8}'
-try {
-    $resp = Invoke-WebRequest -Uri "$provBase/chat/completions" -Method Post -Headers @{ Authorization = "Bearer $apiKey" } -ContentType "application/json" -Body $body -TimeoutSec 20 -UseBasicParsing
-    $httpCode = [int]$resp.StatusCode; $respBody = $resp.Content
-} catch {
-    if ($_.Exception.Response) { $httpCode = [int]$_.Exception.Response.StatusCode }
-    if ($_.ErrorDetails -and $_.ErrorDetails.Message) { $respBody = $_.ErrorDetails.Message }
-}
-if ($httpCode -eq 200 -and $respBody -match "choices") {
-    Ok "通了，额度可用（模型：$provModel）"
-} else {
-    switch ($httpCode) {
-        401 { Die "key 不对，检查有没有粘全" }
-        404 { Die "地址不对（检查是否以 /v1 结尾）" }
-        { $_ -eq 429 -or $_ -eq 403 } { Die "额度不可用（余额为零或未领取免费额度）" }
-        0 { Die "连不上服务商（网络问题），稍后重跑 install.ps1 或手动跑 hermes setup" }
-        { $_ -eq 400 -or $_ -eq 500 } { if ($respBody -match "model") { Die "所选模型不可用（已下架？）——重跑 install.ps1 重新选模型，或手动换一个型号" } else { Die "验活失败（HTTP $httpCode）——检查 key 与地址，或改用 hermes setup 官方向导" } }
-        default { Die "验活失败（HTTP $httpCode）——检查 key 与地址，或改用 hermes setup 官方向导" }
-    }
-}
 
 # ---------- 10. gateway 服务（消息通道 + cron；上游在 Windows 用 schtasks 自启） ----------
 & hermes gateway install 2>$null | Out-Null
