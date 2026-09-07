@@ -134,8 +134,9 @@ namespace HerMemory
             var dlg = new Window
             {
                 Title = "HerMemory",
-                Width = 430,
-                Height = 190,
+                Width = 460,
+                SizeToContent = SizeToContent.Height,
+                MinHeight = 170,
                 WindowStartupLocation = WindowStartupLocation.CenterOwner,
                 Owner = this,
                 ResizeMode = ResizeMode.NoResize,
@@ -173,8 +174,9 @@ namespace HerMemory
                 HorizontalAlignment = System.Windows.HorizontalAlignment.Right,
                 Margin = new Thickness(0, 18, 0, 0),
             };
-            var bTray = new System.Windows.Controls.Button { Content = "最小化到托盘", Style = (Style)Resources["AccentButton"], Padding = new Thickness(18, 8, 18, 8) };
-            var bExit = new System.Windows.Controls.Button { Content = "退出", Style = (Style)Resources["GhostButton"], Margin = new Thickness(12, 0, 0, 0), Padding = new Thickness(18, 8, 18, 8) };
+            var appRes = System.Windows.Application.Current.Resources;
+            var bTray = new System.Windows.Controls.Button { Content = "最小化到托盘", Style = appRes["AccentButton"] as Style, FontSize = 13.5, Padding = new Thickness(18, 8, 18, 8) };
+            var bExit = new System.Windows.Controls.Button { Content = "退出", Style = appRes["GhostButton"] as Style, FontSize = 13.5, Margin = new Thickness(12, 0, 0, 0), Padding = new Thickness(18, 8, 18, 8) };
             bTray.Click += (_, _) => { result = "tray"; dlg.Close(); };
             bExit.Click += (_, _) => { result = "exit"; dlg.Close(); };
             row.Children.Add(bTray);
