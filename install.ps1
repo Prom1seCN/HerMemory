@@ -22,7 +22,7 @@ $WebDavPort = 5005
 $WebDavUser = "hermemory"
 $SRC = Split-Path -Parent $MyInvocation.MyCommand.Path
 
-function Log([string]$m)  { Write-Host "[hermemory] $m" -ForegroundColor Cyan }
+function Log([string]$m)  { Write-Host "[HerMemory] $m" -ForegroundColor Cyan }
 function Ok([string]$m)   { Write-Host "[ok] $m" -ForegroundColor Green }
 function Warn([string]$m) { Write-Host "[note] $m" -ForegroundColor Yellow }
 function Die([string]$m)  { Write-Host "[error] $m" -ForegroundColor Red; exit 1 }
@@ -112,7 +112,7 @@ LinkOne "$VaultDir\HerMemory\memory\USER.md"   "$HermesHome\memories\USER.md"
 New-Item -ItemType Directory -Force -Path "$HermesHome\skins" | Out-Null
 Copy-Item "$SRC\skins\hermemory.yaml" "$HermesHome\skins\hermemory.yaml" -Force
 & hermes config set display.skin hermemory 2>$null | Out-Null
-if ($LASTEXITCODE -eq 0) { Ok "皮肤已激活：hermemory（/skin 可随时切换；改 yaml 约一秒热重绘）" }
+if ($LASTEXITCODE -eq 0) { Ok "皮肤已激活：HerMemory（/skin 可随时切换；改 yaml 约一秒热重绘）" }
 else { Warn "display.skin 写入失败（不致命），运行时 /skin hermemory 手动切换" }
 
 # ---------- 7. 时区 ----------

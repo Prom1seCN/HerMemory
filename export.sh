@@ -24,7 +24,7 @@ while getopts "o:" opt; do
     case "$opt" in o) OUT_DIR="$OPTARG" ;; *) exit 1 ;; esac
 done
 
-log()  { printf '\033[36m[hermemory]\033[0m %s\n' "$*"; }
+log()  { printf '\033[36m[HerMemory]\033[0m %s\n' "$*"; }
 ok()   { printf '\033[32m[ok]\033[0m %s\n' "$*"; }
 warn() { printf '\033[33m[注意]\033[0m %s\n' "$*"; }
 die()  { printf '\033[31m[错误]\033[0m %s\n' "$*" >&2; exit 1; }
@@ -96,7 +96,7 @@ fi
 # ---------- 手动路径（hermes CLI 都不可用时） ----------
 cat <<'EOF'
 
-[hermemory] 手动导出路径（应急）：vault 目录整体拷贝即是记忆本体；
+[HerMemory] 手动导出路径（应急）：vault 目录整体拷贝即是记忆本体；
 agent 端（skills/配置/数据库）在 ~/.hermes/，停服后整体拷贝。
 
 EOF

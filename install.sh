@@ -28,7 +28,7 @@ WEBDAV_PORT="5005"
 WEBDAV_USER="hermemory"
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # 本仓库（壳）位置
 
-log()  { printf '\033[36m[hermemory]\033[0m %s\n' "$*"; }
+log()  { printf '\033[36m[HerMemory]\033[0m %s\n' "$*"; }
 ok()   { printf '\033[32m[ok]\033[0m %s\n' "$*"; }
 warn() { printf '\033[33m[注意]\033[0m %s\n' "$*"; }
 die()  { printf '\033[31m[错误]\033[0m %s\n' "$*" >&2; exit 1; }
@@ -150,7 +150,7 @@ link_one "$VAULT_DIR/HerMemory/memory/USER.md"   "$HERMES_HOME/memories/USER.md"
 # ---------- 6. 品牌皮肤 ----------
 mkdir -p "$HERMES_HOME/skins"
 cp "$SRC/skins/hermemory.yaml" "$HERMES_HOME/skins/hermemory.yaml"
-hermes config set display.skin hermemory >/dev/null 2>&1 && ok "皮肤已激活：hermemory（/skin 可随时切换；改 yaml 约一秒热重绘）" \
+hermes config set display.skin hermemory >/dev/null 2>&1 && ok "皮肤已激活：HerMemory（/skin 可随时切换；改 yaml 约一秒热重绘）" \
     || warn "display.skin 写入失败（不致命），可运行时 /skin hermemory 手动切换"
 
 # ---------- 7. 时区 Asia/Shanghai（时钟错则时间感知全错） ----------
