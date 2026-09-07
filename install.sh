@@ -172,7 +172,7 @@ hermes config set gateway.message_timestamps.enabled true >/dev/null 2>&1 \
     && ok "时间注入已开启：每条用户消息头部自动拼服务器真实时间" \
     || die "gateway.message_timestamps.enabled 写入失败"
 hermes config set display.language zh >/dev/null 2>&1 \
-    && ok "界面语言：中文（静态 UI 消息，官方支持）" \
+    && ok "界面语言：中文" \
     || warn "display.language 写入失败（不致命）"
 hermes config set display.timestamps true >/dev/null 2>&1 \
     && ok "对话时间标签 [HH:MM]：已开启" \

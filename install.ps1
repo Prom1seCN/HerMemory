@@ -130,7 +130,7 @@ Log "Windows 使用本机时钟（时间注入取系统时间）——请在系�
 if ($LASTEXITCODE -eq 0) { Ok "时间注入已开启：每条用户消息头部自动拼本机真实时间" }
 else { Die "gateway.message_timestamps.enabled 写入失败" }
 & hermes config set display.language zh 2>$null | Out-Null
-if ($LASTEXITCODE -eq 0) { Ok "界面语言：中文（静态 UI 消息，官方支持）" } else { Warn "display.language 写入失败（不致命）" }
+if ($LASTEXITCODE -eq 0) { Ok "界面语言：中文" } else { Warn "display.language 写入失败（不致命）" }
 & hermes config set display.timestamps true 2>$null | Out-Null
 if ($LASTEXITCODE -eq 0) { Ok "对话时间标签 [HH:MM]：已开启" } else { Warn "display.timestamps 写入失败（不致命）" }
 
