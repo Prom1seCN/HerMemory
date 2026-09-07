@@ -148,7 +148,7 @@ Ok "记忆档位：MEMORY $memLimit / USER $userLimit 字符（随时改档：ba
 Mark-Done "memory-tier"
 }
 
-# ---------- 9.5/9.6 配置 AI（用户流程 2：引导打印一次 + 验活循环无上限；完成后 AI 上线） ----------
+# ---------- 9.5/9.6 配置 AI（用户流程 2：地址先验证，Key 后验证；Key 阶段输 1 可返回地址；完成后 AI 上线） ----------
 if (Test-Done "config-ai") {
     Log "配置 AI：已完成（自动跳过）"
 } else {
@@ -161,68 +161,78 @@ Write-Host "控制台里可能叫：API地址 / OpenAI兼容地址"
 Write-Host "2.APIkey：AI如何计费"
 Write-Host "一长串字符，常以sk-开头，也可能没有规律"
 Write-Host "控制台里可能叫：API key / API密钥"
-$reask = "addr"
-$provName = "custom"
+
+$atUrl = $true
 while ($true) {
-    if ($reask -ne "key") {
-        $provBase = Read-Host "请输入 API 地址"
-        $provBase = $provBase.TrimEnd("/")
+    if ($atUrl) {
+        Log "第一步：验证 API 地址"
+        while ($true) {
+            $provBase = Read-Host "请输入 API 地址"
+            $provBase = $provBase.TrimEnd("/")
+            Log "正在验证 API 地址……"
+            # 用系统自带 curl.exe（不走 .NET 代理/TLS 栈，行为与 Linux 一致）
+            $urlCode = & curl.exe -s --max-time 20 -o "$env:TEMP\hm-url-test.json" -w "%{http_code}" "$provBase/models"
+            if ($urlCode -eq "000") {
+                Warn "[连接超时] 无法连接至该 API 地址。请确认：① 地址为服务商提供的接口地址（通常以 /v1 结尾）；② 本机当前可以访问互联网；③ 若开启了代理软件，尝试关闭代理或更换节点后重试"
+                continue
+            }
+            if ($urlCode -eq "404") {
+                Warn "[404] 该接口路径不存在。请核对是否使用了服务商标注的 OpenAI 兼容接口地址"
+                continue
+            }
+            Ok "API 地址可达（HTTP $urlCode）"
+            break
+        }
+        $atUrl = $false
     }
+
+    Log "第二步：验证 API Key（输入 1 返回上一步）"
     $secKey = Read-Host -AsSecureString "请输入 API Key（输入可能不显示）"
     $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secKey)
     $apiKey = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
     [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
-    Log "正在验证 API 连接……"
-    # 用系统自带 curl.exe 验证（不走 .NET 代理/TLS 栈，行为与 Linux 一致）
+    if ($apiKey -eq "1") { $atUrl = $true; continue }
+    if (-not $apiKey) { Warn "key 不能为空——重新输入"; continue }
+
+    Log "正在验证 API Key……"
     $modelsFile = Join-Path $env:TEMP "hm-models.json"
     $httpCode = & curl.exe -sL --max-time 20 -o $modelsFile -w "%{http_code}" "$provBase/models" -H "Authorization: Bearer $apiKey"
+    if ($httpCode -eq "401" -or $httpCode -eq "403") {
+        Warn "[$httpCode] 认证未通过。请确认 API Key 复制完整（注意首尾空格与截断），且该 Key 在服务商控制台处于启用状态"
+        continue
+    }
+    if ($httpCode -eq "000" -or $httpCode -eq $null) {
+        Warn "[连接超时] 网络异常——重新输入，或输 1 返回上一步"
+        continue
+    }
     $models = $null
     if ($httpCode -eq "200") { try { $models = Get-Content $modelsFile -Raw -Encoding UTF8 | ConvertFrom-Json } catch {} }
-    if ($httpCode -eq "000" -or $httpCode -eq $null) {
-        Warn "[连接超时] 无法连接至该 API 地址。请确认：① 地址为服务商提供的接口地址（通常以 /v1 结尾）；② 本机当前可以访问互联网；③ 若开启了代理软件，尝试关闭代理或更换节点后重试"
-        $reask = "addr"; continue
-    }
-    if ($httpCode -eq 401 -or $httpCode -eq 403) {
-        Warn "[$httpCode] 认证未通过。请确认 API Key 复制完整（注意首尾空格与截断），且该 Key 在服务商控制台处于启用状态"
-        $reask = "key"; continue
-    }
-    if ($httpCode -eq 404) {
-        Warn "[404] 该接口路径不存在。请核对是否使用了服务商标注的 OpenAI 兼容接口地址"
-        $reask = "addr"; continue
-    }
-    if ($httpCode -ne 0 -and $httpCode -ne 200) {
-        $snippet = ""
-        try { $snippet = (Get-Content $modelsFile -Raw -ErrorAction Stop).Substring(0, [Math]::Min(120, (Get-Item $modelsFile -ErrorAction Stop).Length)) } catch {}
-        Warn "验活失败（HTTP $httpCode）服务返回：$snippet"
-        Warn "请重新输入 API 地址与 Key"
-        $reask = "addr"; continue
-    }
     $ids = @()
     if ($models -and $models.data) { $ids = @($models.data | ForEach-Object { $_.id }) }
     if ($ids.Count -eq 0) {
         if ($models) { Warn "[错误] 连接正常，但该 Key 名下无可用模型。请在服务商控制台确认已开通模型调用权限" }
         else { Warn "[格式异常] 该地址返回的内容不是标准接口响应。请确认使用的是 API 接口地址，而非控制台网页地址" }
-        $reask = "addr"; continue
+        continue
     }
     Ok "连接正常，检测到 $($ids.Count) 个可用模型。"
-    for ($i = 0; $i -lt $ids.Count; $i++) { Write-Host ("  [{0}] {1}" -f ($i + 1), $ids[$i]) }
-    while ($true) {
-        $pick = Read-Host "请选择模型序号"
-        if (-not $pick) { $pick = "1" }
-        if ($pick -match "^\d+$" -and [int]$pick -ge 1 -and [int]$pick -le $ids.Count) { $provModel = $ids[[int]$pick - 1]; break }
-        Warn "序号无效——重新选择"
-    }
-    Log "写入 AI 配置……"
-    & hermes config set custom_providers.$provName.base_url $provBase | Out-Null
-    & hermes config set custom_providers.$provName.api_mode chat_completions | Out-Null
-    & hermes config set custom_providers.$provName.model $provModel | Out-Null
-    & hermes config set custom_providers.$provName.api_key $apiKey | Out-Null
-    & hermes config set model $provModel | Out-Null
-    Mark-Done "config-ai"
     break
 }
+
+for ($i = 0; $i -lt $ids.Count; $i++) { Write-Host ("  [{0}] {1}" -f ($i + 1), $ids[$i]) }
+while ($true) {
+    $pick = Read-Host "请选择模型序号"
+    if ($pick -match "^\d+$" -and [int]$pick -ge 1 -and [int]$pick -le $ids.Count) { $provModel = $ids[[int]$pick - 1]; break }
+    Warn "序号无效——重新选择"
 }
 
+& hermes config set custom_providers.$provName.base_url $provBase | Out-Null
+& hermes config set custom_providers.$provName.api_mode chat_completions | Out-Null
+& hermes config set custom_providers.$provName.model $provModel | Out-Null
+& hermes config set custom_providers.$provName.api_key $apiKey | Out-Null
+& hermes config set model $provModel | Out-Null
+Ok "配置完成（模型：$provModel）"
+Mark-Done "config-ai"
+}
 # ---------- 10. 微信扫码接入（可选；完成后 AI 直接出现在用户微信） ----------
 $wxConfigured = $false
 $envFile = Join-Path $HermesHome ".env"
