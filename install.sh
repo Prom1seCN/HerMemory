@@ -260,8 +260,12 @@ while true; do
         000)
             warn "[连接超时] 网络异常——重新输入，或输 1 返回上一步" ;;
     esac
+    if [ "$HTTP_CODE" != "200" ]; then
+        warn "[$HTTP_CODE] 服务商暂时故障或限流——稍等几秒重试；持续出现请检查服务商状态页"
+        continue
+    fi
     if ! grep -q '"data"' /tmp/hm_models.json 2>/dev/null; then
-        warn "[格式异常] 该地址返回的内容不是标准接口响应。请确认使用的是 API 接口地址，而非控制台网页地址"
+        warn "[格式异常] 该地址返回的内容不是标准接口响应（HTTP $HTTP_CODE）。请确认使用的是 API 接口地址，而非控制台网页地址"
         continue
     fi
     mapfile -t MODEL_LIST < <(grep -o '"id" *: *"[^"]*"' /tmp/hm_models.json | sed 's/.*"id" *: *"//;s/"$//' || true)

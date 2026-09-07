@@ -217,7 +217,12 @@ while ($true) {
     if ($models -and $models.data) { $ids = @($models.data | ForEach-Object { $_.id }) }
     if ($ids.Count -eq 0) {
         if ($models) { Warn "[错误] 连接正常，但该 Key 名下无可用模型。请在服务商控制台确认已开通模型调用权限" }
-        else { Warn "[格式异常] 该地址返回的内容不是标准接口响应。请确认使用的是 API 接口地址，而非控制台网页地址" }
+        elseif ($httpCode -and $httpCode -ne "200") { Warn "[$httpCode] 服务商暂时故障或限流——稍等几秒重试；持续出现请检查服务商状态页" }
+        else {
+            $snippet = ""
+            try { $snippet = (Get-Content $modelsFile -Raw -ErrorAction Stop).Substring(0, [Math]::Min(120, (Get-Item $modelsFile -ErrorAction Stop).Length)) } catch {}
+            Warn "[格式异常] 该地址返回的内容不是标准接口响应。返回内容：$snippet"
+        }
         continue
     }
     Ok "连接正常，检测到 $($ids.Count) 个可用模型。"
