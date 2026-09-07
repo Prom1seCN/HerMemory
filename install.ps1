@@ -89,6 +89,14 @@ if (Test-Done "upstream") {
     }
 }
 
+# ---------- 2.5 内核 UX 补丁（发行版自有，幂等）：微信二维码改为链接+浏览器提示 ----------
+$wxPy = Join-Path $HermesHome "hermes-agent\gateway\platforms\weixin.py"
+$wxPatch = Join-Path $PSScriptRoot "scripts\patch_weixin_qr.py"
+$wxBin = Join-Path $HermesHome "hermes-agent\venv\Scripts\python.exe"
+if ((Test-Path $wxPy) -and (Test-Path $wxPatch) -and (Test-Path $wxBin)) {
+    & $wxBin $wxPatch $wxPy
+}
+
 # ---------- 3. vault 结构 ----------
 New-Item -ItemType Directory -Force -Path "$VaultDir\HerMemory\memory" | Out-Null
 Ok "同步根结构：$VaultDir\{用户文档, HerMemory\memory\}"
@@ -322,8 +330,8 @@ if ((Test-Path $envFile) -and (Select-String -Path $envFile -Pattern "WEIXIN_ACC
     Write-Host "  ─────────────────────────────────────────────"
     Write-Host "  Select platform（选择平台）                        → Weixin / WeChat 对应的数字"
     Write-Host "  Start QR login now?                               → 直接回车（开始扫码）"
-    Write-Host "  终端出现二维码                                     → 用微信扫码并确认；扫不出就把链接复制到"
-    Write-Host "                                                       浏览器打开，页面里会出现二维码，再扫码"
+    Write-Host "  向导给出二维码链接                                 → 复制链接到浏览器打开，页面出现"
+    Write-Host "                                                       二维码后用微信扫码并确认"
     Write-Host "  How should direct messages be authorized?         → 输入 3（不要选默认的 1）"
     Write-Host "  Allowed Weixin user IDs                           → 直接回车（已预填你的微信 ID）"
     Write-Host "  How should group chats be handled?                → 输入 1（禁用群聊，推荐）"

@@ -102,6 +102,13 @@ else
 fi
 ok "hermes CLI 就绪"
 
+# ---------- 2.5 内核 UX 补丁（发行版自有，幂等）：微信二维码改为链接+浏览器提示 ----------
+WX_PY="$UPSTREAM_DIR/gateway/platforms/weixin.py"
+WX_PATCH="$SRC/scripts/patch_weixin_qr.py"
+if [ -f "$WX_PY" ] && [ -f "$WX_PATCH" ] && [ -x "$UPSTREAM_DIR/venv/bin/python" ]; then
+    "$UPSTREAM_DIR/venv/bin/python" "$WX_PATCH" "$WX_PY" || true
+fi
+
 # ---------- 3. vault 结构 ----------
 mkdir -p "$VAULT_DIR/HerMemory/memory"
 ok "同步根结构：$VAULT_DIR/{用户文档, HerMemory/memory/}"
@@ -345,8 +352,8 @@ else
     echo "  向导问题（英文原文）                              → 你该输入"
     echo "  ─────────────────────────────────────────────"
     echo "  Select platform（选择平台）                        → Weixin / WeChat 对应的数字"
-    echo "  终端出现二维码                                     → 用微信扫码并确认；扫不出就把链接复制到"
-    echo "                                                       浏览器打开，页面里会出现二维码，再扫码"
+    echo "  向导给出二维码链接                                 → 复制链接到浏览器打开，页面出现"
+    echo "                                                       二维码后用微信扫码并确认"
     echo "  How should direct messages be authorized?         → 输入 3（不要选默认的 1）"
     echo "  Allowed Weixin user IDs                           → 直接回车（已预填你的微信 ID）"
     echo "  How should group chats be handled?                → 输入 1（禁用群聊，推荐）"
