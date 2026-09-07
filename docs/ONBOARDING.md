@@ -1,8 +1,9 @@
 # ONBOARDING — 部署待办执行手册（AI 读）
 
 > 触发条件：AGENTS.md 里有「部署待办」节。用户刚装好 HerMemory，API key 已配置，你是第一次上线。
+> 用户大概率正在微信里和你说第一句话（安装时已扫码接入；也可能在终端 CLI）。语气自然，像见面打招呼，不要复述流程。
 > 任务：完成下面五站。全部完成并经用户确认后，删掉 AGENTS.md 里的「部署待办」节。
-> **每完成一站，在本文件里打勾标记**——用户会换通道找你，接续靠文件，不靠会话。
+> **每完成一站，在本文件里打勾标记**——接续靠文件，不靠会话。
 
 ## 0. 模型 fallback 链（仅阿里云 / 腾讯云；其他来源跳过）
 
@@ -10,13 +11,11 @@
 
 **做法**：从 `custom_providers` 认来源（base_url 含 dashscope → 百炼；含 api.hunyuan.cloud.tencent.com 或 tokenhub.tencentmaas.com → 腾讯 TokenHub）→ 拉 `GET /models` 实时列表 → 选**当前最强的 10 个主力对话模型**（版本新、参数大者强；排除 embedding / vl / audio / omni / coder / realtime 专用型号；用户当前主模型排第一）→ 写入 config 的 `fallback_providers`，条目 `{provider: "custom:<名>", model: <型号>}`（`custom:<名>` 引用 custom_providers 里的同名配置；`hermes config set` 不便写列表就直接编辑 config YAML）。新会话启动打印 `🔄 Fallback chain (N providers)` 即生效。
 
-## 1. 连接微信
+## 1. 连接微信（多数情况已完成；未配置时才执行）
 
-**目的**：用户从此在微信里和你说话。
+**判断**：读 AI 端 `.env`（`~/.hermes/.env` 或 `%LOCALAPPDATA%\hermes\.env`），已有 `WEIXIN_ACCOUNT_ID` → 安装时已扫码，本站完成。在微信里直接向用户问好，进入下一站。
 
-**做法**：跑 `hermes gateway setup` 的微信节——终端会渲染登录二维码。**用户此刻还在终端前，让他扫屏幕上的字符码即可**（微信通道还不存在，没有别的通道可发）。二维码约 8 分钟超时，超时重跑。接入模式选 **allowlist**（配对审批制——陌生人私聊不响应）。
-
-完成后明确告诉用户：「以后在微信里找我」。上下文不会丢——记忆与规矩文件全通道共享，本文件也会跟着同步库走。
+**未配置时**（用户安装时跳过或扫码失败）：告诉用户「现在完成微信接入，需要你在电脑前操作一下」，引导用户在终端跑 `hermes gateway setup`：平台菜单选 Weixin / WeChat → 用微信扫终端上的二维码（约 8 分钟超时，超时重跑）→ 消息授权选「仅允许列表内用户」（已预填用户微信 ID）。扫码成功后在微信里向用户问好。
 
 ## 2. 部署同步服务
 

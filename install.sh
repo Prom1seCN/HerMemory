@@ -273,8 +273,48 @@ while true; do
 done
 fi
 
-# ---------- 10. gateway 服务（消息通道 + cron） ----------
-log "写入 AI 配置完成，安装 gateway 服务（消息通道 + 定时任务）……"
+# ---------- 10. 微信扫码接入（可选；完成后 AI 直接出现在用户微信） ----------
+WX_CONFIGURED=0
+if grep -q "WEIXIN_ACCOUNT_ID" "$HERMES_HOME/.env" 2>/dev/null; then
+    WX_CONFIGURED=1
+    ok "微信通道：已配置（跳过扫码）"
+else
+    log "微信接入（推荐现在完成——完成后 AI 直接出现在你的微信里）"
+    echo "即将打开配置向导，请按提示操作："
+    echo "  1. 在平台菜单中选择 Weixin / WeChat"
+    echo "  2. 用微信扫描终端上的二维码并确认（二维码会超时，超时可重试）"
+    echo "  3. 消息授权建议选择「仅允许列表内用户」，直接回车即可（已预填你的微信 ID）"
+    echo "  4. 向导内其余选项保持默认；不想现在配置可按 Ctrl+C 跳过"
+    while true; do
+        read -rp "现在扫码连接微信？[Y/n]: " WX_NOW
+        WX_NOW="${WX_NOW:-Y}"
+        [[ "$WX_NOW" =~ ^[Nn] ]] && break
+        hermes gateway setup || true
+        if grep -q "WEIXIN_ACCOUNT_ID" "$HERMES_HOME/.env" 2>/dev/null; then
+            WX_CONFIGURED=1
+            ok "微信通道已配置"
+            break
+        fi
+        warn "微信尚未配置成功（二维码可能已超时）"
+        read -rp "重新打开向导扫码？[Y/n]: " WX_RETRY
+        [[ "$WX_RETRY" =~ ^[Nn] ]] && break
+    done
+    if [ "$WX_CONFIGURED" = "1" ]; then
+        # 兜底：确保扫码人本人在允许列表内，否则首条微信消息会被拦截
+        WX_USER_ID=$(python3 -c "
+import json, glob, os
+files = sorted(glob.glob(os.path.expanduser('~/.hermes/weixin/accounts/*.json')), key=os.path.getmtime)
+print(json.load(open(files[-1])).get('user_id', '') if files else '')" 2>/dev/null || true)
+        if [ -n "$WX_USER_ID" ]; then
+            grep -q "WEIXIN_DM_POLICY"    "$HERMES_HOME/.env" 2>/dev/null || echo "WEIXIN_DM_POLICY=allowlist" >> "$HERMES_HOME/.env"
+            grep -q "WEIXIN_ALLOWED_USERS" "$HERMES_HOME/.env" 2>/dev/null || echo "WEIXIN_ALLOWED_USERS=$WX_USER_ID" >> "$HERMES_HOME/.env"
+            ok "已将你的微信 ID 加入允许列表（首条消息直达）"
+        fi
+    fi
+fi
+
+# ---------- 11. gateway 服务（消息通道 + cron） ----------
+log "安装 gateway 服务（消息通道 + 定时任务）……"
 if hermes gateway install >/dev/null 2>&1; then
     ok "gateway 服务已安装（消息 + 定时任务）"
     # AGENTS.md 走 cwd 目录链：服务必须以 $HOME 为 WorkingDirectory
@@ -289,10 +329,11 @@ if hermes gateway install >/dev/null 2>&1; then
         ok "服务 WorkingDirectory 固定为 \$HOME（AGENTS.md 目录链单点）：$unit"
     done
 else
-    warn "hermes gateway install 未成功，微信等通道与定时任务暂不可用。可稍后手动执行：hermes gateway install"
+    warn "gateway 服务未安装成功，消息通道与定时任务暂不可用"
+    warn "可前台运行 hermes gateway run 查看日志定位问题；排除后重跑安装器"
 fi
 
-# ---------- 11. 脚本下线 ----------
+# ---------- 12. 脚本下线 ----------
 # 设计（用户流程 2）：key 配置完成后 AI 上线，脚本下线。
 # WebDAV / 微信接入 / 同步引导 / 能力演示全部由 AI 完成（#13）——AI 读 AGENTS.md 指针（内容在 docs）。
 
@@ -314,9 +355,13 @@ echo "  ② 自动化默认全关：写日记/总结由你说一声才写；周�
 echo "     （agent 自建 cron 并登记进 AUTOMATION.md）。"
 echo ""
 log "接下来："
-echo "  1. hermes              —— 启动 AI：首次对话它主动采档案（怎么称呼/主要用途/说话方式），"
-echo "                            然后按 docs/ONBOARDING.md 引导你连接微信、配置同步"
+if [ "$WX_CONFIGURED" = "1" ]; then
+    log "你的 HerMemory 已在微信里——打开微信，给它发第一句话，它会向你自我介绍并引导完成剩余部署。"
+else
+    echo "  1. hermes              —— 启动 AI：首次对话它主动采档案（怎么称呼/主要用途/说话方式），"
+    echo "                            然后按 docs/ONBOARDING.md 引导你配置同步与微信接入"
+    log "启动 AI 后，将「部署待办」发送给 AI，后续配置将由它引导完成。"
+fi
 echo "  2. 改 $VAULT_DIR/HerMemory/memory/ 下任何文件 → 开新对话即生效"
 echo ""
-log "启动 AI 后，将「部署待办」发送给 AI，后续配置将由它引导完成。"
 log "文档：docs/INSTALL.md（部署）｜docs/GUIDE.md（使用）｜docs/ONBOARDING.md（AI 的部署手册）"

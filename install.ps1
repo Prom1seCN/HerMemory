@@ -220,7 +220,51 @@ while ($true) {
 }
 }
 
-# ---------- 10. gateway 服务（消息通道 + cron；上游在 Windows 用 schtasks 自启） ----------
+# ---------- 10. 微信扫码接入（可选；完成后 AI 直接出现在用户微信） ----------
+$wxConfigured = $false
+$envFile = Join-Path $HermesHome ".env"
+if ((Test-Path $envFile) -and (Select-String -Path $envFile -Pattern "WEIXIN_ACCOUNT_ID" -Quiet)) {
+    $wxConfigured = $true
+    Ok "微信通道：已配置（跳过扫码）"
+} else {
+    Log "微信接入（推荐现在完成——完成后 AI 直接出现在你的微信里）"
+    Write-Host "即将打开配置向导，请按提示操作："
+    Write-Host "  1. 在平台菜单中选择 Weixin / WeChat"
+    Write-Host "  2. 用微信扫描终端上的二维码并确认（二维码会超时，超时可重试）"
+    Write-Host "  3. 消息授权建议选择「仅允许列表内用户」，直接回车即可（已预填你的微信 ID）"
+    Write-Host "  4. 向导内其余选项保持默认；不想现在配置可关闭向导窗口跳过"
+    while ($true) {
+        $wxNow = Read-Host "现在扫码连接微信？[Y/n]"
+        if (-not $wxNow) { $wxNow = "Y" }
+        if ($wxNow -match "^[Nn]") { break }
+        & hermes gateway setup
+        if ((Test-Path $envFile) -and (Select-String -Path $envFile -Pattern "WEIXIN_ACCOUNT_ID" -Quiet)) {
+            $wxConfigured = $true
+            Ok "微信通道已配置"
+            break
+        }
+        Warn "微信尚未配置成功（二维码可能已超时）"
+        $retry = Read-Host "重新打开向导扫码？[Y/n]"
+        if ($retry -match "^[Nn]") { break }
+    }
+    if ($wxConfigured) {
+        # 兜底：确保扫码人本人在允许列表内，否则首条微信消息会被拦截
+        $wxUserId = ""
+        $acctDir = Join-Path $HermesHome "weixin\accounts"
+        $latest = Get-ChildItem -Path $acctDir -Filter "*.json" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 1
+        if ($latest) {
+            try { $wxUserId = (Get-Content $latest.FullName -Raw | ConvertFrom-Json).user_id } catch {}
+        }
+        if ($wxUserId) {
+            $envLines = Get-Content $envFile -ErrorAction SilentlyContinue
+            if (-not ($envLines -match "WEIXIN_DM_POLICY"))    { Add-Content -Path $envFile -Value "WEIXIN_DM_POLICY=allowlist" }
+            if (-not ($envLines -match "WEIXIN_ALLOWED_USERS")) { Add-Content -Path $envFile -Value "WEIXIN_ALLOWED_USERS=$wxUserId" }
+            Ok "已将你的微信 ID 加入允许列表（首条消息直达）"
+        }
+    }
+}
+
+# ---------- 11. gateway 服务（消息通道 + cron；上游在 Windows 用 schtasks 自启） ----------
 Log "安装 gateway 服务（消息通道 + 定时任务，可能需要一两分钟）……"
 & hermes gateway install 2>$null | Out-Null
 if ($LASTEXITCODE -eq 0) { Ok "gateway 服务已安装（消息 + 定时任务，登录自启）" }
@@ -245,9 +289,12 @@ Write-Host "      （MEMORY.md / USER.md 逐条扫描：命中条目在对话中
 Write-Host "  (2) 自动化默认全关：写日记/总结由你说一声才写；周小结、定时任务等口述即建（agent 自建并登记进 AUTOMATION.md）。"
 Write-Host ""
 Log "接下来："
-Write-Host "  1. hermes         —— 启动 AI：首次对话它主动采档案（怎么称呼/主要用途/说话方式），"
-Write-Host "                      然后按 docs/ONBOARDING.md 引导你连接微信、配置同步"
+if ($wxConfigured) {
+    Log "你的 HerMemory 已在微信里——打开微信，给它发第一句话，它会向你自我介绍并引导完成剩余部署。"
+} else {
+    Write-Host "  1. hermes         —— 启动 AI：首次对话它主动采档案（怎么称呼/主要用途/说话方式），"
+    Write-Host "                      然后按 docs/ONBOARDING.md 引导你配置同步与微信接入"
+    Log "启动 AI 后，将「部署待办」发送给 AI，后续配置将由它引导完成。"
+}
 Write-Host "  2. 改 $VaultDir\HerMemory\memory\ 下任何文件 → 开新对话即生效"
-Write-Host ""
-Log "启动 AI 后，将「部署待办」发送给 AI，后续配置将由它引导完成。"
 Log "文档：docs\INSTALL.md（部署）｜docs\GUIDE.md（使用）｜docs\README_REBORN.md（导出包内给下一个 agent 的恢复指引）"
