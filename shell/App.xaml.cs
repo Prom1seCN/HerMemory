@@ -17,6 +17,7 @@ namespace HerMemory
         protected override void OnStartup(StartupEventArgs e)
         {
             base.OnStartup(e);
+            Theme.Apply();
             _single = new Mutex(true, "HerMemory-SingleInstance", out var first);
             if (!first)
             {

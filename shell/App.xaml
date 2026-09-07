@@ -1,4 +1,4 @@
-<Application x:Class="HerMemory.App"
+﻿<Application x:Class="HerMemory.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <Application.Resources>
@@ -57,7 +57,7 @@
             <Setter Property="FontSize" Value="13"/>
             <Setter Property="BorderBrush" Value="#CFD8DC"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Background" Value="White"/>
+            <Setter Property="Background" Value="{DynamicResource FieldBg}"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>
         </Style>
         <Style x:Key="FieldCombo" TargetType="ComboBox">
