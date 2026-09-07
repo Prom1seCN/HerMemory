@@ -228,7 +228,8 @@ while true; do
         log "第一步：验证 API 地址"
         while true; do
             read -rp "请输入 API 地址: " PROV_BASE
-            PROV_BASE=$(printf '%s' "$PROV_BASE" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            # 只保留可见 ASCII——剔除复制粘贴混入的零宽/全角/控制字符
+            PROV_BASE=$(printf '%s' "$PROV_BASE" | LC_ALL=C tr -d '\000-\040\177-\377')
             PROV_BASE="${PROV_BASE%/}"
             log "正在验证 API 地址……"
             URL_CODE=$(curl -s --noproxy '*' --max-time 20 -o /tmp/hm_url_test.json -w "%{http_code}" "$PROV_BASE/models" || true)
@@ -250,7 +251,7 @@ while true; do
     log "第二步：验证 API Key（输入 1 返回上一步）"
     read -rsp "请输入 API Key（输入可能不显示）: " API_KEY
     echo ""
-    API_KEY=$(printf '%s' "$API_KEY" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    API_KEY=$(printf '%s' "$API_KEY" | LC_ALL=C tr -d '\000-\040\177-\377')
     if [ "$API_KEY" = "1" ]; then AT_URL=1; continue; fi
     [ -n "$API_KEY" ] || { warn "key 不能为空——重新输入"; continue; }
 

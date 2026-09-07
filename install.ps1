@@ -174,7 +174,8 @@ while ($true) {
         Log "第一步：验证 API 地址"
         while ($true) {
             $provBase = (Read-Host "请输入 API 地址").Trim()
-            $provBase = $provBase.TrimEnd("/")
+            # 只保留可见 ASCII——剔除复制粘贴混入的零宽/全角/控制字符
+            $provBase = ($provBase -replace "[^\x21-\x7E]", "").TrimEnd("/")
             Log "正在验证 API 地址……"
             # 用系统自带 curl.exe（不走 .NET 代理/TLS 栈，行为与 Linux 一致）
             # 直连优先（绕过代理环境变量）；不通再回退系统代理
@@ -200,6 +201,7 @@ while ($true) {
     $secKey = Read-Host -AsSecureString "请输入 API Key（输入可能不显示）"
     $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secKey)
     $apiKey = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr).Trim()
+    $apiKey = ($apiKey -replace "[^\x21-\x7E]", "")
     [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
     if ($apiKey -eq "1") { $atUrl = $true; continue }
     if (-not $apiKey) { Warn "key 不能为空——重新输入"; continue }
