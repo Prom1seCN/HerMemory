@@ -103,16 +103,11 @@ namespace HerMemory
         {
             if (ReallyExit || !HomeMode) { base.OnClosing(e); return; }
 
-            var saved = ReadCloseAction();
-            if (saved == "tray") { e.Cancel = true; HideToTray(); return; }
-            if (saved == "exit") { base.OnClosing(e); return; }
-
+            // 每次都询问：勾选框预置上次的选择（随时可改，不存在"改不回来"）
             e.Cancel = true;
-            var remember = false;
-            var choice = ShowCloseDialog(out remember);
-            if (remember && choice != null) WriteCloseAction(choice);
-            if (choice == "tray") HideToTray();
-            else if (choice == "exit") { ReallyExit = true; Close(); }
+            var minimize = ShowCloseDialog();
+            if (minimize) HideToTray();
+            else { ReallyExit = true; Close(); }
         }
 
         private void HideToTray()
@@ -128,9 +123,9 @@ namespace HerMemory
             Activate();
         }
 
-        private string? ShowCloseDialog(out bool remember)
+        /// <summary>关闭询问：勾选框预置上次选择；返回 true = 最小化到托盘，false = 退出。</summary>
+        private bool ShowCloseDialog()
         {
-            remember = false;
             var dlg = new Window
             {
                 Title = "HerMemory",
@@ -143,15 +138,16 @@ namespace HerMemory
                 Background = new System.Windows.Media.SolidColorBrush(
                     (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#FAFBFC")),
             };
-            var rememberBox = new System.Windows.Controls.CheckBox
+            var minimizeBox = new System.Windows.Controls.CheckBox
             {
-                Content = "记住我的选择，不再询问",
-                FontSize = 12.5,
-                Foreground = System.Windows.Media.Brushes.DimGray,
+                Content = "最小化到托盘（不勾选 = 退出）",
+                FontSize = 13.5,
+                Foreground = new System.Windows.Media.SolidColorBrush(
+                    System.Windows.Media.Color.FromArgb(255, 15, 23, 42)),
                 Margin = new Thickness(0, 16, 0, 0),
+                IsChecked = ReadCloseAction() != "exit",  // 默认勾选（首次与上次选托盘均勾上）
             };
-            string? result = null;
-            var stack = new System.Windows.Controls.StackPanel { Margin = new Thickness(28, 24, 28, 18) };
+            var stack = new System.Windows.Controls.StackPanel { Margin = new Thickness(28, 24, 28, 20) };
             stack.Children.Add(new TextBlock
             {
                 Text = "要退出 HerMemory，还是最小化到系统托盘？",
@@ -167,25 +163,27 @@ namespace HerMemory
                 Foreground = System.Windows.Media.Brushes.Gray,
                 Margin = new Thickness(0, 6, 0, 0),
             });
-            stack.Children.Add(rememberBox);
+            stack.Children.Add(minimizeBox);
             var row = new System.Windows.Controls.StackPanel
             {
                 Orientation = System.Windows.Controls.Orientation.Horizontal,
                 HorizontalAlignment = System.Windows.HorizontalAlignment.Right,
-                Margin = new Thickness(0, 18, 0, 0),
+                Margin = new Thickness(0, 20, 0, 0),
             };
             var appRes = System.Windows.Application.Current.Resources;
-            var bTray = new System.Windows.Controls.Button { Content = "最小化到托盘", Style = appRes["AccentButton"] as Style, FontSize = 13.5, Padding = new Thickness(18, 8, 18, 8) };
-            var bExit = new System.Windows.Controls.Button { Content = "退出", Style = appRes["GhostButton"] as Style, FontSize = 13.5, Margin = new Thickness(12, 0, 0, 0), Padding = new Thickness(18, 8, 18, 8) };
-            bTray.Click += (_, _) => { result = "tray"; dlg.Close(); };
-            bExit.Click += (_, _) => { result = "exit"; dlg.Close(); };
-            row.Children.Add(bTray);
-            row.Children.Add(bExit);
+            var bOk = new System.Windows.Controls.Button { Content = "确定", Style = appRes["AccentButton"] as Style, FontSize = 13.5, Padding = new Thickness(24, 8, 24, 8) };
+            var bCancel = new System.Windows.Controls.Button { Content = "取消", Style = appRes["GhostButton"] as Style, FontSize = 13.5, Margin = new Thickness(12, 0, 0, 0), Padding = new Thickness(18, 8, 18, 8) };
+            bool? minimize = null;
+            bOk.Click += (_, _) => { minimize = minimizeBox.IsChecked == true; dlg.Close(); };
+            bCancel.Click += (_, _) => dlg.Close();
+            row.Children.Add(bOk);
+            row.Children.Add(bCancel);
             stack.Children.Add(row);
             dlg.Content = stack;
             dlg.ShowDialog();
-            remember = rememberBox.IsChecked == true;
-            return result;
+            if (minimize == null) return true;  // 取消 = 回到应用
+            WriteCloseAction(minimize.Value ? "tray" : "exit");  // 记住本次选择，作为下次预置
+            return minimize.Value;
         }
 
         private static string? ReadCloseAction()

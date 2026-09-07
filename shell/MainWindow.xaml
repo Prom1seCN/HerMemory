@@ -32,9 +32,9 @@
     <Grid Margin="56,44,56,36">
         <!-- ===== 主界面（托盘模式的日常页） ===== -->
         <Grid x:Name="PageHome" Visibility="Collapsed">
-            <StackPanel VerticalAlignment="Center">
+            <StackPanel VerticalAlignment="Top" Margin="0,6,0,0">
                 <TextBlock FontSize="32" FontWeight="Bold" Foreground="#0F172A" Margin="0,0,0,14">HerMemory. <Run Foreground="#0E7490">Your memory.</Run><LineBreak/><Run FontSize="17" FontStyle="Italic" Foreground="#0E7490">Memory that grows with you.</Run></TextBlock>
-                <TextBlock x:Name="HomeStatus" Margin="0,22,0,0" FontSize="15" FontWeight="SemiBold" Foreground="#0F172A" Text="正在检查网关状态……"/>
+                <TextBlock x:Name="HomeStatus" Margin="0,36,0,0" FontSize="15" FontWeight="SemiBold" Foreground="#0F172A" Text="正在检查网关状态……"/>
                 <TextBlock Style="{StaticResource Body}" Margin="0,6,0,0" Text="AI 的对话走微信；关机或停止网关后它不在线，启动即回来。"/>
                 <StackPanel Orientation="Horizontal" Margin="0,22,0,0">
                     <Button x:Name="HomeStart" Content="启动" Style="{StaticResource AccentButton}" Click="HomeCtl_Click"/>
