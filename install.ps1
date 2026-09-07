@@ -1,4 +1,4 @@
-# ============================================================
+﻿# ============================================================
 # HerMemory installer (Windows native) — v0.1.0
 # 基于 Hermes Agent v0.21.0 (tag v2026.8.31)，MIT。
 # 上游官方 PowerShell 安装器负责内核（clone pin tag + uv + venv + CLI），
