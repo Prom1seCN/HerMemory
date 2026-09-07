@@ -16,12 +16,9 @@ param(
 # 控制台代码页自愈：系统全局 UTF-8（CP65001）下 PS5.1 会双写中文——无论从 bat 还是直接跑本脚本，先归位 GBK
 try { & chcp.com 936 2>$null | Out-Null } catch {}
 
-# ANSI/VT 自愈：老 conhost 默认关闭 VT 处理，hermes 输出的颜色控制序列会裸奔成 [35m 字符——打开它
-try {
-    Add-Type -MemberDefinition '[DllImport("kernel32.dll")] public static extern IntPtr GetStdHandle(int h); [DllImport("kernel32.dll")] public static extern bool GetConsoleMode(IntPtr h, out int m); [DllImport("kernel32.dll")] public static extern bool SetConsoleMode(IntPtr h, int m);' -Name ConsoleVT -Namespace Win32 -ErrorAction SilentlyContinue
-    $vtHandle = [Win32.ConsoleVT]::GetStdHandle(-11); $vtMode = 0
-    if ([Win32.ConsoleVT]::GetConsoleMode($vtHandle, [ref]$vtMode)) { [Win32.ConsoleVT]::SetConsoleMode($vtHandle, $vtMode -bor 4) | Out-Null }
-} catch {}
+# ANSI 自愈（真解）：VT 控制台模式按句柄生效、子进程不继承，hermes 的彩色码在老 conhost 上必裸奔。
+# hermes 原生支持 no-color.org 标准——直接关掉它的颜色输出，任何控制台都干净（仅本安装进程内生效，不影响装好的系统）。
+$env:NO_COLOR = "1"
 
 $ErrorActionPreference = "Stop"
 # 境内服务商普遍要求 TLS 1.2+；Windows 自带 PS 5.1 默认协商老协议，不强制会连不上
