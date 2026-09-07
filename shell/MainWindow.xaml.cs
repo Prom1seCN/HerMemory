@@ -260,7 +260,7 @@ namespace HerMemory
         {
             if (InstallTitle.Text != "安装未成功" && InstallTitle.Text != "安装出错") return;
             // 复用扫码页的重试思路：这里直接放一个"重新安装"按钮
-            var btn = new Button { Content = "重新安装", Style = (Style)Resources["AccentButton"], Margin = new Thickness(0, 18, 0, 0) };
+            var btn = new System.Windows.Controls.Button { Content = "重新安装", Style = (Style)Resources["AccentButton"], Margin = new Thickness(0, 18, 0, 0) };
             btn.Click += (_, _) =>
             {
                 ((StackPanel)InstallTitle.Parent).Children.Remove(btn);
