@@ -173,13 +173,13 @@ while ($true) {
     $apiKey = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
     [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
     Log "正在验证 API 连接……"
-    $httpCode = 0
+    # 用系统自带 curl.exe 验证（不走 .NET 代理/TLS 栈，行为与 Linux 一致）
+    $modelsFile = Join-Path $env:TEMP "hm-models.json"
+    $httpCode = & curl.exe -s --max-time 20 -o $modelsFile -w "%{http_code}" "$provBase/models" -H "Authorization: Bearer $apiKey"
     $models = $null
-    try { $models = Invoke-RestMethod -Uri "$provBase/models" -Headers @{ Authorization = "Bearer $apiKey" } -TimeoutSec 20 } catch {
-        if ($_.Exception.Response) { $httpCode = [int]$_.Exception.Response.StatusCode }
-    }
-    if ($httpCode -eq 0 -and -not $models) {
-        Warn "[连接超时] 无法连接至该 API 地址。请确认：① 地址为服务商提供的接口地址（通常以 /v1 结尾）；② 本机当前可以访问互联网"
+    if ($httpCode -eq "200") { try { $models = Get-Content $modelsFile -Raw -Encoding UTF8 | ConvertFrom-Json } catch {} }
+    if ($httpCode -eq "000" -or $httpCode -eq $null) {
+        Warn "[连接超时] 无法连接至该 API 地址。请确认：① 地址为服务商提供的接口地址（通常以 /v1 结尾）；② 本机当前可以访问互联网；③ 若开启了代理软件，尝试关闭代理或更换节点后重试"
         $reask = "addr"; continue
     }
     if ($httpCode -eq 401 -or $httpCode -eq 403) {
