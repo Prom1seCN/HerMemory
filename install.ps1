@@ -10,7 +10,8 @@
 # ============================================================
 param(
     [string]$Tag = "v2026.8.31",
-    [switch]$SkipUpstream
+    [switch]$SkipUpstream,
+    [string]$AnswersFile
 )
 
 # 控制台代码页自愈：系统全局 UTF-8（CP65001）下 PS5.1 会双写中文——无论从 bat 还是直接跑本脚本，先归位 GBK
@@ -37,6 +38,27 @@ function Die([string]$m)  { Write-Host "[error] $m" -ForegroundColor Red; exit 1
 # Run-Quiet 在函数作用域内降级 EAP，stderr 静默流出——专用于允许失败的原生调用。
 function Run-Quiet { $ErrorActionPreference = "Continue"; try { & $args 2>&1 | Out-Null } catch {} }
 
+# ---------- 静默模式（exe 契约）：-AnswersFile 提供 JSON 答案，跳过全部交互 ----------
+# JSON 字段：memoryTier(1/2/3) / baseUrl / apiKey / model——均为必填。
+# 与交互路径共用同一套验证与落盘逻辑；区别仅在：验证失败即 Die（重试界面由 exe 负责），微信扫码由 exe 接管。
+# 安全语义：key 明文经 JSON 短暂落盘，exe 在安装成功后负责删除。
+$Answers = $null
+if ($AnswersFile) {
+    if (-not (Test-Path $AnswersFile)) { Die "AnswersFile 不存在：$AnswersFile" }
+    try { $Answers = Get-Content $AnswersFile -Raw -Encoding UTF8 | ConvertFrom-Json } catch { Die "AnswersFile 不是有效 JSON：$($_.Exception.Message)" }
+    foreach ($k in @("memoryTier", "baseUrl", "apiKey", "model")) {
+        if (-not $Answers.$k) { Die "AnswersFile 缺少必填字段：$k" }
+    }
+    # 与交互路径同款净化：只保留可见 ASCII
+    $Answers.baseUrl = (($Answers.baseUrl -replace "[^\x21-\x7E]", "")).TrimEnd("/")
+    $Answers.apiKey  = ($Answers.apiKey  -replace "[^\x21-\x7E]", "")
+    $Answers.model   = ($Answers.model   -replace "[^\x21-\x7E]", "")
+    if (-not $Answers.baseUrl -or -not $Answers.apiKey -or -not $Answers.model) { Die "AnswersFile 字段净化后为空（含非 ASCII 污染？）" }
+    Log "静默模式：答案来自 $AnswersFile"
+}
+# exe 进度契约：机器可读标记行（exe 逐行解析画进度条；交互模式下不输出）
+function Progress([string]$step) { if ($Answers) { Write-Host "##HM-PROGRESS## $step" } }
+
 # 启用终端 VT 序列（上游向导用 ANSI 着色；老式控制台默认关闭会显示成 [2m 原文）
 try {
     $vt = Add-Type -MemberDefinition '[DllImport("kernel32.dll")] public static extern IntPtr GetStdHandle(int h); [DllImport("kernel32.dll")] public static extern bool GetConsoleMode(IntPtr h, out uint m); [DllImport("kernel32.dll")] public static extern bool SetConsoleMode(IntPtr h, uint m);' -Name Win32VT -Namespace HerMemory -PassThru
@@ -56,6 +78,7 @@ Log "安装状态文件：$StateFile（已完成的步骤在重新安装时自�
 if ($env:OS -ne "Windows_NT") { Die "本脚本仅用于 Windows 原生路径；Linux/macOS 用 install.sh" }
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) { Die "缺 git：先安装 Git for Windows（https://git-scm.com）" }
 Log "可在 docs\INSTALL.md 查看安装说明"
+Progress "precheck"
 
 # ---------- 1. vault 位置（定名，不询问——路径被提示词与文档广泛引用，固定避免漂移） ----------
 $VaultDir = "$HOME\vault"
@@ -96,6 +119,7 @@ $wxBin = Join-Path $HermesHome "hermes-agent\venv\Scripts\python.exe"
 if ((Test-Path $wxPy) -and (Test-Path $wxPatch) -and (Test-Path $wxBin)) {
     & $wxBin $wxPatch $wxPy
 }
+Progress "upstream"
 
 # ---------- 3. vault 结构 ----------
 New-Item -ItemType Directory -Force -Path "$VaultDir\HerMemory\memory" | Out-Null
@@ -112,6 +136,7 @@ foreach ($f in @("MEMORY.md","USER.md","SOUL.md","AGENTS.md","AUTOMATION.md")) {
 New-Item -ItemType Directory -Force -Path "$VaultDir\HerMemory\docs" | Out-Null
 Copy-Item "$SRC\docs\*" "$VaultDir\HerMemory\docs\" -Recurse -Force
 Ok "使用文档已铺：HerMemory\docs/"
+Progress "files"
 
 # ---------- 5. 软链四件（官方注入槽位）----------
 # NTFS 符号链接需要管理员权限或开发者模式（Win10 1703+ 设置→更新→开发者选项）。
@@ -159,6 +184,14 @@ if ($LASTEXITCODE -eq 0) { Ok "对话时间标签 [HH:MM]：已开启" } else { 
 if (Test-Done "memory-tier") {
     Log "记忆档位：已完成（自动跳过）"
 } else {
+if ($Answers) {
+    switch ("$($Answers.memoryTier)") {
+        "1" { $memLimit = 2200;  $userLimit = 1375 }
+        "2" { $memLimit = 5000;  $userLimit = 3000 }
+        "3" { $memLimit = 10000; $userLimit = 5000 }
+        default { Die "AnswersFile.memoryTier 必须是 1/2/3（实际：$($Answers.memoryTier)）" }
+    }
+} else {
 Log "MEMORY/USER容量设置"
 
 Write-Host "提升容量会增强AI记忆力，但可能降低专注度，建议选择1-2档"
@@ -173,15 +206,38 @@ switch ($choice) {
     "3" { $memLimit = 10000; $userLimit = 5000 }
     default { $memLimit = 2200; $userLimit = 1375 }
 }
+}
 & hermes config set memory.memory_char_limit $memLimit | Out-Null
 & hermes config set memory.user_char_limit $userLimit | Out-Null
 Ok "记忆档位：MEMORY $memLimit / USER $userLimit 字符（随时改档：bash memory-size.sh）"
 Mark-Done "memory-tier"
 }
+Progress "memory-tier"
 
 # ---------- 9.5/9.6 配置 AI（用户流程 2：地址先验证，Key 后验证；Key 阶段输 1 可返回地址；完成后 AI 上线） ----------
 if (Test-Done "config-ai") {
     Log "配置 AI：已完成（自动跳过）"
+} else {
+if ($Answers) {
+    # 静默模式：exe 已收集答案，这里一次性验证，失败即 Die（重试界面由 exe 负责）
+    $provBase = $Answers.baseUrl
+    $apiKey = $Answers.apiKey
+    $provModel = $Answers.model
+    Log "静默模式：验证 API 地址与 Key……"
+    $modelsFile = Join-Path $env:TEMP "hm-models.json"
+    $httpCode = [string](& curl.exe -sL --noproxy "*" --max-time 20 -o $modelsFile -w "%{http_code}" "$provBase/models" -H "Authorization: Bearer $apiKey")
+    if ($httpCode -eq "000") {
+        $httpCode = [string](& curl.exe -sL --max-time 20 -o $modelsFile -w "%{http_code}" "$provBase/models" -H "Authorization: Bearer $apiKey")
+    }
+    $models = $null
+    try { $models = Get-Content $modelsFile -Raw -Encoding UTF8 | ConvertFrom-Json } catch {}
+    if ($httpCode -eq "401" -or $httpCode -eq "403") { Die "[$httpCode] 认证未通过——请检查 API Key 是否正确且已启用" }
+    if ($httpCode -eq "000" -or $httpCode -eq "" -or $null -eq $httpCode) { Die "[连接超时] 无法连接 $provBase——请检查网络或代理设置" }
+    $ids = @()
+    if ($models -and $models.data) { $ids = @($models.data | ForEach-Object { $_.id }) }
+    if ($ids.Count -eq 0) { Die "验证未通过（HTTP $httpCode）——请核对地址与 Key" }
+    if ($ids -notcontains $provModel) { Die "模型 $provModel 不在该地址的模型列表中——请重新获取模型列表并选择" }
+    Ok "静默验证通过（HTTP $httpCode，$($ids.Count) 个可用模型）"
 } else {
 Write-Host ""
 Write-Host "HerMemory本身永久免费"
@@ -279,6 +335,7 @@ while ($true) {
     if ($pick -match "^\d+$" -and [int]$pick -ge 1 -and [int]$pick -le $ids.Count) { $provModel = $ids[[int]$pick - 1]; break }
     Warn "序号无效——重新选择"
 }
+}
 
 # 上游机制（model_setup_flows._model_flow_custom，逐条对应）：
 #   key 存 .env 的 HERMES_CUSTOM_<主机>_API_KEY；config model 段 = provider custom +
@@ -293,7 +350,9 @@ if (-not (Select-String -Path "$HermesHome\.env" -Pattern ("^" + $keyEnv + "=") 
 # 清除会劫持路由的 OPENAI_*（上游 auxiliary_client 明确告警的 env 污染场景）
 Run-Quiet hermes config unset OPENAI_API_KEY
 Run-Quiet hermes config unset OPENAI_BASE_URL
-(Get-Content "$HermesHome\.env") | Where-Object { $_ -notmatch "^OPENAI_API_KEY=" -and $_ -notmatch "^OPENAI_BASE_URL=" } | Set-Content "$HermesHome\.env" -Encoding UTF8
+$envClean = (Get-Content "$HermesHome\.env") | Where-Object { $_ -notmatch "^OPENAI_API_KEY=" -and $_ -notmatch "^OPENAI_BASE_URL=" }
+# PS5.1 的 Set-Content -Encoding UTF8 会写 BOM——.env 首行键名会被 BOM 污染，必须无 BOM 落盘
+[IO.File]::WriteAllLines("$HermesHome\.env", [string[]]@($envClean), (New-Object Text.UTF8Encoding($false)))
 & hermes config set model.default $provModel | Out-Null
 & hermes config set model.provider custom | Out-Null
 & hermes config set model.base_url $provBase | Out-Null
@@ -304,22 +363,25 @@ $cfgPath = Join-Path $HermesHome "config.yaml"
 if (-not (Select-String -Path $cfgPath -Pattern "provider: custom" -Quiet)) {
     $cfgText = Get-Content $cfgPath -Raw
     $cfgText = $cfgText -replace "(?m)^(  provider:).*$", "  provider: custom"
-    Set-Content -Path $cfgPath -Value $cfgText -Encoding UTF8 -NoNewline
+    [IO.File]::WriteAllText($cfgPath, $cfgText, (New-Object Text.UTF8Encoding($false)))
 }
 if (-not (Select-String -Path $cfgPath -Pattern ([regex]::Escape("api_key: `${$keyEnv}")) -Quiet)) {
     $cfgText = Get-Content $cfgPath -Raw
     if ($cfgText -match "(?m)^  base_url: .*$") {
         $cfgText = $cfgText -replace "(?m)^(  base_url: .*)$", ("`$1`n  api_key: `${" + $keyEnv + "}`n  api_mode: chat_completions")
-        Set-Content -Path $cfgPath -Value $cfgText -Encoding UTF8 -NoNewline
+        [IO.File]::WriteAllText($cfgPath, $cfgText, (New-Object Text.UTF8Encoding($false)))
     }
 }
 Ok "配置完成（模型：$provModel）"
 Mark-Done "config-ai"
 }
+Progress "config-ai"
 # ---------- 10. 微信扫码接入（可选；完成后 AI 直接出现在用户微信） ----------
 $wxConfigured = $false
 $envFile = Join-Path $HermesHome ".env"
-if ((Test-Path $envFile) -and (Select-String -Path $envFile -Pattern "WEIXIN_ACCOUNT_ID" -Quiet)) {
+if ($Answers) {
+    Log "静默模式：微信扫码由 exe 在安装完成后接管（此步跳过）"
+} elseif ((Test-Path $envFile) -and (Select-String -Path $envFile -Pattern "WEIXIN_ACCOUNT_ID" -Quiet)) {
     $wxConfigured = $true
     Ok "微信通道：已配置（跳过扫码）"
 } else {
@@ -363,7 +425,7 @@ if ((Test-Path $envFile) -and (Select-String -Path $envFile -Pattern "WEIXIN_ACC
             try { $wxUserId = (Get-Content $latest.FullName -Raw | ConvertFrom-Json).user_id } catch {}
         }
         if ($wxUserId) {
-            $envLines = Get-Content $envFile -ErrorAction SilentlyContinue
+            $envLines = @(Get-Content $envFile -ErrorAction SilentlyContinue)
             if ($envLines -match "WEIXIN_DM_POLICY") {
                 $envLines = $envLines -replace "^WEIXIN_DM_POLICY=.*", "WEIXIN_DM_POLICY=allowlist"
             } else {
@@ -374,11 +436,13 @@ if ((Test-Path $envFile) -and (Select-String -Path $envFile -Pattern "WEIXIN_ACC
             } else {
                 $envLines += "WEIXIN_ALLOWED_USERS=$wxUserId"
             }
-            Set-Content -Path $envFile -Value $envLines -Encoding ASCII
+            # 无 BOM UTF-8（@() 包裹防单行 .env 退化成字符串拼接）
+            [IO.File]::WriteAllLines($envFile, [string[]]$envLines, (New-Object Text.UTF8Encoding($false)))
             Ok "消息授权：仅允许你的微信 ID（首条消息直达）"
         }
     }
 }
+Progress "wechat"
 
 # ---------- 11. gateway 服务（消息通道 + cron；上游在 Windows 用 schtasks 自启） ----------
 # 向导里答过"开机自启（计划任务）"的话已经注册好了——先检测，避免重复安装卡在隐藏的授权/输入上
@@ -393,6 +457,7 @@ if ($gwTask) {
     if ($LASTEXITCODE -eq 0) { Ok "gateway 服务已安装（消息 + 定时任务，登录自启）" }
     else { Warn "hermes gateway install 未成功。可稍后手动执行：hermes gateway install" }
 }
+Progress "gateway"
 
 # ---------- 11. 脚本下线 ----------
 # 设计（用户流程 2）：key 配置完成后 AI 上线，脚本下线。
@@ -402,7 +467,8 @@ if ($gwTask) {
 $chk = Get-Content "$SRC\sync_check.sh" -Raw
 $chk = $chk -replace '^(HERMES_HOME=).*', ('$1"' + $HermesHome.Replace('\','/') + '"')
 $chk = $chk -replace '^(SYNC_ROOT=).*', ('$1"' + $VaultDir.Replace('\','/') + '"')
-Set-Content -Path "$HermesHome\sync_check.sh" -Value $chk -Encoding UTF8
+# 无 BOM UTF-8：PS5.1 的 Set-Content -Encoding UTF8 会写 BOM 炸 Git Bash 首行；默认 ASCII 会毁中文注释
+[IO.File]::WriteAllText("$HermesHome\sync_check.sh", $chk, (New-Object Text.UTF8Encoding($false)))
 Ok "自检脚本已就位：$HermesHome\sync_check.sh（agent 终端工具走 Git Bash，可直接执行）"
 
 # ---------- 13. 完成提示 ----------
@@ -422,3 +488,4 @@ if ($wxConfigured) {
 }
 Write-Host "  2. 改 $VaultDir\HerMemory\memory\ 下任何文件 → 开新对话即生效"
 Log "文档：docs\INSTALL.md（部署）｜docs\GUIDE.md（使用）｜docs\README_REBORN.md（导出包内给下一个 agent 的恢复指引）"
+Progress "done"
