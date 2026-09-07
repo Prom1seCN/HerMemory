@@ -170,16 +170,23 @@ if (Test-Done "config-ai") {
 } else {
 Write-Host "HerMemory本身永久免费"
 Write-Host "但AI每次回答都会消耗服务商的算力"
+Write-Host ""
+Write-Host ""
 
 Write-Host "需要你获取："
+Write-Host ""
+Write-Host ""
 
-Write-Host "1.Base URL：AI去哪里干活"
+Write-Host "1.Base URL"
 Write-Host "通常以https开头，v1结尾"
 Write-Host "控制台里可能叫：API地址 / OpenAI兼容地址"
+Write-Host ""
+Write-Host ""
 
-Write-Host "2.APIkey：AI如何计费"
+Write-Host "2.APIkey"
 Write-Host "一长串字符，常以sk-开头，也可能没有规律"
 Write-Host "控制台里可能叫：API key / API密钥"
+Write-Host ""
 
 
 $atUrl = $true
