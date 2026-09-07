@@ -228,9 +228,11 @@ while true; do
         log "第一步：验证 API 地址"
         while true; do
             read -rp "请输入 API 地址: " PROV_BASE
+            PROV_BASE=$(printf '%s' "$PROV_BASE" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
             PROV_BASE="${PROV_BASE%/}"
             log "正在验证 API 地址……"
-            URL_CODE=$(curl -s --max-time 20 -o /tmp/hm_url_test.json -w "%{http_code}" "$PROV_BASE/models" || true)
+            URL_CODE=$(curl -s --noproxy '*' --max-time 20 -o /tmp/hm_url_test.json -w "%{http_code}" "$PROV_BASE/models" || true)
+            [ "$URL_CODE" = "000" ] && URL_CODE=$(curl -s --max-time 20 -o /tmp/hm_url_test.json -w "%{http_code}" "$PROV_BASE/models" || true)
             if [ "$URL_CODE" = "000" ]; then
                 warn "[连接超时] 无法连接至该 API 地址。请确认：① 地址为服务商提供的接口地址（通常以 /v1 结尾）；② 本机当前可以访问互联网；③ 若开启了代理软件，尝试关闭代理或更换节点后重试"
                 continue
@@ -248,14 +250,16 @@ while true; do
     log "第二步：验证 API Key（输入 1 返回上一步）"
     read -rsp "请输入 API Key（输入可能不显示）: " API_KEY
     echo ""
+    API_KEY=$(printf '%s' "$API_KEY" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
     if [ "$API_KEY" = "1" ]; then AT_URL=1; continue; fi
     [ -n "$API_KEY" ] || { warn "key 不能为空——重新输入"; continue; }
 
     log "正在验证 API Key……"
-    HTTP_CODE=$(curl -s --max-time 20 -o /tmp/hm_models.json -w "%{http_code}" "$PROV_BASE/models" -H "Authorization: Bearer $API_KEY" || true)
+    HTTP_CODE=$(curl -s --noproxy '*' --max-time 20 -o /tmp/hm_models.json -w "%{http_code}" "$PROV_BASE/models" -H "Authorization: Bearer $API_KEY" || true)
+    [ "$HTTP_CODE" = "000" ] && HTTP_CODE=$(curl -s --max-time 20 -o /tmp/hm_models.json -w "%{http_code}" "$PROV_BASE/models" -H "Authorization: Bearer $API_KEY" || true)
     case "$HTTP_CODE" in
         401|403)
-            warn "[$HTTP_CODE] 认证未通过。请确认 API Key 复制完整（注意首尾空格与截断），且该 Key 在服务商控制台处于启用状态"
+            warn "[$HTTP_CODE] 认证未通过（服务返回：$(head -c 150 /tmp/hm_models.json 2>/dev/null)）。请确认 API Key 复制完整（注意首尾空格与截断），且该 Key 在服务商控制台处于启用状态"
             continue ;;
         000)
             warn "[连接超时] 网络异常——重新输入，或输 1 返回上一步" ;;

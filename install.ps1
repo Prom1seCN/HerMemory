@@ -173,11 +173,15 @@ while ($true) {
     if ($atUrl) {
         Log "第一步：验证 API 地址"
         while ($true) {
-            $provBase = Read-Host "请输入 API 地址"
+            $provBase = (Read-Host "请输入 API 地址").Trim()
             $provBase = $provBase.TrimEnd("/")
             Log "正在验证 API 地址……"
             # 用系统自带 curl.exe（不走 .NET 代理/TLS 栈，行为与 Linux 一致）
-            $urlCode = & curl.exe -s --max-time 20 -o "$env:TEMP\hm-url-test.json" -w "%{http_code}" "$provBase/models"
+            # 直连优先（绕过代理环境变量）；不通再回退系统代理
+            $urlCode = [string](& curl.exe -sL --noproxy "*" --max-time 20 -o "$env:TEMP\hm-url-test.json" -w "%{http_code}" "$provBase/models")
+            if ($urlCode -eq "000") {
+                $urlCode = [string](& curl.exe -sL --max-time 20 -o "$env:TEMP\hm-url-test.json" -w "%{http_code}" "$provBase/models")
+            }
             if ($urlCode -eq "000") {
                 Warn "[连接超时] 无法连接至该 API 地址。请确认：① 地址为服务商提供的接口地址（通常以 /v1 结尾）；② 本机当前可以访问互联网；③ 若开启了代理软件，尝试关闭代理或更换节点后重试"
                 continue
@@ -195,34 +199,34 @@ while ($true) {
     Log "第二步：验证 API Key（输入 1 返回上一步）"
     $secKey = Read-Host -AsSecureString "请输入 API Key（输入可能不显示）"
     $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secKey)
-    $apiKey = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+    $apiKey = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr).Trim()
     [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
     if ($apiKey -eq "1") { $atUrl = $true; continue }
     if (-not $apiKey) { Warn "key 不能为空——重新输入"; continue }
 
     Log "正在验证 API Key……"
     $modelsFile = Join-Path $env:TEMP "hm-models.json"
-    $httpCode = & curl.exe -sL --max-time 20 -o $modelsFile -w "%{http_code}" "$provBase/models" -H "Authorization: Bearer $apiKey"
+    $httpCode = [string](& curl.exe -sL --noproxy "*" --max-time 20 -o $modelsFile -w "%{http_code}" "$provBase/models" -H "Authorization: Bearer $apiKey")
+    if ($httpCode -eq "000") {
+        $httpCode = [string](& curl.exe -sL --max-time 20 -o $modelsFile -w "%{http_code}" "$provBase/models" -H "Authorization: Bearer $apiKey")
+    }
+    $models = $null
+    try { $models = Get-Content $modelsFile -Raw -Encoding UTF8 | ConvertFrom-Json } catch {}
+    $snippet = ""
+    try { $snippet = (Get-Content $modelsFile -Raw -Encoding UTF8 -ErrorAction Stop).Substring(0, [Math]::Min(150, (Get-Item $modelsFile -ErrorAction Stop).Length)) } catch {}
     if ($httpCode -eq "401" -or $httpCode -eq "403") {
-        Warn "[$httpCode] 认证未通过。请确认 API Key 复制完整（注意首尾空格与截断），且该 Key 在服务商控制台处于启用状态"
+        Warn "[$httpCode] 认证未通过（服务返回：$snippet）。请确认 API Key 复制完整（注意首尾空格与截断），且该 Key 在服务商控制台处于启用状态"
         continue
     }
-    if ($httpCode -eq "000" -or $httpCode -eq $null) {
+    if ($httpCode -eq "000" -or $httpCode -eq "" -or $null -eq $httpCode) {
         Warn "[连接超时] 网络异常——重新输入，或输 1 返回上一步"
         continue
     }
-    $models = $null
-    if ($httpCode -eq "200") { try { $models = Get-Content $modelsFile -Raw -Encoding UTF8 | ConvertFrom-Json } catch {} }
     $ids = @()
     if ($models -and $models.data) { $ids = @($models.data | ForEach-Object { $_.id }) }
     if ($ids.Count -eq 0) {
-        if ($models) { Warn "[错误] 连接正常，但该 Key 名下无可用模型。请在服务商控制台确认已开通模型调用权限" }
-        elseif ($httpCode -and $httpCode -ne "200") { Warn "[$httpCode] 服务商暂时故障或限流——稍等几秒重试；持续出现请检查服务商状态页" }
-        else {
-            $snippet = ""
-            try { $snippet = (Get-Content $modelsFile -Raw -ErrorAction Stop).Substring(0, [Math]::Min(120, (Get-Item $modelsFile -ErrorAction Stop).Length)) } catch {}
-            Warn "[格式异常] 该地址返回的内容不是标准接口响应。返回内容：$snippet"
-        }
+        if ($models -and $models.data -ne $null) { Warn "[错误] 连接正常，但该 Key 名下无可用模型。请在服务商控制台确认已开通模型调用权限" }
+        else { Warn "验证未通过（HTTP $httpCode，服务返回：$snippet）。请核对地址与 Key，或稍后重试" }
         continue
     }
     Ok "连接正常，检测到 $($ids.Count) 个可用模型。"
