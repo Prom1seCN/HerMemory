@@ -93,17 +93,13 @@ namespace HerMemory
         private bool _cfgSaving;
         private string _lastState = "unknown";
 
-        /// <summary>模型接口配置区：仅 Gateway 停止时可编辑；进入可编辑态自动加载当前配置。</summary>
+        /// <summary>模型接口配置区：字段恒可用（光标恒在）；保存时校验 Gateway 已停止。</summary>
         private void UpdateCfgRegion(string state, bool load = false)
         {
-            var editable = state == "stopped";
-            CfgUrl.IsEnabled = editable;
-            CfgKey.IsEnabled = editable;
-            CfgSave.IsEnabled = editable;
-            CfgHint.Text = editable
+            CfgHint.Text = state == "stopped"
                 ? "Gateway 已停止，可修改；保存后启动生效。"
-                : "Gateway 运行中，停止后可修改。";
-            if (load || (editable && _cfgState != "stopped"))
+                : "Gateway 运行中；修改可保存，但需停止后执行。";
+            if (load || (state == "stopped" && _cfgState != "stopped"))
             {
                 _ = Task.Run(() =>
                 {
@@ -122,9 +118,16 @@ namespace HerMemory
             if (url.Length == 0 || key.Length == 0) { CfgHint.Text = "请填写 API 地址与 API Key。"; return; }
             _cfgSaving = true;
             CfgHint.Text = "正在保存……";
-            var ok = await Task.Run(() => HermesCtl.SetModelCfg(url, key));
+            var state = await Task.Run(HermesCtl.State);
+            if (state != "stopped")
+            {
+                _cfgSaving = false;
+                CfgHint.Text = "Gateway 正在运行，请先停止再保存。";
+                return;
+            }
+            var ok2 = await Task.Run(() => HermesCtl.SetModelCfg(url, key));
             _cfgSaving = false;
-            CfgHint.Text = ok ? "已保存，启动 Gateway 后生效。" : "保存失败，请重试。";
+            CfgHint.Text = ok2 ? "已保存，启动 Gateway 后生效。" : "保存失败，请重试。";
         }
 
         private async void UpdateTierTable()
@@ -225,7 +228,13 @@ namespace HerMemory
             {
                 var s = await Task.Run(HermesCtl.State);
                 _lastState = s;
-                await Dispatcher.InvokeAsync(() => UpdateCfgRegion(s, load: true));
+                var (url, _, key) = HermesCtl.GetModelCfg();
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    CfgUrl.Text = url;
+                    CfgKey.Text = key;
+                    if (key.Length == 0) CfgHint.Text = "未读取到 Key，请直接填写。";
+                });
             });
         }
 
@@ -241,11 +250,8 @@ namespace HerMemory
         {
             Dispatcher.InvokeAsync(() =>
             {
-                if (CfgUrl.IsEnabled)
-                {
-                    CfgUrl.Focus();
-                    CfgUrl.CaretIndex = CfgUrl.Text.Length;
-                }
+                CfgUrl.Focus();
+                CfgUrl.CaretIndex = CfgUrl.Text.Length;
             }, System.Windows.Threading.DispatcherPriority.Background);
         }
 
