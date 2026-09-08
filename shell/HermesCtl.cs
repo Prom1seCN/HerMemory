@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.IO;
 
 namespace HerMemory
@@ -106,6 +106,72 @@ namespace HerMemory
                 return File.Exists(env) && File.ReadAllLines(env)
                     .Any(l => l.StartsWith("WEIXIN_ACCOUNT_ID=", StringComparison.Ordinal));
             }
+            catch { return false; }
+        }
+
+        // —— 模型接口配置（对齐 install.ps1 的 custom provider 机制） ——
+        public static (string baseUrl, string keyEnv, string keyValue) GetModelCfg()
+        {
+            var baseUrl = Clean(Run("config get model.base_url", 20));
+            var apiRef = Clean(Run("config get model.api_key", 20));   // 形如 ${HERMES_CUSTOM_X_API_KEY}
+            var m = System.Text.RegularExpressions.Regex.Match(apiRef, @"\$\{([A-Z0-9_]+)\}");
+            var keyEnv = m.Success ? m.Groups[1].Value : "";
+            var keyValue = "";
+            if (keyEnv.Length > 0)
+            {
+                var env = Path.Combine(HermesHome, ".env");
+                if (File.Exists(env))
+                    keyValue = File.ReadAllLines(env)
+                        .Where(l => l.StartsWith(keyEnv + "=", StringComparison.Ordinal))
+                        .Select(l => l[(keyEnv.Length + 1)..])
+                        .FirstOrDefault() ?? "";
+            }
+            return (baseUrl, keyEnv, keyValue);
+        }
+
+        private static string Clean(string s)
+        {
+            s = new string(s.Where(c => c >= 0x21 && c <= 0x7E).ToArray());
+            return s.Trim().Trim('"').Trim();
+        }
+
+        /// <summary>写入 BaseURL/Key（须在 Gateway 停止时调用）。与 install.ps1 同构：key 进 .env 的 HERMES_CUSTOM_*，config 引用之。</summary>
+        public static bool SetModelCfg(string baseUrl, string apiKey)
+        {
+            try
+            {
+                baseUrl = new string(baseUrl.Where(c => c >= 0x21 && c <= 0x7E).ToArray()).TrimEnd('/');
+                apiKey = new string(apiKey.Where(c => c >= 0x21 && c <= 0x7E).ToArray());
+                if (baseUrl.Length == 0 || apiKey.Length == 0) return false;
+
+                var u = new Uri(baseUrl);
+                var hostId = u.Host;
+                if (u.Port > 0) hostId += "_" + u.Port;
+                var keyEnv = "HERMES_CUSTOM_" +
+                    new string(hostId.ToUpperInvariant().Select(c => char.IsLetterOrDigit(c) ? c : '_').ToArray()).Trim('_') +
+                    "_API_KEY";
+
+                Run($"config set model.base_url {baseUrl}", 30);
+                Run($"config set {keyEnv} {apiKey}", 30);
+                Run("config set model.provider custom", 30);
+                Run("config set model.api_key ${{{keyEnv}}}", 30);
+                Run("config set model.api_mode chat_completions", 30);
+
+                // .env：写入新键、清除其他 HERMES_CUSTOM_* 旧键
+                var env = Path.Combine(HermesHome, ".env");
+                var lines = File.Exists(env) ? File.ReadAllLines(env).ToList() : new List<string>();
+                lines = lines.Where(l => !l.StartsWith("HERMES_CUSTOM_", StringComparison.Ordinal)).ToList();
+                lines.Add($"{keyEnv}={apiKey}");
+                File.WriteAllLines(env, lines, new System.Text.UTF8Encoding(false));
+                return true;
+            }
+            catch { return false; }
+        }
+
+        // —— 同步服务（WebDAV）：只展示，不启停（启停由用户与 AI 对话完成） ——
+        public static bool WebDavRunning()
+        {
+            try { return Process.GetProcessesByName("rclone").Length > 0; }
             catch { return false; }
         }
 

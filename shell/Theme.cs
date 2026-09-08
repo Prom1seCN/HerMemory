@@ -3,16 +3,34 @@ using System.IO;
 namespace HerMemory
 {
     /// <summary>
-    /// 主题：浅色为默认；文件名以 _dark 结尾的 exe 自动切深色。
-    /// 黑白反转（背景/墨色），灰、蓝青、红绿等语义色不变。
+    /// 主题：单 exe 内浅色/深色动态切换（DynamicResource 元素实时跟随）。
+    /// 黑白反转（背景/墨色），灰、蓝青、红绿等语义色不变。偏好存注册表。
     /// </summary>
     public static class Theme
     {
-        public static void Apply()
-        {
-            bool dark = Path.GetFileNameWithoutExtension(Environment.ProcessPath ?? "")
-                .EndsWith("_dark", StringComparison.OrdinalIgnoreCase);
+        private const string Key = @"Software\HerMemory";
 
+        public static bool IsDark
+        {
+            get
+            {
+                using var k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(Key);
+                return k?.GetValue("DarkMode") as string == "1";
+            }
+        }
+
+        public static void Apply() => Apply(IsDark);
+
+        /// <summary>切换主题并实时生效（DynamicResource 消费者自动跟随）。</summary>
+        public static void SetDark(bool dark)
+        {
+            using var k = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(Key);
+            k.SetValue("DarkMode", dark ? "1" : "0");
+            Apply(dark);
+        }
+
+        private static void Apply(bool dark)
+        {
             var res = System.Windows.Application.Current.Resources;
             void Set(string key, string hex)
             {

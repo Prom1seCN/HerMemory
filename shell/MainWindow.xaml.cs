@@ -81,21 +81,66 @@ namespace HerMemory
                 _ => "#C62828",
             });
             HomeHint.Text = state == "running"
-                ? "修改记忆文件后开启新对话生效；修改配置（API 地址、Key）后需重启网关。"
+                ? "修改记忆文件后开启新对话生效。"
                 : "";
             UpdateTierTable();
+            UpdateCfgRegion(state);
+            WebDavStatus.Text = HermesCtl.WebDavRunning()
+                ? "同步服务（WebDAV）：运行中"
+                : "同步服务（WebDAV）：未运行";
+        }
+
+        private string _cfgState = "";
+        private bool _cfgSaving;
+
+        /// <summary>模型接口配置区：仅 Gateway 停止时可编辑；进入可编辑态自动加载当前配置。</summary>
+        private void UpdateCfgRegion(string state)
+        {
+            var editable = state == "stopped";
+            CfgUrl.IsEnabled = editable;
+            CfgKey.IsEnabled = editable;
+            CfgSave.IsEnabled = editable;
+            CfgHint.Text = editable
+                ? "Gateway 已停止，可修改；保存后启动生效。"
+                : "Gateway 运行中，停止后可修改；也可直接与 AI 对话修改。";
+            if (editable && _cfgState != "stopped")
+            {
+                _ = Task.Run(() =>
+                {
+                    var (url, _, key) = HermesCtl.GetModelCfg();
+                    Dispatcher.Invoke(() => { CfgUrl.Text = url; CfgKey.Text = key; });
+                });
+            }
+            _cfgState = state;
+        }
+
+        private async void CfgSave_Click(object sender, RoutedEventArgs e)
+        {
+            if (_cfgSaving) return;
+            var url = new string(CfgUrl.Text.Where(c => c >= 0x21 && c <= 0x7E).ToArray()).TrimEnd('/');
+            var key = new string(CfgKey.Text.Where(c => c >= 0x21 && c <= 0x7E).ToArray());
+            if (url.Length == 0 || key.Length == 0) { CfgHint.Text = "请填写 API 地址与 API Key。"; return; }
+            _cfgSaving = true;
+            CfgHint.Text = "正在保存……";
+            var ok = await Task.Run(() => HermesCtl.SetModelCfg(url, key));
+            _cfgSaving = false;
+            CfgHint.Text = ok ? "已保存，启动 Gateway 后生效。" : "保存失败，请重试。";
         }
 
         private void UpdateTierTable()
         {
-            var limit = "";
+            var limit = ""; var usr = "";
             try
             {
                 var outp = HermesCtl.Run("config get memory.memory_char_limit", 20);
-                var m = System.Text.RegularExpressions.Regex.Match(outp, @"(2200|5000|10000)");
-                limit = m.Success ? m.Groups[1].Value : "";
+                limit = System.Text.RegularExpressions.Regex.Match(outp, @"(2200|5000|10000)").Groups[1].Value;
+                var outp2 = HermesCtl.Run("config get memory.user_char_limit", 20);
+                usr = System.Text.RegularExpressions.Regex.Match(outp2, @"(1375|3000|5000)").Groups[1].Value;
             }
             catch { }
+            HomeTierCurrent.Text = limit.Length > 0 && usr.Length > 0
+                ? $"当前：MEMORY {limit} 字符 / USER {usr} 字符（修改请与 AI 对话）"
+                : "";
             var col = limit switch { "2200" => 1, "5000" => 2, "10000" => 3, _ => 0 };
             for (int i = 1; i <= 3; i++)
             {

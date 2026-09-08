@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 
@@ -61,6 +61,12 @@ namespace HerMemory
                 CheckOnClick = true,
                 Checked = HermesCtl.CloseMinimizeEnabled(),
             };
+            var miDark = new System.Windows.Forms.ToolStripMenuItem("深色模式")
+            {
+                CheckOnClick = true,
+                Checked = Theme.IsDark,
+            };
+            miDark.Click += (_, _) => Theme.SetDark(miDark.Checked);
             var miExit = new System.Windows.Forms.ToolStripMenuItem("退出", null, (_, _) =>
             {
                 App.RequestExit();
@@ -79,6 +85,7 @@ namespace HerMemory
             _menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
             _menu.Items.Add(miAuto);
             _menu.Items.Add(miMinimize);
+            _menu.Items.Add(miDark);
             _menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
             _menu.Items.Add(miExit);
 
