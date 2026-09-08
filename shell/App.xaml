@@ -58,6 +58,7 @@
             <Setter Property="BorderBrush" Value="#CFD8DC"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Background" Value="{DynamicResource FieldBg}"/>
+            <Setter Property="CaretBrush" Value="{DynamicResource Ink}"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>
         </Style>
         <Style x:Key="FieldCombo" TargetType="ComboBox">

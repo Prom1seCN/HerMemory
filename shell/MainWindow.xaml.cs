@@ -82,9 +82,6 @@ namespace HerMemory
                 "stopped" => "#90A4AE",
                 _ => "#C62828",
             });
-            HomeHint.Text = state == "running"
-                ? "修改记忆文件后开启新对话生效。"
-                : "";
             UpdateTierTable();
             UpdateCfgRegion(state);
             WebDavStatus.Text = HermesCtl.WebDavRunning()
@@ -97,7 +94,7 @@ namespace HerMemory
         private string _lastState = "unknown";
 
         /// <summary>模型接口配置区：仅 Gateway 停止时可编辑；进入可编辑态自动加载当前配置。</summary>
-        private void UpdateCfgRegion(string state)
+        private void UpdateCfgRegion(string state, bool load = false)
         {
             var editable = state == "stopped";
             CfgUrl.IsEnabled = editable;
@@ -105,8 +102,8 @@ namespace HerMemory
             CfgSave.IsEnabled = editable;
             CfgHint.Text = editable
                 ? "Gateway 已停止，可修改；保存后启动生效。"
-                : "Gateway 运行中，停止后可修改；也可直接与 AI 对话修改。";
-            if (editable && _cfgState != "stopped")
+                : "Gateway 运行中，停止后可修改。";
+            if (load || (editable && _cfgState != "stopped"))
             {
                 _ = Task.Run(() =>
                 {
@@ -176,8 +173,16 @@ namespace HerMemory
             var cmd = sender == HomeStart ? "start" : sender == HomeStop ? "stop" : "restart";
             HomeStatus.Text = cmd == "stop" ? "正在停止…" : cmd == "restart" ? "正在重启…" : "正在启动…";
             HomeStatus.Foreground = Brush("#78909C");
+            var pre = _lastState;
             await Task.Run(() => HermesCtl.Run($"gateway {cmd}", 120));
-            UpdateHomeStatus(await Task.Run(HermesCtl.State));
+            var st = await Task.Run(HermesCtl.State);
+            for (int i = 0; i < 3 && st == pre; i++)   // 状态未翻转则稍候重读（进程收尾有延迟）
+            {
+                await Task.Delay(1500);
+                st = await Task.Run(HermesCtl.State);
+            }
+            _lastState = st;
+            UpdateHomeStatus(st);
             _homeBusy = false;
         }
 
@@ -207,9 +212,11 @@ namespace HerMemory
             ShowPage("PageMemory");
         }
 
-        private void LinkApi_Click(object sender, RoutedEventArgs e)
+        private async void LinkApi_Click(object sender, RoutedEventArgs e)
         {
-            UpdateCfgRegion(_lastState);
+            var s = await Task.Run(HermesCtl.State);   // 进页取新鲜状态，避免 10 秒轮询间隙的陈旧判断
+            _lastState = s;
+            UpdateCfgRegion(s, load: true);            // 无条件预填当前实际配置
             ShowPage("PageApi");
         }
 
