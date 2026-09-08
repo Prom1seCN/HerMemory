@@ -213,9 +213,10 @@
         <!-- ===== 页 6：卸载 ===== -->
         <Grid x:Name="PageUninstall" Visibility="Collapsed">
             <StackPanel>
-                <TextBlock Text="卸载 HerMemory" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource Ink}"/>
-                <TextBlock Style="{StaticResource Body}" Margin="0,14,0,0"
-                           Text="将移除：Hermes 内核与全部配置（%LOCALAPPDATA%\hermes）、微信接入凭据、gateway 计划任务与登录项、托盘开机自启注册表、偏好设置。网关会先停止。"/>
+                <Button x:Name="BtnUninsBack" Content="← 返回" Style="{StaticResource GhostButton}" HorizontalAlignment="Left" Padding="14,6,14,6" Click="BtnUninsCancel_Click"/>
+                <TextBlock Text="卸载 HerMemory" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource Ink}" Margin="0,18,0,0"/>
+                <TextBlock Style="{StaticResource Body}" Margin="0,30,0,0"
+                           Text="将移除：Hermes 内核与全部配置、微信接入凭据、gateway 计划任务与登录项、托盘开机自启注册表、偏好设置；配置目录为 %LOCALAPPDATA%\hermes。网关会先停止。"/>
                 <TextBlock Style="{StaticResource Body}" Foreground="#C62828" Margin="0,10,0,0"
                            Text="vault（文档与记忆）默认保留，不属于卸载范围。"/>
                 <CheckBox x:Name="UninsVault" Content="同时删除 vault，文档与记忆不可恢复"
@@ -224,7 +225,6 @@
                           Margin="0,8,0,0" FontSize="13"/>
                 <StackPanel Orientation="Horizontal" Margin="0,22,0,0">
                     <Button x:Name="BtnUninsRun" Content="执行卸载" Style="{StaticResource AccentButton}" Background="#C62828" Click="BtnUninsRun_Click"/>
-                    <Button x:Name="BtnUninsCancel" Content="取消" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="BtnUninsCancel_Click"/>
                 </StackPanel>
                 <TextBlock x:Name="UninsStatus" Style="{StaticResource Body}" Margin="0,16,0,0"/>
                 <ProgressBar x:Name="UninsBar" Height="8" Minimum="0" Maximum="100" Margin="0,10,0,0" Visibility="Collapsed"/>

@@ -881,7 +881,7 @@ namespace HerMemory
                 if (r != MessageBoxResult.Yes) { UninsVault.IsChecked = false; return; }
             }
             BtnUninsRun.IsEnabled = false;
-            BtnUninsCancel.IsEnabled = false;
+            BtnUninsBack.IsEnabled = false;
             UninsBar.Visibility = Visibility.Visible;
             UninsBar.Value = 2;
             _ = Task.Run(() => DoUninstall(delVault, delExe));
