@@ -38,6 +38,7 @@ namespace HerMemory
         public MainWindow()
         {
             InitializeComponent();
+            ThemeGlyph.Text = Theme.IsDark ? "☾" : "☀";
             Loaded += async (_, _) =>
             {
                 if (HomeMode)
@@ -68,6 +69,7 @@ namespace HerMemory
 
         public void UpdateHomeStatus(string state)
         {
+            _lastState = state;
             HomeStatus.Text = state switch
             {
                 "running" => "Gateway 运行中——AI 在线",
@@ -92,6 +94,7 @@ namespace HerMemory
 
         private string _cfgState = "";
         private bool _cfgSaving;
+        private string _lastState = "unknown";
 
         /// <summary>模型接口配置区：仅 Gateway 停止时可编辑；进入可编辑态自动加载当前配置。</summary>
         private void UpdateCfgRegion(string state)
@@ -181,6 +184,44 @@ namespace HerMemory
                 HideToTray();
             }
             else { ReallyExit = true; Close(); }
+        }
+
+        // ================= 子页导航（主界面入口按钮） =================
+        private void LinkMemory_Click(object sender, RoutedEventArgs e)
+        {
+            UpdateTierTable();
+            ShowPage("PageMemory");
+        }
+
+        private void LinkApi_Click(object sender, RoutedEventArgs e)
+        {
+            UpdateCfgRegion(_lastState);
+            ShowPage("PageApi");
+        }
+
+        private void LinkWebdav_Click(object sender, RoutedEventArgs e)
+        {
+            WebDavStatus.Text = HermesCtl.WebDavRunning()
+                ? "同步服务（WebDAV）：运行中"
+                : "同步服务（WebDAV）：未运行";
+            ShowPage("PageWebdav");
+        }
+
+        private void BtnBack_Click(object sender, RoutedEventArgs e)
+        {
+            ShowPage("PageHome");
+            HomeStatus.Text = _lastState switch
+            {
+                "running" => "Gateway 运行中——AI 在线",
+                "stopped" => "Gateway 已停止——AI 离线",
+                _ => "Gateway 状态未知，请点重启",
+            };
+        }
+
+        private void BtnTheme_Click(object sender, RoutedEventArgs e)
+        {
+            Theme.SetDark(!Theme.IsDark);
+            ThemeGlyph.Text = Theme.IsDark ? "☾" : "☀";
         }
 
         private void HideToTray()
