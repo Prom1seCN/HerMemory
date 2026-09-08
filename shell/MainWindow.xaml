@@ -26,6 +26,7 @@
             <Setter Property="Margin" Value="0,0,18,0"/>
             <Setter Property="FontSize" Value="13"/>
             <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Foreground" Value="{DynamicResource Ink}"/>
         </Style>
     </Window.Resources>
 
@@ -224,7 +225,7 @@
                 <CheckBox x:Name="UninsVault" Content="同时删除 vault，文档与记忆不可恢复"
                           Margin="0,14,0,0" FontSize="13" Foreground="#C62828"/>
                 <CheckBox x:Name="UninsExe" Content="同时删除本程序文件"
-                          Margin="0,8,0,0" FontSize="13"/>
+                          Margin="0,8,0,0" FontSize="13" Foreground="#C62828"/>
                 <StackPanel Orientation="Horizontal" Margin="0,22,0,0">
                     <Button x:Name="BtnUninsRun" Content="执行卸载" Style="{StaticResource AccentButton}" Background="#C62828" Click="BtnUninsRun_Click"/>
                 </StackPanel>
