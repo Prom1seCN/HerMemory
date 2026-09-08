@@ -41,7 +41,6 @@ namespace HerMemory
             var miStatus = new System.Windows.Forms.ToolStripMenuItem("状态：检测中…") { Enabled = false };
             var miStart = new System.Windows.Forms.ToolStripMenuItem("启动", null, (_, _) => RunGw("start"));
             var miStop = new System.Windows.Forms.ToolStripMenuItem("停止", null, (_, _) => RunGw("stop"));
-            var miRestart = new System.Windows.Forms.ToolStripMenuItem("重启", null, (_, _) => RunGw("restart"));
             var miLogs = new System.Windows.Forms.ToolStripMenuItem("打开日志文件夹", null, (_, _) =>
             {
                 if (Directory.Exists(LogsDir))
@@ -76,7 +75,6 @@ namespace HerMemory
             _menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
             _menu.Items.Add(miStart);
             _menu.Items.Add(miStop);
-            _menu.Items.Add(miRestart);
             _menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
             _menu.Items.Add(miLogs);
             _menu.Items.Add(miMain);
@@ -113,29 +111,19 @@ namespace HerMemory
             {
                 var raw = HermesCtl.RawStatus();
                 var lower = raw.ToLowerInvariant();
-                // 顺序关键："not running" 也包含 "running"——必须先判否定
+                // 顺序关键："not running" 也包含 "running"——必须先判否定；二态，读取失败按停止
                 if (lower.Contains("not running") || lower.Contains("stopped")) return ("stopped", raw);
                 if (lower.Contains("running")) return ("running", raw);
-                return ("unknown", raw);
+                return ("stopped", raw);
             });
             _state = state;
             _busy = false;
 
             try
             {
-                _icon.Icon = state switch
-                {
-                    "running" => _icoRun,
-                    "stopped" => _icoStop,
-                    _ => _icoUnknown,
-                };
-                _icon.Text = "HerMemory — " + state switch
-                {
-                    "running" => "运行中",
-                    "stopped" => "已停止",
-                    _ => "状态未知",
-                };
-                miStatus.Text = _icon.Text["HerMemory — ".Length..];
+                _icon.Icon = state == "running" ? _icoRun : _icoStop;
+                _icon.Text = "HerMemory — " + (state == "running" ? "运行中" : "已停止");
+                miStatus.Text = state == "running" ? "状态：运行中" : "状态：已停止";
             }
             catch { }
             StatusChanged?.Invoke(state, raw);

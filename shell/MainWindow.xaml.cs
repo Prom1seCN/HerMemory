@@ -77,15 +77,9 @@ namespace HerMemory
             HomeStatus.Text = state switch
             {
                 "running" => "Gateway 运行中——AI 在线",
-                "stopped" => "Gateway 已停止——AI 离线",
-                _ => "Gateway 状态未知，请点重启",
+                _ => "Gateway 已停止——AI 离线",
             };
-            HomeStatus.Foreground = Brush(state switch
-            {
-                "running" => "#2E7D32",
-                "stopped" => "#90A4AE",
-                _ => "#C62828",
-            });
+            HomeStatus.Foreground = Brush(state == "running" ? "#2E7D32" : "#90A4AE");
             UpdateTierTable();
             UpdateCfgRegion(state);
             WebDavStatus.Text = HermesCtl.WebDavRunning()
@@ -123,7 +117,7 @@ namespace HerMemory
             _cfgSaving = true;
             CfgHint.Text = "正在保存……";
             var state = await Task.Run(HermesCtl.State);
-            if (state != "stopped")
+            if (state == "running")
             {
                 _cfgSaving = false;
                 CfgHint.Text = "Gateway 正在运行，请先停止再保存。";
@@ -182,8 +176,8 @@ namespace HerMemory
         {
             if (_homeBusy) return;
             _homeBusy = true;
-            var cmd = sender == HomeStart ? "start" : sender == HomeStop ? "stop" : "restart";
-            HomeStatus.Text = cmd == "stop" ? "正在停止…" : cmd == "restart" ? "正在重启…" : "正在启动…";
+            var cmd = sender == HomeStart ? "start" : "stop";
+            HomeStatus.Text = cmd == "stop" ? "正在停止…" : "正在启动…";
             HomeStatus.Foreground = Brush("#78909C");
             var pre = _lastState;
             await Task.Run(() => HermesCtl.Run($"gateway {cmd}", 120));
@@ -265,8 +259,7 @@ namespace HerMemory
             HomeStatus.Text = _lastState switch
             {
                 "running" => "Gateway 运行中——AI 在线",
-                "stopped" => "Gateway 已停止——AI 离线",
-                _ => "Gateway 状态未知，请点重启",
+                _ => "Gateway 已停止——AI 离线",
             };
         }
 

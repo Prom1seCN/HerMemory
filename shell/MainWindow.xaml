@@ -45,7 +45,6 @@
                 <StackPanel Orientation="Horizontal" Margin="0,22,0,0">
                     <Button x:Name="HomeStart" Content="启动" Style="{StaticResource AccentButton}" Click="HomeCtl_Click"/>
                     <Button x:Name="HomeStop" Content="停止" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="HomeCtl_Click"/>
-                    <Button x:Name="HomeRestart" Content="重启" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="HomeCtl_Click"/>
                     <Button Content="卸载" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="BtnUninstall_Click"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,26,0,0">

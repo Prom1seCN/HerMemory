@@ -53,13 +53,13 @@ namespace HerMemory
             catch { return ""; }
         }
 
-        /// <summary>状态三分类。顺序关键：先判否定，"not running" 也包含 "running"。</summary>
+        /// <summary>状态二态：running / stopped。顺序关键：先判否定，"not running" 也包含 "running"；读取失败一律按停止。</summary>
         public static string State()
         {
             var lower = RawStatus().ToLowerInvariant();
             if (lower.Contains("not running") || lower.Contains("stopped")) return "stopped";
             if (lower.Contains("running")) return "running";
-            return "unknown";
+            return "stopped";
         }
 
         public static string Run(string args, int timeoutSec = 120)
