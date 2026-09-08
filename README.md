@@ -18,9 +18,13 @@
 在保留Hermes全部能力的基础上针对【日常对话&文档写作】做了深度优化。
 HerMemory的**一切**都完全属于用户，HerMemory is **Your** memory。
 
-## 核心特性
+<div align="center">
 
-### 1. 文件即AI
+## ✨ 01 · 核心特性
+
+</div>
+
+### 📄 1. 文件即AI
 
 所有决定 AI 行为与记忆的文件全部是**纯文本文档**，**完全属于用户**。
 用户可以随意**编辑、导出、导入**任何文档。
@@ -37,7 +41,7 @@ HerMemory的**一切**都完全属于用户，HerMemory is **Your** memory。
 
 改完文档后，同步到AI端开新对话生效。
 
-### 2. 微信对话，扫码即用
+### 💬 2. 微信对话，扫码即用
 
 扫一个码就能接入微信ClawBot，直接在微信里与HerMemory对话。
 另有QQ、钉钉、飞书等软件可选。
@@ -49,7 +53,7 @@ HerMemory的**一切**都完全属于用户，HerMemory is **Your** memory。
 
 *tips：也可以在CLI与HerMemory对话。*
 
-### 3. 多设备同步的文档库
+### 🔄 3. 多设备同步的文档库
 
 一个文件夹，装下你和AI的全部。
 
@@ -62,7 +66,7 @@ HerMemory的**一切**都完全属于用户，HerMemory is **Your** memory。
 
 *tips：不建议同步过大的文件。PC版同步服务只在局域网内可用。*
 
-### 4. 全能的AI助手
+### 🤖 4. 全能的AI助手
 
 包含“龙虾”OpenClaw和Hermes的全部功能。
 
@@ -72,7 +76,7 @@ HerMemory的**一切**都完全属于用户，HerMemory is **Your** memory。
 
 *注：OpenClaw/Hermes原有特性*
 
-### 5. 独家特性
+### ⭐ 5. 独家特性
 
 为优化用户体验而设计
 
@@ -83,7 +87,11 @@ HerMemory的**一切**都完全属于用户，HerMemory is **Your** memory。
 - **进程清单**：进程与脚本是运行中的程序，无法迁移，但**独立记录**，包含在文档库中。
 - **智能安装**：不完全采用脚本部署，而是直接唤起AI**带领用户**走完安装流程。
 
-## 方案对比
+<div align="center">
+
+## ⚖️ 02 · 方案对比
+
+</div>
 
 | **维度**    | 对话AI（网页版/APP） | **原生框架 (Hermes / OpenClaw)** | **HerMemory** |
 | --------- | ------------- | ---------------------------- | ------------- |
@@ -93,9 +101,13 @@ HerMemory的**一切**都完全属于用户，HerMemory is **Your** memory。
 | **日常对话**  | 专属 App / 网页   | 终端/命令行                       | **微信**        |
 | **可迁移性**  | 无法迁移          | 需手动打包容器与环境                   | **一键导出，完整接管** |
 
-## 快速部署
+<div align="center">
 
-### 方式 A：Windows PC（推荐）
+## 🚀 03 · 快速部署
+
+</div>
+
+### 🖥️ 方式 A：Windows PC（推荐）
 
 1. 下载最新的 **`HerMemory.exe`**。
 2. 双击启动图形向导：
@@ -105,7 +117,7 @@ HerMemory的**一切**都完全属于用户，HerMemory is **Your** memory。
 3. AI启动，程序收至系统托盘，去微信打第一声招呼。
 4. AI自部署同步服务，并引导用户完成配置。
 
-### 方式 B：Linux 服务器 / NAS
+### 🐧 方式 B：Linux 服务器 / NAS
 
 具备 `git` 与 `curl` 环境即可一键拉起：
 
@@ -117,7 +129,11 @@ bash install.sh
 
 按交互提示选择记忆容量档位、录入 API Key，脚本跑通后即刻上线。
 
-## 导出与重生：README_REBORN
+<div align="center">
+
+## 📦 04 · 导出与重生：README_REBORN
+
+</div>
 
 无论软件版本如何更迭，甚至 HerMemory 项目本身停止维护，你的数据资产也不会受损：
 
@@ -126,6 +142,16 @@ bash install.sh
 
 任何能读懂文字的智能体，接手这个包后，都能完整继承你与AI的全部记忆和文档。
 
-## 开源协议
+<div align="center">
+
+## 📜 05 · 开源协议
+
+</div>
 
 本项目采用 [MIT License](LICENSE) 开源，内核基于 [Nous Research](https://github.com/NousResearch/hermes-agent) 的开源 Agent 架构。完全免费，无商业行为。
+
+---
+
+<div align="center">
+<sub><em>HerMemory. Your memory. · Memory that grows with you.</em></sub>
+</div>
