@@ -1,21 +1,16 @@
-# ONBOARDING — 部署待办执行手册（AI 读）
 
-> 触发条件：AGENTS.md 里有「部署待办」节。用户刚装好 HerMemory，API key 已配置，你是第一次上线。
-> 用户大概率正在微信里和你说第一句话（安装时已扫码接入；也可能在终端 CLI）。语气自然，像见面打招呼，不要复述流程。
-> 任务：完成下面五站。全部完成并经用户确认后，删掉 AGENTS.md 里的「部署待办」节。
-> **每完成一站，在本文件里打勾标记**——接续靠文件，不靠会话。
+> 触发条件：AGENTS.md 里有「初次部署」节。用户刚装好 HerMemory，API key 已配置，你是第一次上线。
+> 用户大概率正在微信里和你说第一句话
+> 任务：完成下面五站。全部完成并经用户确认后，引导用户删掉 AGENTS.md 里的「初次部署」节。
+> **每完成一站，在本文件里标记完成**。
 
-## 0. 模型 fallback 链（仅阿里云 / 腾讯云；其他来源跳过）
 
-**目的**：这两家每个模型发100万token免费额度——把 10 个模型的额度串成链，主模型额度耗尽（429）或报错时自动顺位切换，容量 ×10。
-
-**做法**：从 `custom_providers` 认来源（base_url 含 dashscope → 百炼；含 api.hunyuan.cloud.tencent.com 或 tokenhub.tencentmaas.com → 腾讯 TokenHub）→ 拉 `GET /models` 实时列表 → 选**当前最强的 10 个主力对话模型**（版本新、参数大者强；排除 embedding / vl / audio / omni / coder / realtime 专用型号；用户当前主模型排第一）→ 写入 config 的 `fallback_providers`，条目 `{provider: "custom:<名>", model: <型号>}`（`custom:<名>` 引用 custom_providers 里的同名配置；`hermes config set` 不便写列表就直接编辑 config YAML）。新会话启动打印 `🔄 Fallback chain (N providers)` 即生效。
 
 ## 1. 连接微信（多数情况已完成；未配置时才执行）
 
 **判断**：读 AI 端 `.env`（`~/.hermes/.env` 或 `%LOCALAPPDATA%\hermes\.env`），已有 `WEIXIN_ACCOUNT_ID` → 安装时已扫码，本站完成。在微信里直接向用户问好，进入下一站。
 
-**未配置时**（用户安装时跳过或扫码失败）：告诉用户「现在完成微信接入，需要你在电脑前操作一下」，引导用户在终端跑 `hermes gateway setup`：平台菜单选 Weixin / WeChat → 用微信扫终端上的二维码（约 8 分钟超时，超时重跑；扫不出就把链接复制到浏览器打开，页面里会出现二维码）→ 消息授权选「仅允许列表内用户」（已预填用户微信 ID）→ 群聊处理选禁用（默认）。扫码成功后在微信里向用户问好。
+**未配置时**（用户安装时跳过或扫码失败）：告诉用户「现在完成微信接入，需要你在电脑前操作一下」，引导用户在终端跑 `hermes gateway setup`：平台菜单选 Weixin / WeChat → 用微信扫终端上的二维码（约 8 分钟超时，超时重跑；扫不出就把链接复制到浏览器打开，页面里会出现二维码）→ 消息授权选「仅允许列表内用户」（已预填用户微信 ID）→ 群聊处理选禁用（默认）。扫码成功后在微信里向用户问好。Windows PC 用户也可以重新运行 HerMemory.exe 的安装向导：扫码页自动打开二维码并完成后续授权，已装步骤自动跳过。
 
 ## 2. 部署同步服务
 
@@ -23,9 +18,9 @@
 
 **做法**：请用户自己想一个 WebDAV 用户名和密码发给你（提醒强密码——之后他连同步要用，你只是拿去配服务端），然后 `rclone serve webdav ~/vault --addr 0.0.0.0:5005 --user <用户名> --pass <密码>` 起服务并注册常驻（Linux：systemd user 服务；Windows：schtasks 登录自启）。rclone 缺失先装。
 
-## 3. 引导同步配置（初次只引导 PC；手机等用户开口再做）
+## 3. 引导同步配置（初次只引导 PC）
 
-**目的**：用户的文档库与你的 vault 用 Obsidian + Remotely Save (简称RS)打通。
+**目的**：用户的文档库与你的 vault 用 Obsidian + Remotely Save (简称RS)打通。开始前先向用户用两句人话讲清楚：同步库是装他的文档和你的记忆的一个文件夹；同步后他的每台设备各有一份——改动带得走，也是离线备份。
 
 **原则**：先教用户自己动手（市场装 RS），你只在他下载失败时才代劳。**同步全手动**——用户设备上的副本就是他的备份，删除的传播必须经过他的手，任何时候不替用户开自动同步。
 
@@ -37,11 +32,11 @@
    - data 是 **encodeURIComponent 的 JSON，不是 base64**；`vault` 参数必须与用户实际仓库名**完全一致**，否则导入报错
    - JSON 内容：`serviceType: webdav`，webdav 地址（`http://AI端IP:5005`；服务器形态=公网 IP，PC 形态=局域网 IP）+ 刚才的账密全量，`syncDirection: bidirectional`，`conflictAction: keep_newer`；**不设任何自动同步间隔**
    - 用户点一下链接 → Obsidian 唤起 → 配置全含写入（弹「设置已导入」）→ 点 Remotely Save 的同步按钮
-1. **用户市场下载失败时才由你代劳**：从其他源下载 RS 三件套（main.js / manifest.json / styles.css，多渠道下载的文件互相比对一致后再交付），打一个 zip：`.obsidian/plugins/remotely-save/`（三件套 + data.json 预填地址账密）+ `.obsidian/community-plugins.json`（内容 `["remotely-save"]`——不写这个装了也不加载）。**zip 文件名可中文，包内条目全 ASCII**。经微信发文件给用户；用户动作：接收 → 解压到仓库 → 打开 Obsidian 点「信任作者」→ 按同步（第一次同步会把四核心从 AI 端拉下来）。
+4. **用户市场下载失败时才由你代劳**：从其他源下载 RS 三件套（main.js / manifest.json / styles.css等），打一个 zip：`.obsidian/plugins/remotely-save/`（三件套 + data.json 预填地址账密）+ `.obsidian/community-plugins.json`（内容 `["remotely-save"]`——不写这个装了也不加载）。**zip 文件名可中文，包内条目全 ASCII**。经微信发文件给用户；用户动作：接收 → 解压到仓库 → 打开 Obsidian 点「信任作者」→ 按同步（第一次同步会把四核心从 AI 端拉下来）。
 
 **收尾**：让用户手动同步一次，然后对你说「体检一下」，跑 sync_check.sh 确认无误。
 
-**手机是以后的事**：用户提出想多端再做——手机装 Obsidian + RS（市场优先，失败你发三件套），配置用二维码：同一条深链转成二维码图片发到对话，用户在 RS 设置里「从二维码导入」。
+**手机同步**：手机装 Obsidian + RS（市场优先，失败你发三件套），配置用二维码：同一条深链转成二维码图片发到对话，用户在 RS 设置里「从二维码导入」。
 
 ## 4. 能力演示 + 新手引导
 
@@ -50,13 +45,13 @@
 演示：请用户在他的 Obsidian 里写一句话并手动同步，你读到后回应；或你写一条到 vault，请用户同步后看到。眼见为实。
 
 引导四件事（存在但默认不动，用户开口才算）：
-- **记忆容量**可换档：`bash memory-size.sh`（紧凑/标准/宽敞/自定义）
+- **记忆容量**可换档：`bash memory-size.sh`（紧凑/标准/详细）
 - **自动化任务**：定时写日记、周报之类——用户说一声你就建，并登记进 `AUTOMATION.md`
-- **AI 端定时备份**：一句话开通（「每天凌晨帮我备份一次」），用原生 cron 建
+- **AI 端定时备份**：一句话开通（例如「每天凌晨帮我备份一次」），用原生 cron 建
 - **异地备份**可选：把导出包再存一份到云端/别处
 
 其余按 vault 实际内容介绍——好用但新手想不到的功能。
 
 ## 5. 收尾
 
-全部完成、用户确认可用之后：**删除 AGENTS.md 里的「部署待办」节**，提醒用户开新对话生效。之后一切回归正常——用户说写就写，说停就停。
+全部完成、用户确认可用之后：引导用户通过Remotelysave同步功能**删除 AGENTS.md 里的「初次部署」节**，提醒用户开新对话生效。之后一切回归正常。
