@@ -443,7 +443,7 @@ if [ "$WX_CONFIGURED" = "1" ]; then
 else
     echo "  1. hermes              —— 启动 AI：首次对话它主动采档案（怎么称呼/主要用途/说话方式），"
     echo "                            然后按 docs/ONBOARDING.md 引导你配置同步与微信接入"
-    log "启动 AI 后，将「部署待办」发送给 AI，后续配置将由它引导完成。"
+    log "启动 AI 后直接对话即可——它会按 AGENTS.md 的「初次部署」自动引导你完成剩余配置。"
 fi
 echo "  2. 改 $VAULT_DIR/HerMemory/memory/ 下任何文件 → 开新对话即生效"
 echo ""

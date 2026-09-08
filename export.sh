@@ -33,8 +33,8 @@ command -v hermes >/dev/null || die "hermes CLI 不可用（~/.local/bin 不在 
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ---------- 0. vault 位置 ----------
-read -rp "vault（同步根）路径 [默认 ~/HerMemory-vault]: " VAULT_DIR
-VAULT_DIR="${VAULT_DIR:-$HOME/HerMemory-vault}"
+read -rp "vault（同步根）路径 [默认 ~/vault]: " VAULT_DIR
+VAULT_DIR="${VAULT_DIR:-$HOME/vault}"
 [ -d "$VAULT_DIR" ] || die "vault 不存在：$VAULT_DIR"
 
 # ---------- 1. vault：四核心 + 用户文档 ----------

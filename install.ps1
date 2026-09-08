@@ -484,7 +484,7 @@ if ($wxConfigured) {
 } else {
     Write-Host "  1. hermes         —— 启动 AI：首次对话它主动采档案（怎么称呼/主要用途/说话方式），"
     Write-Host "                      然后按 docs/ONBOARDING.md 引导你配置同步与微信接入"
-    Log "启动 AI 后，将「部署待办」发送给 AI，后续配置将由它引导完成。"
+    Log "启动 AI 后直接对话即可——它会按 AGENTS.md 的「初次部署」自动引导你完成剩余配置。"
 }
 Write-Host "  2. 改 $VaultDir\HerMemory\memory\ 下任何文件 → 开新对话即生效"
 Log "文档：docs\INSTALL.md（部署）｜docs\GUIDE.md（使用）｜docs\README_REBORN.md（导出包内给下一个 agent 的恢复指引）"
