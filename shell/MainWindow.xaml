@@ -52,6 +52,7 @@
                     <Button Content="API 设置" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="LinkApi_Click"/>
                     <Button Content="WebDAV 同步服务" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="LinkWebdav_Click"/>
                     <Button Content="打开使用文档" Style="{StaticResource GhostButton}" Margin="24,0,0,0" Click="BtnGuide_Click"/>
+                    <Button Content="打开同步库" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="BtnVault_Click"/>
                     <Button x:Name="BtnTheme" Width="36" Height="36" Margin="14,0,0,0" Click="BtnTheme_Click" Cursor="Hand" Background="{DynamicResource FieldBg}">
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
@@ -68,8 +69,7 @@
                         <TextBlock x:Name="ThemeGlyph" Text="☀" FontSize="16" Foreground="{DynamicResource Accent}"/>
                     </Button>
                 </StackPanel>
-                <TextBlock Style="{StaticResource Body}" Foreground="#B0BEC5" Margin="0,26,0,0"
-                           Text="关闭窗口默认最小化到托盘，可在托盘菜单修改；记忆文件位于 vault\HerMemory\memory\。"/>
+                <TextBlock x:Name="HomeFooter" Style="{StaticResource Body}" Foreground="#B0BEC5" Margin="0,26,0,0"/>
             </StackPanel>
         </Grid>
 

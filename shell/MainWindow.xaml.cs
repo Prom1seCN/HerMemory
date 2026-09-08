@@ -44,6 +44,10 @@ namespace HerMemory
                 if (HomeMode)
                 {
                     ShowPage("PageHome");
+                    HomeFooter.Text = string.Join(Environment.NewLine,
+                        "关闭窗口默认最小化到托盘，可在托盘菜单修改",
+                        $"同步库位于 {VaultDir}",
+                        $"记忆文件位于 {Path.Combine(VaultDir, "HerMemory", "memory")}");
                     _ = Task.Run(async () =>
                     {
                         var s = await Task.Run(HermesCtl.State);
@@ -261,6 +265,12 @@ namespace HerMemory
                 "running" => "Gateway 运行中——AI 在线",
                 _ => "Gateway 已停止——AI 离线",
             };
+        }
+
+        private void BtnVault_Click(object sender, RoutedEventArgs e)
+        {
+            if (Directory.Exists(VaultDir))
+                Process.Start(new ProcessStartInfo("explorer.exe", $"\"{VaultDir}\"") { UseShellExecute = true });
         }
 
         private void BtnTheme_Click(object sender, RoutedEventArgs e)
