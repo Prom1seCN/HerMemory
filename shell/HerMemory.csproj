@@ -13,6 +13,13 @@
     <Product>HerMemory</Product>
     <AssemblyTitle>HerMemory</AssemblyTitle>
     <LangVersion>latest</LangVersion>
+    <ApplicationIcon>app.ico</ApplicationIcon>
   </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="assets\*.png">
+      <LogicalName>%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
 
 </Project>

@@ -30,6 +30,9 @@
     </Window.Resources>
 
     <Grid Margin="56,44,56,36">
+        <!-- 女孩图标：右上角，随主题切换（深=白线稿/浅=黑线稿；均全透明底——窗口背景透出，与软件背景永远同色；logo 嵌入色两版一致） -->
+        <Image x:Name="GirlIcon" Width="198" Height="198" HorizontalAlignment="Right" VerticalAlignment="Top"
+               Margin="0,-20,-36,0" Stretch="Uniform"/>
         <!-- ===== 主界面（托盘模式的日常页） ===== -->
         <Grid x:Name="PageHome" Visibility="Collapsed">
             <Grid.RowDefinitions>

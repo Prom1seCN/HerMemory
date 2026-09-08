@@ -41,6 +41,7 @@ namespace HerMemory
             ThemeGlyph.Text = Theme.IsDark ? "☾" : "☀";
             Loaded += async (_, _) =>
             {
+                ApplyGirlIcon();   // 右上角女孩图标：随主题（Assets 为相对路径，用绝对资源文件流加载）
                 if (HomeMode)
                 {
                     ShowPage("PageHome");
@@ -62,7 +63,6 @@ namespace HerMemory
         }
 
         // ================= 主界面（托盘模式日常页） =================
-        private System.Windows.Threading.DispatcherTimer? _homeTimer;
 
         /// <summary>托盘模式点"安装向导"：回向导首页重跑预检（本机已装时多步会自动跳过）。</summary>
         public void GoWelcome()
@@ -277,6 +277,28 @@ namespace HerMemory
         {
             Theme.SetDark(!Theme.IsDark);
             ThemeGlyph.Text = Theme.IsDark ? "☾" : "☀";
+            ApplyGirlIcon();
+        }
+
+        // —— 女孩图标（右上角）：全透明底（窗口背景透出=与软件背景同色），深=白线稿/浅=黑线稿；logo 嵌入色两版一致 ——
+        // 从嵌入资源加载（单文件分发）；Theme.SetDark 只换资源字典，图标需手动重载。
+        private void ApplyGirlIcon()
+        {
+            try
+            {
+                var asm = System.Reflection.Assembly.GetExecutingAssembly();
+                var name = Theme.IsDark ? "girl-dark.png" : "girl-light.png";
+                using var s = asm.GetManifestResourceStream(name);
+                if (s == null) return;
+                var bmp = new System.Windows.Media.Imaging.BitmapImage();
+                bmp.BeginInit();
+                bmp.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                bmp.StreamSource = s;
+                bmp.EndInit();
+                bmp.Freeze();
+                GirlIcon.Source = bmp;
+            }
+            catch { }
         }
 
         private void HideToTray()
@@ -351,18 +373,6 @@ namespace HerMemory
             dlg.ShowDialog();
             remember = rememberBox.IsChecked == true;
             return result == "tray";
-        }
-
-        private static string? ReadCloseAction()
-        {
-            using var k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\HerMemory");
-            return k?.GetValue("CloseAction") as string;
-        }
-
-        private static void WriteCloseAction(string action)
-        {
-            using var k = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(@"Software\HerMemory");
-            k.SetValue("CloseAction", action);
         }
 
         // ================= 页 1：预检 =================
@@ -614,8 +624,13 @@ namespace HerMemory
             StopTips();
 
             if (InstallTitle.Text != "安装未成功" && InstallTitle.Text != "安装出错") return;
-            // 复用扫码页的重试思路：这里直接放一个"重新安装"按钮
-            var btn = new System.Windows.Controls.Button { Content = "重新安装", Style = (Style)Resources["AccentButton"], Margin = new Thickness(0, 18, 0, 0) };
+            // 重试按钮：回到参数页重配（样式从 App.Resources 取——Window.Resources 里是 null）
+            var btn = new System.Windows.Controls.Button
+            {
+                Content = "重新安装",
+                Style = System.Windows.Application.Current.Resources["AccentButton"] as Style,
+                Margin = new Thickness(0, 18, 0, 0),
+            };
             btn.Click += (_, _) =>
             {
                 ((StackPanel)InstallTitle.Parent).Children.Remove(btn);
@@ -865,7 +880,6 @@ namespace HerMemory
 
         private void BtnUninstall_Click(object sender, RoutedEventArgs e)
         {
-            _homeTimer?.Stop();
             ShowPage("PageUninstall");
         }
 
@@ -999,7 +1013,6 @@ namespace HerMemory
 
         public void ShowUninstall()
         {
-            _homeTimer?.Stop();
             ShowPage("PageUninstall");
         }
 

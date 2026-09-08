@@ -5,16 +5,18 @@ using System.IO;
 namespace HerMemory
 {
     /// <summary>
-    /// 托盘常驻：三态图标（形状与颜色分离，logo 定稿后替换形状）+ 菜单。
-    /// 图标只生成一次缓存（必须在 STA 线程渲染——RenderTargetBitmap 在 MTA 线程会抛异常被吞，
-    /// 这是"恒青 bug"的另一半根因：状态变了但新图标生成失败，旧图标原地不动）。
+    /// 托盘常驻：图标 = logo 本体（与 exe 图标同源，仅分辨率不同），状态走文字（tooltip + 菜单首项）。
+    /// 图标在构造函数一次性加载缓存（WPF 主线程 STA）。
     /// </summary>
     public class TrayService : IDisposable
     {
         private readonly System.Windows.Forms.NotifyIcon _icon;
         private readonly System.Windows.Forms.ContextMenuStrip _menu;
         private readonly System.Windows.Forms.Timer _poll;
-        private readonly System.Drawing.Icon _icoRun, _icoStop, _icoUnknown;
+
+        // —— 图标：与 exe 图标完全同源（logo 双菱·分距200，tray-{32,16}.png 嵌入资源），仅分辨率不同 ——
+        // 状态指示走文字（悬停 tooltip + 菜单首项），图标本身不再变色。
+        private readonly System.Drawing.Icon _icoLogo;
         private string _state = "unknown";
         private bool _busy;
 
@@ -31,10 +33,8 @@ namespace HerMemory
 
         public TrayService()
         {
-            // 图标三态缓存：构造函数运行在 WPF 主线程（STA），渲染合法
-            _icoRun = MakeIcon("#22D3EE");
-            _icoStop = MakeIcon("#90A4AE");
-            _icoUnknown = MakeIcon("#EF5350");
+            // 图标加载一次缓存（构造函数运行在 WPF 主线程 STA）
+            _icoLogo = MakeIcon();
 
             _menu = new System.Windows.Forms.ContextMenuStrip();
 
@@ -89,7 +89,7 @@ namespace HerMemory
 
             _icon = new System.Windows.Forms.NotifyIcon
             {
-                Icon = _icoRun,
+                Icon = _icoLogo,
                 Text = "HerMemory",
                 Visible = true,
                 ContextMenuStrip = _menu,
@@ -121,7 +121,7 @@ namespace HerMemory
 
             try
             {
-                _icon.Icon = state == "running" ? _icoRun : _icoStop;
+                // 图标恒为 logo（与 exe 图标同源）；状态只走文字
                 _icon.Text = "HerMemory — " + (state == "running" ? "运行中" : "已停止");
                 miStatus.Text = state == "running" ? "状态：运行中" : "状态：已停止";
             }
@@ -164,37 +164,19 @@ namespace HerMemory
             else k.SetValue(RunValue, $"\"{Environment.ProcessPath}\"");
         }
 
-        // —— 图标生成：旋转 45° 菱形（记忆水晶剪影），32/16 双尺寸 ——
-        private static Icon MakeIcon(string hex)
+        // —— 图标：与 exe 图标完全同源（logo 双菱·分距200），从嵌入资源加载 32/16 双尺寸 PNG ——
+        // 换 logo 只换 assets PNG + app.ico，不动代码。
+        private static System.Drawing.Icon MakeIcon()
         {
-            var c = (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(hex);
-            var brush = new System.Windows.Media.SolidColorBrush(c);
+            var asm = System.Reflection.Assembly.GetExecutingAssembly();
             var pngs = new List<byte[]>();
             foreach (var size in new[] { 32, 16 })
             {
-                var bmp = new System.Windows.Media.Imaging.RenderTargetBitmap(size, size, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
-                var visual = new System.Windows.Media.DrawingVisual();
-                using (var dc = visual.RenderOpen())
-                {
-                    double s = size, m = s * 0.12;
-                    var center = s / 2;
-                    var geo = new System.Windows.Media.StreamGeometry();
-                    using (var ctx = geo.Open())
-                    {
-                        ctx.BeginFigure(new System.Windows.Point(center, m), true, true);
-                        ctx.LineTo(new System.Windows.Point(s - m, center), true, true);
-                        ctx.LineTo(new System.Windows.Point(center, s - m), true, true);
-                        ctx.LineTo(new System.Windows.Point(m, center), true, true);
-                    }
-                    geo.Freeze();
-                    dc.DrawGeometry(brush, null, geo);
-                }
-                bmp.Render(visual);
-                var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
-                enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bmp));
-                using var mem = new MemoryStream();
-                enc.Save(mem);
-                pngs.Add(mem.ToArray());
+                using var s = asm.GetManifestResourceStream($"tray-{size}.png")
+                    ?? throw new InvalidOperationException($"missing embedded tray icon tray-{size}.png");
+                using var ms = new MemoryStream();
+                s.CopyTo(ms);
+                pngs.Add(ms.ToArray());
             }
             return IconFromPngs(pngs.ToArray(), new[] { 32, 16 });
         }
