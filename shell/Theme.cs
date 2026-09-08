@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 
 namespace HerMemory
 {
@@ -43,12 +43,16 @@ namespace HerMemory
                 Set("WindowBg", "#14181D");
                 Set("Ink", "#F2F5F7");
                 Set("FieldBg", "#1B2127");
+                Set("Accent", "#22D3EE");
+                Set("AccentHover", "#38BDF8");
             }
             else
             {
                 Set("WindowBg", "#FAFBFC");
                 Set("Ink", "#0F172A");
                 Set("FieldBg", "#FFFFFF");
+                Set("Accent", "#0891B2");
+                Set("AccentHover", "#0EA5E9");
             }
         }
     }

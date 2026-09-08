@@ -3,7 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <Application.Resources>
         <Style x:Key="AccentButton" TargetType="Button">
-            <Setter Property="Background" Value="#0E7490"/>
+            <Setter Property="Background" Value="{DynamicResource Accent}"/>
             <Setter Property="Foreground" Value="White"/>
             <Setter Property="FontSize" Value="15"/>
             <Setter Property="Padding" Value="28,10"/>
@@ -18,7 +18,7 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Background" Value="#0E9AA7"/>
+                                <Setter Property="Background" Value="{DynamicResource AccentHover}"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Background" Value="#B0BEC5"/>
@@ -30,7 +30,7 @@
         </Style>
         <Style x:Key="GhostButton" TargetType="Button">
             <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Foreground" Value="#0E7490"/>
+            <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
             <Setter Property="FontSize" Value="13"/>
             <Setter Property="Padding" Value="16,8"/>
             <Setter Property="BorderThickness" Value="0"/>

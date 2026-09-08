@@ -127,17 +127,19 @@ namespace HerMemory
             CfgHint.Text = ok ? "已保存，启动 Gateway 后生效。" : "保存失败，请重试。";
         }
 
-        private void UpdateTierTable()
+        private async void UpdateTierTable()
         {
             var limit = ""; var usr = "";
             try
             {
-                var outp = HermesCtl.Run("config get memory.memory_char_limit", 20);
+                var outp = await Task.Run(() => HermesCtl.Run("config get memory.memory_char_limit", 20));
                 limit = System.Text.RegularExpressions.Regex.Match(outp, @"(2200|5000|10000)").Groups[1].Value;
-                var outp2 = HermesCtl.Run("config get memory.user_char_limit", 20);
+                var outp2 = await Task.Run(() => HermesCtl.Run("config get memory.user_char_limit", 20));
                 usr = System.Text.RegularExpressions.Regex.Match(outp2, @"(1375|3000|5000)").Groups[1].Value;
             }
             catch { }
+            await Dispatcher.InvokeAsync(() =>
+            {
             HomeTierCurrent.Text = limit.Length > 0 && usr.Length > 0
                 ? $"当前：MEMORY {limit} 字符 / USER {usr} 字符"
                 : "";
@@ -148,6 +150,8 @@ namespace HerMemory
                 ("10000", "5000") => 3,
                 _ => 4,
             };
+            var accent = System.Windows.Application.Current.Resources["Accent"] as System.Windows.Media.Brush ?? Brush("#0E7490");
+            var gray = Brush("#546E7A");
             for (int i = 1; i <= 4; i++)
             {
                 var on = i == std;
@@ -155,13 +159,14 @@ namespace HerMemory
                 var wu = FindName("TierU" + i) as TextBlock;
                 if (i == 4)
                 {
-                    if (wm != null) { wm.Text = std == 4 ? limit : "/"; wm.FontWeight = on ? System.Windows.FontWeights.Bold : System.Windows.FontWeights.Normal; wm.Foreground = on ? Brush("#0E7490") : Brush("#546E7A"); }
-                    if (wu != null) { wu.Text = std == 4 ? usr : "/"; wu.FontWeight = on ? System.Windows.FontWeights.Bold : System.Windows.FontWeights.Normal; wu.Foreground = on ? Brush("#0E7490") : Brush("#546E7A"); }
+                    if (wm != null) { wm.Text = std == 4 ? limit : "/"; wm.FontWeight = on ? System.Windows.FontWeights.Bold : System.Windows.FontWeights.Normal; wm.Foreground = on ? accent : gray; }
+                    if (wu != null) { wu.Text = std == 4 ? usr : "/"; wu.FontWeight = on ? System.Windows.FontWeights.Bold : System.Windows.FontWeights.Normal; wu.Foreground = on ? accent : gray; }
                     continue;
                 }
-                if (wm != null) { wm.FontWeight = on ? System.Windows.FontWeights.Bold : System.Windows.FontWeights.Normal; wm.Foreground = on ? Brush("#0E7490") : Brush("#546E7A"); }
-                if (wu != null) { wu.FontWeight = on ? System.Windows.FontWeights.Bold : System.Windows.FontWeights.Normal; wu.Foreground = on ? Brush("#0E7490") : Brush("#546E7A"); }
-            }
+                if (wm != null) { wm.FontWeight = on ? System.Windows.FontWeights.Bold : System.Windows.FontWeights.Normal; wm.Foreground = on ? accent : gray; }
+                if (wu != null) { wu.FontWeight = on ? System.Windows.FontWeights.Bold : System.Windows.FontWeights.Normal; wu.Foreground = on ? accent : gray; }
+                }
+            });
         }
 
         private bool _homeBusy;
@@ -208,24 +213,40 @@ namespace HerMemory
         // ================= 子页导航（主界面入口按钮） =================
         private void LinkMemory_Click(object sender, RoutedEventArgs e)
         {
-            UpdateTierTable();
             ShowPage("PageMemory");
+            UpdateTierTable();
         }
 
-        private async void LinkApi_Click(object sender, RoutedEventArgs e)
+        private void LinkApi_Click(object sender, RoutedEventArgs e)
         {
-            var s = await Task.Run(HermesCtl.State);   // 进页取新鲜状态，避免 10 秒轮询间隙的陈旧判断
-            _lastState = s;
-            UpdateCfgRegion(s, load: true);            // 无条件预填当前实际配置
-            ShowPage("PageApi");
+            ShowPage("PageApi");                       // 先切页面，数据异步跟随
+            FocusCfg();
+            _ = Task.Run(async () =>
+            {
+                var s = await Task.Run(HermesCtl.State);
+                _lastState = s;
+                await Dispatcher.InvokeAsync(() => UpdateCfgRegion(s, load: true));
+            });
         }
 
         private void LinkWebdav_Click(object sender, RoutedEventArgs e)
         {
+            ShowPage("PageWebdav");
             WebDavStatus.Text = HermesCtl.WebDavRunning()
                 ? "同步服务（WebDAV）：运行中"
                 : "同步服务（WebDAV）：未运行";
-            ShowPage("PageWebdav");
+        }
+
+        private void FocusCfg()
+        {
+            Dispatcher.InvokeAsync(() =>
+            {
+                if (CfgUrl.IsEnabled)
+                {
+                    CfgUrl.Focus();
+                    CfgUrl.CaretIndex = CfgUrl.Text.Length;
+                }
+            }, System.Windows.Threading.DispatcherPriority.Background);
         }
 
         private void BtnBack_Click(object sender, RoutedEventArgs e)
