@@ -142,14 +142,28 @@ namespace HerMemory
             }
             catch { }
             HomeTierCurrent.Text = limit.Length > 0 && usr.Length > 0
-                ? $"当前：MEMORY {limit} 字符 / USER {usr} 字符（修改请与 AI 对话）"
+                ? $"当前：MEMORY {limit} 字符 / USER {usr} 字符"
                 : "";
-            var col = limit switch { "2200" => 1, "5000" => 2, "10000" => 3, _ => 0 };
-            for (int i = 1; i <= 3; i++)
+            var std = (limit, usr) switch
             {
-                var on = i == col;
-                var w = FindName("TierM" + i) as TextBlock; if (w != null) { w.FontWeight = on ? System.Windows.FontWeights.Bold : System.Windows.FontWeights.Normal; w.Foreground = on ? Brush("#0E7490") : Brush("#546E7A"); }
-                w = FindName("TierU" + i) as TextBlock; if (w != null) { w.FontWeight = on ? System.Windows.FontWeights.Bold : System.Windows.FontWeights.Normal; w.Foreground = on ? Brush("#0E7490") : Brush("#546E7A"); }
+                ("2200", "1375") => 1,
+                ("5000", "3000") => 2,
+                ("10000", "5000") => 3,
+                _ => 4,
+            };
+            for (int i = 1; i <= 4; i++)
+            {
+                var on = i == std;
+                var wm = FindName("TierM" + i) as TextBlock;
+                var wu = FindName("TierU" + i) as TextBlock;
+                if (i == 4)
+                {
+                    if (wm != null) { wm.Text = std == 4 ? limit : "/"; wm.FontWeight = on ? System.Windows.FontWeights.Bold : System.Windows.FontWeights.Normal; wm.Foreground = on ? Brush("#0E7490") : Brush("#546E7A"); }
+                    if (wu != null) { wu.Text = std == 4 ? usr : "/"; wu.FontWeight = on ? System.Windows.FontWeights.Bold : System.Windows.FontWeights.Normal; wu.Foreground = on ? Brush("#0E7490") : Brush("#546E7A"); }
+                    continue;
+                }
+                if (wm != null) { wm.FontWeight = on ? System.Windows.FontWeights.Bold : System.Windows.FontWeights.Normal; wm.Foreground = on ? Brush("#0E7490") : Brush("#546E7A"); }
+                if (wu != null) { wu.FontWeight = on ? System.Windows.FontWeights.Bold : System.Windows.FontWeights.Normal; wu.Foreground = on ? Brush("#0E7490") : Brush("#546E7A"); }
             }
         }
 
@@ -255,7 +269,7 @@ namespace HerMemory
             };
             var rememberBox = new System.Windows.Controls.CheckBox
             {
-                Content = "记住此选择，以后不再询问（可在托盘菜单修改）",
+                Content = "记住此选择，以后不再询问",
                 FontSize = 12.5,
                 Foreground = System.Windows.Media.Brushes.DimGray,
                 Margin = new Thickness(0, 16, 0, 0),
@@ -272,7 +286,7 @@ namespace HerMemory
             });
             stack.Children.Add(new TextBlock
             {
-                Text = "最小化后 AI 仍在后台运行（看系统托盘图标）。",
+                Text = "最小化后 AI 仍在后台运行。",
                 FontSize = 12,
                 Foreground = System.Windows.Media.Brushes.Gray,
                 Margin = new Thickness(0, 6, 0, 0),
@@ -618,7 +632,7 @@ namespace HerMemory
                                 {
                                     Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
                                     urlOpened = true;
-                                    SetQr("二维码已在浏览器打开，请使用微信扫码确认（8 分钟内有效）。");
+                                    SetQr("二维码已在浏览器打开，请使用微信扫码确认，8 分钟内有效。");
                                 }
                                 catch { }
                             }
@@ -755,7 +769,7 @@ namespace HerMemory
                 await Task.Run(() => RunCapture(HermsExe, "gateway install", 600));
             }
 
-            var warn = taskExists ? "" : "（gateway 计划任务未注册，不影响微信使用，可稍后补装）";
+            var warn = taskExists ? "" : "gateway 计划任务未注册，不影响微信使用，可稍后补装。";
             Dispatcher.Invoke(() =>
             {
                 DoneText.Text = "HerMemory 已就绪。" + warn + Environment.NewLine +
@@ -776,7 +790,7 @@ namespace HerMemory
             _qrCts?.Cancel();
             Dispatcher.Invoke(() =>
             {
-                DoneText.Text = "安装完成（微信暂未接入）。" + Environment.NewLine +
+                DoneText.Text = "安装完成，微信暂未接入。" + Environment.NewLine +
                     "可随时重新接入：运行 gateway-run.bat 或重新运行安装向导。";
                 ShowPage("PageDone");
             });
@@ -785,11 +799,21 @@ namespace HerMemory
         // ================= 页 5：完成 =================
         private void BtnGuide_Click(object sender, RoutedEventArgs e)
         {
-            var guide = Path.Combine(VaultDocs, "GUIDE.md");
-            if (File.Exists(guide))
-                Process.Start(new ProcessStartInfo(guide) { UseShellExecute = true });
-            else if (Directory.Exists(VaultDocs))
-                Process.Start(new ProcessStartInfo("explorer.exe", $"\"{VaultDocs}\"") { UseShellExecute = true });
+            var candidates = new[]
+            {
+                Path.Combine(VaultDocs, "GUIDE.md"),
+                _repoRoot == null ? "" : Path.Combine(_repoRoot, "docs", "GUIDE.md"),
+            };
+            foreach (var g in candidates)
+            {
+                if (g.Length == 0 || !File.Exists(g)) continue;
+                Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{g}\"") { UseShellExecute = true });
+                return;
+            }
+            var dir = Directory.Exists(VaultDocs) ? VaultDocs
+                : (_repoRoot != null && Directory.Exists(Path.Combine(_repoRoot, "docs")) ? Path.Combine(_repoRoot, "docs") : "");
+            if (dir.Length > 0)
+                Process.Start(new ProcessStartInfo("explorer.exe", $"\"{dir}\"") { UseShellExecute = true });
         }
 
         private void BtnFinish_Click(object sender, RoutedEventArgs e) => Close();
@@ -883,7 +907,7 @@ namespace HerMemory
                 var tops = Directory.GetFileSystemEntries(hh);
                 for (int i = 0; i < tops.Length; i++)
                 {
-                    SetUnins($"移除内核与配置（{i + 1}/{tops.Length}）……", 35 + (int)(45.0 * (i + 1) / tops.Length));
+                    SetUnins($"正在移除内核与配置……", 35 + (int)(45.0 * (i + 1) / tops.Length));
                     try
                     {
                         if (Directory.Exists(tops[i])) Directory.Delete(tops[i], true);
@@ -921,7 +945,7 @@ namespace HerMemory
             SetUnins("卸载完成。", 100);
             Dispatcher.Invoke(() =>
             {
-                UninsStatus.Text = delExe ? "卸载完成——本程序文件也将被移除。" : "卸载完成，已移除全部软件痕迹。" + (delVault ? "" : "（vault 已保留）");
+                UninsStatus.Text = delExe ? "卸载完成——本程序文件也将被移除。" : "卸载完成，已移除全部软件痕迹" + (delVault ? "。" : "；vault 已保留。");
                 BtnUninsClose.Visibility = Visibility.Visible;
             });
         }

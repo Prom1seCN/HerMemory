@@ -21,7 +21,7 @@ namespace HerMemory
             _single = new Mutex(true, "HerMemory-SingleInstance", out var first);
             if (!first)
             {
-                System.Windows.MessageBox.Show("HerMemory 已在运行（见系统托盘）。", "HerMemory",
+                System.Windows.MessageBox.Show("HerMemory 已在运行，见系统托盘。", "HerMemory",
                     MessageBoxButton.OK, MessageBoxImage.Information);
                 Shutdown();
                 return;

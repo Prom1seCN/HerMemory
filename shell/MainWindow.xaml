@@ -65,7 +65,7 @@
                                 </ControlTemplate.Triggers>
                             </ControlTemplate>
                         </Button.Template>
-                        <TextBlock x:Name="ThemeGlyph" Text="☀" FontSize="16"/>
+                        <TextBlock x:Name="ThemeGlyph" Text="☀" FontSize="16" Foreground="#0E7490"/>
                     </Button>
                 </StackPanel>
                 <TextBlock Style="{StaticResource Body}" Foreground="#B0BEC5" Margin="0,26,0,0"
@@ -78,10 +78,10 @@
             <StackPanel>
                 <Button Content="← 返回" Style="{StaticResource GhostButton}" HorizontalAlignment="Left" Padding="14,6,14,6" Click="BtnBack_Click"/>
                 <TextBlock Text="记忆设置" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource Ink}" Margin="0,18,0,0"/>
-                <TextBlock Style="{StaticResource Label}" Margin="0,16,0,0" Text="记忆档位（当前档加粗显示）"/>
+                <TextBlock Style="{StaticResource Label}" Margin="0,30,0,0" Text="记忆档位"/>
                 <Grid Margin="0,4,0,0">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="90"/><ColumnDefinition Width="110"/><ColumnDefinition Width="110"/><ColumnDefinition Width="110"/>
+                        <ColumnDefinition Width="90"/><ColumnDefinition Width="100"/><ColumnDefinition Width="100"/><ColumnDefinition Width="100"/><ColumnDefinition Width="100"/>
                     </Grid.ColumnDefinitions>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="26"/><RowDefinition Height="26"/><RowDefinition Height="26"/>
@@ -89,14 +89,17 @@
                     <TextBlock Grid.Row="0" Grid.Column="1" Text="紧凑" FontSize="12.5" Foreground="#546E7A"/>
                     <TextBlock Grid.Row="0" Grid.Column="2" Text="标准" FontSize="12.5" Foreground="#546E7A"/>
                     <TextBlock Grid.Row="0" Grid.Column="3" Text="详细" FontSize="12.5" Foreground="#546E7A"/>
+                    <TextBlock Grid.Row="0" Grid.Column="4" Text="自定义" FontSize="12.5" Foreground="#546E7A"/>
                     <TextBlock Grid.Row="1" Grid.Column="0" Text="MEMORY" FontSize="12.5" Foreground="#546E7A"/>
                     <TextBlock x:Name="TierM1" Grid.Row="1" Grid.Column="1" Text="2200" FontSize="12.5" Foreground="#546E7A"/>
                     <TextBlock x:Name="TierM2" Grid.Row="1" Grid.Column="2" Text="5000" FontSize="12.5" Foreground="#546E7A"/>
                     <TextBlock x:Name="TierM3" Grid.Row="1" Grid.Column="3" Text="10000" FontSize="12.5" Foreground="#546E7A"/>
+                    <TextBlock x:Name="TierM4" Grid.Row="1" Grid.Column="4" Text="/" FontSize="12.5" Foreground="#546E7A"/>
                     <TextBlock Grid.Row="2" Grid.Column="0" Text="USER" FontSize="12.5" Foreground="#546E7A"/>
                     <TextBlock x:Name="TierU1" Grid.Row="2" Grid.Column="1" Text="1375" FontSize="12.5" Foreground="#546E7A"/>
                     <TextBlock x:Name="TierU2" Grid.Row="2" Grid.Column="2" Text="3000" FontSize="12.5" Foreground="#546E7A"/>
                     <TextBlock x:Name="TierU3" Grid.Row="2" Grid.Column="3" Text="5000" FontSize="12.5" Foreground="#546E7A"/>
+                    <TextBlock x:Name="TierU4" Grid.Row="2" Grid.Column="4" Text="/" FontSize="12.5" Foreground="#546E7A"/>
                 </Grid>
                 <TextBlock x:Name="HomeTierCurrent" Margin="0,10,0,0" FontSize="12.5" Foreground="#546E7A"/>
                 <TextBlock x:Name="HomeHint" Style="{StaticResource Body}" Foreground="#90A4AE" Margin="0,18,0,0"/>
@@ -110,7 +113,7 @@
             <StackPanel>
                 <Button Content="← 返回" Style="{StaticResource GhostButton}" HorizontalAlignment="Left" Padding="14,6,14,6" Click="BtnBack_Click"/>
                 <TextBlock Text="API 设置" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource Ink}" Margin="0,18,0,0"/>
-                <TextBlock Style="{StaticResource Label}" Margin="0,16,0,0" Text="模型接口（仅在 Gateway 停止时可修改）"/>
+                <TextBlock Style="{StaticResource Label}" Margin="0,30,0,0" Text="模型接口：仅在 Gateway 停止时可修改。"/>
                 <TextBlock Style="{StaticResource Body}" Text="API 地址"/>
                 <TextBox x:Name="CfgUrl" Style="{StaticResource FieldBox}"/>
                 <TextBlock Style="{StaticResource Body}" Margin="0,10,0,0" Text="API Key"/>
@@ -129,7 +132,7 @@
             <StackPanel>
                 <Button Content="← 返回" Style="{StaticResource GhostButton}" HorizontalAlignment="Left" Padding="14,6,14,6" Click="BtnBack_Click"/>
                 <TextBlock Text="WebDAV 同步服务" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource Ink}" Margin="0,18,0,0"/>
-                <TextBlock x:Name="WebDavStatus" Margin="0,16,0,0" FontSize="13" Foreground="#546E7A" Text="检测中…"/>
+                <TextBlock x:Name="WebDavStatus" Margin="0,30,0,0" FontSize="13" Foreground="#546E7A" Text="检测中…"/>
                 <TextBlock Style="{StaticResource Body}" Margin="0,10,0,0" Text="启停请直接与 AI 对话。"/>
                 <TextBlock Style="{StaticResource Body}" Foreground="#B0BEC5" Margin="0,18,0,0"
                            Text="同步范围为 vault；同步即备份，删除会随同步传播。"/>
@@ -144,7 +147,7 @@
             </Grid.RowDefinitions>
             <TextBlock Grid.Row="0" FontSize="32" FontWeight="Bold" Foreground="{DynamicResource Ink}" Margin="0,0,0,14">HerMemory. <Run Foreground="#0E7490">Your memory.</Run><LineBreak/><Run FontSize="17" FontStyle="Italic" Foreground="#0E7490">Memory that grows with you.</Run></TextBlock>
             <StackPanel Grid.Row="2" Margin="0,10,0,0" VerticalAlignment="Top">
-                <TextBlock Style="{StaticResource Body}" Text="即将安装 Hermes 内核（约 5-10 分钟，需联网）、记忆库与微信接入。"/>
+                <TextBlock Style="{StaticResource Body}" Text="即将安装 Hermes 内核、记忆库与微信接入，约 5-10 分钟，需联网。"/>
                 <TextBlock Style="{StaticResource Body}" Text="安装完成后，AI 将接入微信；全部记忆为纯文本文件，可随时查看、修改与迁移。"/>
                 <TextBlock x:Name="PrecheckStatus" Margin="0,18,0,0" FontSize="13" Foreground="#78909C" Text="正在检查环境……"/>
             </StackPanel>
@@ -165,13 +168,13 @@
             <StackPanel>
                 <TextBlock Text="记忆容量" Style="{StaticResource Label}"/>
                 <StackPanel Orientation="Horizontal">
-                    <RadioButton x:Name="Tier1" Content="紧凑（推荐）" GroupName="tier" IsChecked="True" Style="{StaticResource RadioTile}"/>
+                    <RadioButton x:Name="Tier1" Content="紧凑" GroupName="tier" IsChecked="True" Style="{StaticResource RadioTile}"/>
                     <RadioButton x:Name="Tier2" Content="标准" GroupName="tier" Style="{StaticResource RadioTile}"/>
                     <RadioButton x:Name="Tier3" Content="详细" GroupName="tier" Style="{StaticResource RadioTile}"/>
                 </StackPanel>
-                <TextBlock Text="API 地址（服务商控制台的 OpenAI 兼容地址，通常以 /v1 结尾）" Style="{StaticResource Label}"/>
+                <TextBlock Text="API 地址：服务商控制台的 OpenAI 兼容地址，通常以 /v1 结尾" Style="{StaticResource Label}"/>
                 <TextBox x:Name="UrlBox" Style="{StaticResource FieldBox}"/>
-                <TextBlock Text="API Key（服务商控制台生成）" Style="{StaticResource Label}"/>
+                <TextBlock Text="API Key：在服务商控制台生成" Style="{StaticResource Label}"/>
                 <TextBox x:Name="KeyBox" Style="{StaticResource FieldBox}"/>
                 <Grid Margin="0,16,0,0">
                     <Grid.ColumnDefinitions>
@@ -217,9 +220,9 @@
                            Text="将移除：Hermes 内核与全部配置（%LOCALAPPDATA%\hermes）、微信接入凭据、gateway 计划任务与登录项、托盘开机自启注册表、偏好设置。网关会先停止。"/>
                 <TextBlock Style="{StaticResource Body}" Foreground="#C62828" Margin="0,10,0,0"
                            Text="vault（文档与记忆）默认保留，不属于卸载范围。"/>
-                <CheckBox x:Name="UninsVault" Content="同时删除 vault（文档与记忆，不可恢复）"
+                <CheckBox x:Name="UninsVault" Content="同时删除 vault，文档与记忆不可恢复"
                           Margin="0,14,0,0" FontSize="13" Foreground="#C62828"/>
-                <CheckBox x:Name="UninsExe" Content="同时删除本程序文件（HerMemory.exe）"
+                <CheckBox x:Name="UninsExe" Content="同时删除本程序文件"
                           Margin="0,8,0,0" FontSize="13"/>
                 <StackPanel Orientation="Horizontal" Margin="0,22,0,0">
                     <Button x:Name="BtnUninsRun" Content="执行卸载" Style="{StaticResource AccentButton}" Background="#C62828" Click="BtnUninsRun_Click"/>
