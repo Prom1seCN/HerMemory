@@ -29,9 +29,9 @@ HerMemory的**一切**都完全属于用户，HerMemory is **Your** memory。
   - [🔄 3. 多设备同步的文档库](#-3-多设备同步的文档库)
   - [🤖 4. 全能的AI助手](#-4-全能的ai助手)
   - [⭐ 5. 独家特性](#-5-独家特性)
-- [⚖️ 02 · 方案对比](#-02--方案对比)
+- [🆚 02 · 方案对比](#-02--方案对比)
 - [🚀 03 · 快速部署](#-03--快速部署)
-  - [🖥️ 方式 A：Windows PC（推荐）](#-方式-awindows-pc推荐)
+  - [💻 方式 A：Windows PC（推荐）](#-方式-awindows-pc推荐)
   - [🐧 方式 B：Linux 服务器 / NAS](#-方式-blinux-服务器--nas)
 - [📦 04 · 导出与重生：README_REBORN](#-04--导出与重生readme_reborn)
 - [📜 05 · 开源协议](#-05--开源协议)
@@ -114,7 +114,7 @@ HerMemory的**一切**都完全属于用户，HerMemory is **Your** memory。
 
 <div align="center">
 
-## ⚖️ 02 · 方案对比
+## 🆚 02 · 方案对比
 
 </div>
 
@@ -132,7 +132,7 @@ HerMemory的**一切**都完全属于用户，HerMemory is **Your** memory。
 
 </div>
 
-### 🖥️ 方式 A：Windows PC（推荐）
+### 💻 方式 A：Windows PC（推荐）
 
 1. 下载最新的 **`HerMemory.exe`**。
 2. 双击启动图形向导：
