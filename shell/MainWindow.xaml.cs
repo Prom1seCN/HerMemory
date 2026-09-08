@@ -44,7 +44,11 @@ namespace HerMemory
                 if (HomeMode)
                 {
                     ShowPage("PageHome");
-                    UpdateHomeStatus(HermesCtl.State());
+                    _ = Task.Run(async () =>
+                    {
+                        var s = await Task.Run(HermesCtl.State);
+                        await Dispatcher.InvokeAsync(() => UpdateHomeStatus(s));
+                    });
                 }
                 else
                 {
@@ -866,7 +870,11 @@ namespace HerMemory
         {
             UninsBar.Visibility = Visibility.Collapsed;
             ShowPage(HomeMode ? "PageHome" : "PageWelcome");
-            if (HomeMode) UpdateHomeStatus(HermesCtl.State());
+            if (HomeMode) _ = Task.Run(async () =>
+            {
+                var s = await Task.Run(HermesCtl.State);
+                await Dispatcher.InvokeAsync(() => UpdateHomeStatus(s));
+            });
         }
 
         private void BtnUninsRun_Click(object sender, RoutedEventArgs e)
