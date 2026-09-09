@@ -97,8 +97,17 @@ if (Test-Done "upstream") {
         Die "无法连上 GitHub（Windows 安装器需从 GitHub 获取内核与组件）。请开一次代理后再双击 install.bat——安装完成后日常使用不再需要。"
     }
     Log "运行上游官方 install.ps1（pin $Tag；uv + Python 3.11 + Node + PortableGit，首次约 5-10 分钟）..."
-    $up = Join-Path $env:TEMP "hermes-install.ps1"
-    Invoke-WebRequest "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.ps1" -OutFile $up -UseBasicParsing
+    # 上游安装器已 vendored：scripts\upstream-install.ps1 = 上游 pin tag v2026.8.31 的 scripts/install.ps1 逐字节副本（SHA256 核对过，纯 ASCII 无编码风险）。
+    # 不再运行时从 raw.githubusercontent/main 拉取——该域境内最常被墙，且 main 会与内核 pin 漂移；MIT 许可允许随发行版分发。
+    # pin 更新时：从上游本地仓库切到对应 tag 重新复制覆盖本文件，并重跑验收线。
+    $up = Join-Path $SRC "scripts\upstream-install.ps1"
+    if (-not (Test-Path $up)) { Die "缺 vendored 上游安装器：$up（发行包不完整，请重新获取 HerMemory）" }
+    # 境内镜像注入：三个都是对应工具的官方环境变量旋钮，上游脚本零修改；用户/代理环境已自设时尊重不覆盖。
+    # 覆盖安装期大头流量：PyPI 依赖（uv）、npm 包（Node 依赖与浏览器组件）、Playwright 内核；Electron 上游已自带 npmmirror 兜底。
+    if (-not $env:UV_DEFAULT_INDEX)          { $env:UV_DEFAULT_INDEX = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+    if (-not $env:npm_config_registry)       { $env:npm_config_registry = "https://registry.npmmirror.com" }
+    if (-not $env:PLAYWRIGHT_DOWNLOAD_HOST)  { $env:PLAYWRIGHT_DOWNLOAD_HOST = "https://cdn.npmmirror.com/binaries/playwright" }
+    Log "镜像加速：PyPI→清华 / npm→npmmirror / Playwright→npmmirror（GitHub 直连项：内核源码、PortableGit、Python，上游自带重试与兜底）"
     & ([scriptblock]::Create((Get-Content $up -Raw))) -Tag $Tag -SkipSetup
     if (-not (Get-Command hermes -ErrorAction SilentlyContinue)) {
         Warn "hermes 未进当前会话 PATH；刷新后重试或手动确认 %LOCALAPPDATA%\hermes\bin"

@@ -92,6 +92,15 @@ else
         log "上游源码已在：$UPSTREAM_DIR（跳过获取，继续 setup）"
     fi
 
+    # 境内镜像注入（与 Windows T1 同步）：均为对应工具官方环境变量旋钮，上游零修改；用户已自设时尊重不覆盖。
+    # Linux 安装期大头 = PyPI 依赖（setup-hermes.sh 走 uv sync/uv pip install）；uv 安装器本身走 astral.sh（Fastly，境内通常可达）。
+    # 仅安装进程内生效；npm/Playwright 两项预置供装后运行时按官方机制取用（如浏览器技能首次拉内核）。
+    [ -n "$UV_DEFAULT_INDEX" ]         || export UV_DEFAULT_INDEX="https://pypi.tuna.tsinghua.edu.cn/simple"
+    [ -n "$PIP_INDEX_URL" ]            || export PIP_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple"
+    [ -n "$npm_config_registry" ]      || export npm_config_registry="https://registry.npmmirror.com"
+    [ -n "$PLAYWRIGHT_DOWNLOAD_HOST" ] || export PLAYWRIGHT_DOWNLOAD_HOST="https://cdn.npmmirror.com/binaries/playwright"
+    log "镜像加速：PyPI→清华 / npm→npmmirror / Playwright→npmmirror（已自设则从用户设定）"
+
     log "运行官方 setup-hermes.sh（uv + venv + hermes CLI，首次 1-5 分钟）..."
     # stdin 喂两个 n：① 跳过 ripgrep 可选安装 ② 跳过 key 配置向导（零商业：key 沿用官方流程，用户稍后自配）
     printf 'n\nn\n' | (cd "$UPSTREAM_DIR" && bash setup-hermes.sh) || die "上游 setup 失败，见上方输出"
