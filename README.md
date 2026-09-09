@@ -162,7 +162,7 @@ bash install.sh
 
 无论软件版本如何更迭，甚至 HerMemory 项目本身停止维护，你的数据资产也不会受损：
 
-- **一键导出**：在终端或脚本中执行 `bash export.sh`，系统将通过 SQLite Backup API 热导出一致性数据库副本，并与 `vault/` 文档库完整打成单个 Zip 包。
+- **一键导出**：点击HerMemory.exe的“一键导出”按钮，或在终端或脚本中执行 `bash export.sh`，系统将通过 SQLite Backup API 热导出一致性数据库副本，并与 `vault/` 文档库完整打成单个 Zip 包。
 - **跨智能体接管**：导出包内自带一份专为下一个 AI 准备的 **`README_REBORN.md`**。它清晰定义了状态恢复协议。让新的AI读取即可。
 
 任何能读懂文字的智能体，接手这个包后，都能完整继承你与AI的全部记忆和文档。
