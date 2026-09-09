@@ -53,11 +53,16 @@
                     <Button Content="一键导出" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="BtnExport_Click"/>
                     <Button Content="卸载" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="BtnUninstall_Click"/>
                 </StackPanel>
-                <StackPanel Orientation="Horizontal" Margin="0,26,0,0">
+                <!-- 第二行：设置类（记忆 / API / 微信绑定 / 同步服务子页） -->
+                <StackPanel Orientation="Horizontal" Margin="0,22,0,0">
                     <Button Content="记忆设置" Style="{StaticResource GhostButton}" Click="LinkMemory_Click"/>
                     <Button Content="API 设置" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="LinkApi_Click"/>
+                    <Button Content="微信绑定" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="LinkWeixin_Click"/>
                     <Button Content="WebDAV 同步服务" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="LinkWebdav_Click"/>
-                    <Button Content="打开使用文档" Style="{StaticResource GhostButton}" Margin="24,0,0,0" Click="BtnGuide_Click"/>
+                </StackPanel>
+                <!-- 第三行：内容类（文档 / 同步库）+ 主题切换 -->
+                <StackPanel Orientation="Horizontal" Margin="0,22,0,0">
+                    <Button Content="打开使用文档" Style="{StaticResource GhostButton}" Click="BtnGuide_Click"/>
                     <Button Content="打开同步库" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="BtnVault_Click"/>
                     <Button x:Name="BtnTheme" Width="36" Height="36" Margin="14,0,0,0" Click="BtnTheme_Click" Cursor="Hand" Background="{DynamicResource FieldBg}">
                         <Button.Template>
@@ -120,9 +125,19 @@
                 <TextBlock Text="API 设置" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource Ink}" Margin="0,18,0,0"/>
                 <TextBlock Style="{StaticResource Label}" Margin="0,44,0,0" Text="模型接口：仅在 Gateway 停止时可修改。"/>
                 <TextBlock Style="{StaticResource Body}" Text="API 地址"/>
-                <TextBox x:Name="CfgUrl" Style="{StaticResource FieldBox}"/>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBox x:Name="CfgUrl" Style="{StaticResource FieldBox}"/>
+                    <Button x:Name="CfgCheck" Grid.Column="1" Content="检测" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Padding="18,7,18,7" VerticalAlignment="Center" Click="CfgCheck_Click"/>
+                </Grid>
                 <TextBlock Style="{StaticResource Body}" Margin="0,10,0,0" Text="API Key"/>
                 <TextBox x:Name="CfgKey" Style="{StaticResource FieldBox}"/>
+                <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                    <Button x:Name="CfgFetchModels" Content="获取模型列表" Style="{StaticResource GhostButton}" Padding="16,6,16,6" Click="CfgFetchModels_Click"/>
+                    <ComboBox x:Name="CfgModelCombo" MinWidth="260" Margin="12,0,0,0" VerticalAlignment="Center"/>
+                </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
                     <Button x:Name="CfgSave" Content="保存" Style="{StaticResource AccentButton}" Padding="20,7,20,7" Click="CfgSave_Click"/>
                     <TextBlock x:Name="CfgHint" VerticalAlignment="Center" Margin="14,0,0,0" FontSize="12" Foreground="#90A4AE"/>
@@ -139,6 +154,21 @@
                 <TextBlock Style="{StaticResource Body}" Margin="0,10,0,0" Text="启停请直接与 AI 对话。"/>
                 <TextBlock Style="{StaticResource Body}" Foreground="#B0BEC5" Margin="0,18,0,0"
                            Text="同步即备份，删除会随同步传播。"/>
+            </StackPanel>
+        </Grid>
+
+        <!-- ===== 主界面子页：微信绑定 ===== -->
+        <Grid x:Name="PageWeixin" Visibility="Collapsed">
+            <StackPanel>
+                <Button Content="← 返回" Style="{StaticResource GhostButton}" HorizontalAlignment="Left" Padding="14,6,14,6" Click="BtnBack_Click"/>
+                <TextBlock Text="微信绑定" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource Ink}" Margin="0,18,0,0"/>
+                <TextBlock x:Name="WxBindStatus" Style="{StaticResource Body}" Margin="0,30,0,0" Text="检测中…"/>
+                <StackPanel Orientation="Horizontal" Margin="0,20,0,0">
+                    <Button x:Name="BtnWxBind" Content="绑定微信" Style="{StaticResource AccentButton}" Padding="20,7,20,7" Click="BtnWxBind_Click"/>
+                    <Button x:Name="BtnWxUnbind" Content="解绑" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Padding="20,7,20,7" Click="BtnWxUnbind_Click"/>
+                </StackPanel>
+                <TextBlock Style="{StaticResource Body}" Foreground="#B0BEC5" Margin="0,26,0,0"
+                           Text="一个微信同时只能绑定一台；多台电脑最后扫码者生效，被顶掉的可随时「重新绑定」夺回。绑定与解绑不影响本机记忆与文档。"/>
             </StackPanel>
         </Grid>
 
@@ -161,6 +191,8 @@
             </StackPanel>
             <TextBlock Grid.Row="4" Margin="0,14,0,0" FontSize="11.5" Foreground="#B0BEC5"
                        Text="符号链接需要开发者模式或管理员权限；以管理员身份运行可免去设置。"/>
+            <!-- 构建戳：沙盒/多包测试时一眼确认跑的是哪个包（取 exe 文件修改时间） -->
+            <TextBlock x:Name="BuildStamp" Grid.Row="4" Margin="0,34,0,0" FontSize="10.5" Foreground="#CFD8DC"/>
         </Grid>
 
         <!-- ===== 页 2：参数收集 ===== -->
@@ -169,14 +201,37 @@
                 <RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
             <StackPanel>
-                <TextBlock Text="记忆容量" Style="{StaticResource Label}"/>
-                <StackPanel Orientation="Horizontal">
-                    <RadioButton x:Name="Tier1" Content="紧凑" GroupName="tier" IsChecked="True" Style="{StaticResource RadioTile}"/>
-                    <RadioButton x:Name="Tier2" Content="标准" GroupName="tier" Style="{StaticResource RadioTile}"/>
-                    <RadioButton x:Name="Tier3" Content="详细" GroupName="tier" Style="{StaticResource RadioTile}"/>
-                </StackPanel>
+                <TextBlock Text="请选择记忆档位" Style="{StaticResource Label}"/>
+                <Grid Margin="0,6,0,10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="76"/><ColumnDefinition Width="104"/><ColumnDefinition Width="104"/><ColumnDefinition Width="104"/><ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <RadioButton x:Name="Tier1" Grid.Row="0" Grid.Column="1" Content="紧凑" GroupName="tier" IsChecked="True" FontSize="13" Margin="0,0,0,4" Cursor="Hand" Foreground="{DynamicResource Ink}" Checked="Tier_Checked"/>
+                    <RadioButton x:Name="Tier2" Grid.Row="0" Grid.Column="2" Content="标准" GroupName="tier" FontSize="13" Margin="0,0,0,4" Cursor="Hand" Foreground="{DynamicResource Ink}" Checked="Tier_Checked"/>
+                    <RadioButton x:Name="Tier3" Grid.Row="0" Grid.Column="3" Content="详细" GroupName="tier" FontSize="13" Margin="0,0,0,4" Cursor="Hand" Foreground="{DynamicResource Ink}" Checked="Tier_Checked"/>
+                    <RadioButton x:Name="Tier4" Grid.Row="0" Grid.Column="4" Content="自定义" GroupName="tier" FontSize="13" Margin="0,0,0,4" Cursor="Hand" Foreground="{DynamicResource Ink}" Checked="Tier_Checked"/>
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="MEMORY" FontSize="12.5" Foreground="#546E7A" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Row="1" Grid.Column="1" Text="2200" FontSize="12.5" Foreground="#546E7A" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Row="1" Grid.Column="2" Text="5000" FontSize="12.5" Foreground="#546E7A" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Row="1" Grid.Column="3" Text="10000" FontSize="12.5" Foreground="#546E7A" VerticalAlignment="Center"/>
+                    <TextBox x:Name="CustomMem" Grid.Row="1" Grid.Column="4" Style="{StaticResource FieldBox}" Width="130" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="0,3" IsEnabled="False"/>
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="USER" FontSize="12.5" Foreground="#546E7A" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Row="2" Grid.Column="1" Text="1375" FontSize="12.5" Foreground="#546E7A" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Row="2" Grid.Column="2" Text="3000" FontSize="12.5" Foreground="#546E7A" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Row="2" Grid.Column="3" Text="5000" FontSize="12.5" Foreground="#546E7A" VerticalAlignment="Center"/>
+                    <TextBox x:Name="CustomUser" Grid.Row="2" Grid.Column="4" Style="{StaticResource FieldBox}" Width="130" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="0,3" IsEnabled="False"/>
+                </Grid>
                 <TextBlock Text="API 地址：服务商控制台的 OpenAI 兼容地址，通常以 /v1 结尾" Style="{StaticResource Label}"/>
-                <TextBox x:Name="UrlBox" Style="{StaticResource FieldBox}"/>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBox x:Name="UrlBox" Style="{StaticResource FieldBox}"/>
+                    <Button x:Name="BtnCheckUrl" Grid.Column="1" Content="检测" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Padding="18,7,18,7" VerticalAlignment="Center" Click="BtnCheckUrl_Click"/>
+                </Grid>
                 <TextBlock Text="API Key：在服务商控制台生成" Style="{StaticResource Label}"/>
                 <TextBox x:Name="KeyBox" Style="{StaticResource FieldBox}"/>
                 <Grid Margin="0,16,0,0">
@@ -185,7 +240,7 @@
                     </Grid.ColumnDefinitions>
                     <Button Grid.Column="0" x:Name="BtnModels" Content="获取模型列表" Style="{StaticResource GhostButton}" Click="BtnModels_Click"/>
                     <ComboBox Grid.Column="1" x:Name="ModelCombo" Style="{StaticResource FieldCombo}" Margin="12,0,0,0"/>
-                    <Button Grid.Column="2" x:Name="BtnNext" Content="下一步：安装" Style="{StaticResource AccentButton}" Margin="12,0,0,0" Click="BtnNext_Click"/>
+                    <Button Grid.Column="2" x:Name="BtnNext" Content="确定：开始安装" Style="{StaticResource AccentButton}" Margin="12,0,0,0" Click="BtnNext_Click"/>
                 </Grid>
                 <TextBlock x:Name="ParamStatus" Margin="0,12,0,0" FontSize="12.5" Foreground="#78909C"/>
             </StackPanel>
@@ -193,12 +248,18 @@
 
         <!-- ===== 页 3：安装进行中 ===== -->
         <Grid x:Name="PageInstall" Visibility="Collapsed">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*"/><RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
             <StackPanel VerticalAlignment="Center">
                 <TextBlock x:Name="InstallTitle" Text="正在安装……" FontSize="19" FontWeight="SemiBold" Foreground="{DynamicResource Ink}"/>
                 <ProgressBar x:Name="InstallBar" Height="8" Minimum="0" Maximum="100" Margin="0,20,0,6"/>
                 <TextBlock x:Name="InstallDetail" FontSize="12" Foreground="#90A4AE" TextWrapping="Wrap" MaxHeight="180"/>
-                <TextBlock x:Name="InstallTip" FontSize="12" Foreground="{DynamicResource Accent}" TextWrapping="Wrap" Margin="0,10,0,0"/>
+                <!-- 失败原因：红字，位于「重新安装」按钮上方（按钮由代码追加到本面板末尾） -->
+                <TextBlock x:Name="InstallFail" FontSize="12.5" Foreground="#C62828" TextWrapping="Wrap" Margin="0,14,0,0" Visibility="Collapsed"/>
             </StackPanel>
+            <!-- 轮换提示：固定窗口底部、灰色弱化——与安装器真实输出物理分离，不再混淆 -->
+            <TextBlock x:Name="InstallTip" Grid.Row="1" FontSize="11.5" Foreground="#B0BEC5" TextWrapping="Wrap" Margin="0,0,0,2"/>
         </Grid>
 
         <!-- ===== 页 4：微信扫码 ===== -->

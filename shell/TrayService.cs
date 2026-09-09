@@ -19,6 +19,7 @@ namespace HerMemory
         private readonly System.Drawing.Icon _icoLogo;
         private string _state = "unknown";
         private bool _busy;
+        private System.Windows.Forms.ToolStripMenuItem? _miStatus;
 
         /// <summary>状态变化（state: running/stopped/unknown, raw: 原始输出）。</summary>
         public event Action<string, string>? StatusChanged;
@@ -28,6 +29,8 @@ namespace HerMemory
         public event Action? OpenWizard;
         /// <summary>菜单点"卸载"。</summary>
         public event Action? OpenUninstall;
+        /// <summary>菜单点"微信绑定…"。</summary>
+        public event Action? OpenWeixin;
 
         private string LogsDir => HermesCtl.LogsDir;
 
@@ -39,6 +42,7 @@ namespace HerMemory
             _menu = new System.Windows.Forms.ContextMenuStrip();
 
             var miStatus = new System.Windows.Forms.ToolStripMenuItem("状态：检测中…") { Enabled = false };
+            _miStatus = miStatus;
             var miStart = new System.Windows.Forms.ToolStripMenuItem("启动", null, (_, _) => RunGw("start"));
             var miStop = new System.Windows.Forms.ToolStripMenuItem("停止", null, (_, _) => RunGw("stop"));
             var miLogs = new System.Windows.Forms.ToolStripMenuItem("打开日志文件夹", null, (_, _) =>
@@ -47,6 +51,7 @@ namespace HerMemory
                     Process.Start(new ProcessStartInfo("explorer.exe", $"\"{LogsDir}\"") { UseShellExecute = true });
             });
             var miMain = new System.Windows.Forms.ToolStripMenuItem("打开主界面", null, (_, _) => OpenMain?.Invoke());
+            var miWeixin = new System.Windows.Forms.ToolStripMenuItem("微信绑定…", null, (_, _) => OpenWeixin?.Invoke());
             var miWizard = new System.Windows.Forms.ToolStripMenuItem("安装向导…", null, (_, _) => OpenWizard?.Invoke());
             var miUnins = new System.Windows.Forms.ToolStripMenuItem("卸载…", null, (_, _) => OpenUninstall?.Invoke());
             var miAuto = new System.Windows.Forms.ToolStripMenuItem("开机自启", null, (_, _) => ToggleAutostart())
@@ -78,6 +83,7 @@ namespace HerMemory
             _menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
             _menu.Items.Add(miLogs);
             _menu.Items.Add(miMain);
+            _menu.Items.Add(miWeixin);
             _menu.Items.Add(miWizard);
             _menu.Items.Add(miUnins);
             _menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
@@ -144,6 +150,8 @@ namespace HerMemory
                         System.Windows.Forms.ToolTipIcon.Info);
                 }
                 _poll.Start();
+                // 立即刷新一次：不必等下一个 10 秒轮询（避免 tooltip/菜单显示旧状态）
+                if (_miStatus != null) _ = PollAsync(_miStatus);
             });
         }
 

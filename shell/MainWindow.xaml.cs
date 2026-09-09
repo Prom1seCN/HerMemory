@@ -38,6 +38,8 @@ namespace HerMemory
         public MainWindow()
         {
             InitializeComponent();
+            // 标题栏构建戳：任何页面一眼确认跑的是哪个包（根治"用旧包测新修复"类混淆）
+            try { Title = "HerMemory · 构建 " + File.GetLastWriteTime(Environment.ProcessPath ?? typeof(MainWindow).Assembly.Location).ToString("MM-dd HH:mm"); } catch { }
             ThemeGlyph.Text = Theme.IsDark ? "☾" : "☀";
             Loaded += async (_, _) =>
             {
@@ -95,18 +97,27 @@ namespace HerMemory
         private bool _cfgSaving;
         private string _lastState = "unknown";
 
-        /// <summary>模型接口配置区：字段恒可用（光标恒在）；保存时校验 Gateway 已停止。</summary>
+        /// <summary>模型接口配置区：字段恒可用（光标恒在）；保存时校验 Gateway 已停止。进页回显当前默认模型。</summary>
         private void UpdateCfgRegion(string state, bool load = false)
         {
-            CfgHint.Text = state == "stopped"
+            string baseHint = state == "stopped"
                 ? "Gateway 已停止，可修改；保存后启动生效。"
                 : "Gateway 运行中；修改可保存，但需停止后执行。";
+            CfgHint.Text = baseHint;
             if (load || (state == "stopped" && _cfgState != "stopped"))
             {
                 _ = Task.Run(() =>
                 {
                     var (url, _, key) = HermesCtl.GetModelCfg();
-                    Dispatcher.Invoke(() => { CfgUrl.Text = url; CfgKey.Text = key; });
+                    var def = "";
+                    try { def = HermesCtl.Run("config get model.default", 20).Trim().Trim('"'); } catch { }
+                    Dispatcher.Invoke(() =>
+                    {
+                        CfgUrl.Text = url;
+                        CfgKey.Text = key;
+                        if (def.Length > 0 && def.Length < 80 && !def.Contains("not set", StringComparison.OrdinalIgnoreCase))
+                            CfgHint.Text = baseHint + $"当前默认模型：{def}，可获取列表后切换。";
+                    });
                 });
             }
             _cfgState = state;
@@ -128,8 +139,75 @@ namespace HerMemory
                 return;
             }
             var ok2 = await Task.Run(() => HermesCtl.SetModelCfg(url, key));
+            var model = CfgModelCombo.SelectedItem as string;
+            if (ok2 && !string.IsNullOrEmpty(model))
+                await Task.Run(() => HermesCtl.Run($"config set model.default \"{model}\"", 30));
             _cfgSaving = false;
-            CfgHint.Text = ok2 ? "已保存，启动 Gateway 后生效。" : "保存失败，请重试。";
+            CfgHint.Foreground = Brush(ok2 ? "#2E7D32" : "#C62828");
+            CfgHint.Text = ok2
+                ? (string.IsNullOrEmpty(model) ? "已保存，启动 Gateway 后生效。" : $"已保存（默认模型：{model}），启动 Gateway 后生效。")
+                : "保存失败，请重试。";
+        }
+
+        /// <summary>API 设置页 · 地址检测：与向导同一实现（ProbeUrl，探 {url}/models；无 Key 时 401 也算地址可达）。</summary>
+        private async void CfgCheck_Click(object sender, RoutedEventArgs e)
+        {
+            var url = CleanAscii(CfgUrl.Text).TrimEnd('/');
+            if (url.Length == 0)
+            {
+                CfgHint.Text = "请先填写 API 地址。";
+                CfgHint.Foreground = Brush("#C62828");
+                return;
+            }
+            CfgCheck.IsEnabled = false;
+            CfgHint.Text = "正在检测地址……";
+            CfgHint.Foreground = Brush("#78909C");
+            var (level, msg) = await Task.Run(() => ProbeUrl(url, ""));
+            CfgHint.Text = msg;
+            CfgHint.Foreground = Brush(level == 0 ? "#C62828" : level == 1 ? "#EF6C00" : "#2E7D32");
+            CfgCheck.IsEnabled = true;
+        }
+
+        /// <summary>API 设置页 · 拉模型列表：与向导同一实现（CurlModels），选中后随"保存"写入 model.default。</summary>
+        private async void CfgFetchModels_Click(object sender, RoutedEventArgs e)
+        {
+            var url = CleanAscii(CfgUrl.Text).TrimEnd('/');
+            var key = CleanAscii(CfgKey.Text);
+            if (url.Length == 0 || key.Length == 0)
+            {
+                CfgHint.Text = "请先填写 API 地址与 API Key。";
+                CfgHint.Foreground = Brush("#C62828");
+                return;
+            }
+            CfgFetchModels.IsEnabled = false;
+            CfgHint.Text = "正在获取模型列表……";
+            CfgHint.Foreground = Brush("#78909C");
+            var (code, body) = await Task.Run(() => CurlModels(url, key));
+            var ids = new List<string>();
+            try
+            {
+                using var doc = JsonDocument.Parse(body);
+                if (doc.RootElement.TryGetProperty("data", out var arr) && arr.ValueKind == JsonValueKind.Array)
+                    foreach (var m in arr.EnumerateArray())
+                        if (m.TryGetProperty("id", out var id)) ids.Add(id.GetString() ?? "");
+            }
+            catch { }
+            ids = ids.Where(s => s.Length > 0).Distinct().ToList();
+            if (code == "200" && ids.Count > 0)
+            {
+                CfgModelCombo.ItemsSource = ids;
+                CfgModelCombo.SelectedIndex = 0;
+                CfgHint.Text = $"已获取 {ids.Count} 个可用模型，选中后保存即切换默认模型。";
+                CfgHint.Foreground = Brush("#2E7D32");
+            }
+            else
+            {
+                CfgHint.Text = code == "401" || code == "403" ? $"[{code}] 认证未通过，请检查 API Key。"
+                    : code == "000" || code.Length == 0 ? "[连接超时] 无法连接该地址。"
+                    : $"[{code}] 获取失败，请核对地址与 Key。";
+                CfgHint.Foreground = Brush("#C62828");
+            }
+            CfgFetchModels.IsEnabled = true;
         }
 
         private async void UpdateTierTable()
@@ -138,9 +216,9 @@ namespace HerMemory
             try
             {
                 var outp = await Task.Run(() => HermesCtl.Run("config get memory.memory_char_limit", 20));
-                limit = System.Text.RegularExpressions.Regex.Match(outp, @"(2200|5000|10000)").Groups[1].Value;
+                limit = System.Text.RegularExpressions.Regex.Match(outp, @"(\d{3,7})").Groups[1].Value;
                 var outp2 = await Task.Run(() => HermesCtl.Run("config get memory.user_char_limit", 20));
-                usr = System.Text.RegularExpressions.Regex.Match(outp2, @"(1375|3000|5000)").Groups[1].Value;
+                usr = System.Text.RegularExpressions.Regex.Match(outp2, @"(\d{3,7})").Groups[1].Value;
             }
             catch { }
             await Dispatcher.InvokeAsync(() =>
@@ -423,13 +501,7 @@ namespace HerMemory
             {
                 var s = await Task.Run(HermesCtl.State);
                 _lastState = s;
-                var (url, _, key) = HermesCtl.GetModelCfg();
-                await Dispatcher.InvokeAsync(() =>
-                {
-                    CfgUrl.Text = url;
-                    CfgKey.Text = key;
-                    if (key.Length == 0) CfgHint.Text = "未读取到 Key，请直接填写。";
-                });
+                await Dispatcher.InvokeAsync(() => UpdateCfgRegion(s, load: true));
             });
         }
 
@@ -439,6 +511,113 @@ namespace HerMemory
             WebDavStatus.Text = HermesCtl.WebDavRunning()
                 ? "同步服务（WebDAV）：运行中"
                 : "同步服务（WebDAV）：未运行";
+        }
+
+        // ================= 微信绑定（绑定 / 换绑夺回 / 解绑）=================
+        // 微信官方限制：一个微信同一时刻只活一个绑定。上游无 logout/unbind 命令——绑定态=两处文件：
+        //   {HermesHome}\weixin\accounts\*.json（token，含 context_token 缓存）+ .env 的 WEIXIN_* 键（源码实证）。
+        // 本层编排：停 gateway → 文件清理 → （重绑走安装同款 WeChatFlowAsync 二维码流）→ 起 gateway。绝不触碰 vault。
+
+        private bool _wxRebind;   // QR 流来源：true=主界面重绑（成功/跳过回 PageWeixin 并重启 gateway），false=安装向导（走 PageDone）
+
+        public void ShowWeixin()
+        {
+            ShowPage("PageWeixin");
+            UpdateWeixinStatus();
+        }
+
+        private void LinkWeixin_Click(object sender, RoutedEventArgs e) => ShowWeixin();
+
+        /// <summary>绑定状态回显：未绑定 / 已绑定（user_id + saved_at + 被顶提示）。</summary>
+        private void UpdateWeixinStatus()
+        {
+            var bound = EnvHasWeixin();
+            BtnWxUnbind.IsEnabled = bound;
+            if (!bound)
+            {
+                BtnWxBind.Content = "绑定微信";
+                WxBindStatus.Text = "未绑定。";
+                return;
+            }
+            BtnWxBind.Content = "重新绑定";
+            string uid = "", saved = "";
+            try
+            {
+                var acctDir = Path.Combine(HermesHome, "weixin", "accounts");
+                var latest = Directory.Exists(acctDir)
+                    ? new DirectoryInfo(acctDir).GetFiles("*.json").OrderBy(f => f.LastWriteTime).LastOrDefault()
+                    : null;
+                if (latest != null)
+                {
+                    using var doc = JsonDocument.Parse(File.ReadAllText(latest.FullName));
+                    if (doc.RootElement.TryGetProperty("user_id", out var u)) uid = u.GetString() ?? "";
+                    if (doc.RootElement.TryGetProperty("saved_at", out var s)) saved = s.GetString() ?? "";
+                }
+            }
+            catch { }
+            WxBindStatus.Text = "已绑定"
+                + (uid.Length > 0 ? $"：微信 ID {uid}" : "")
+                + (saved.Length > 0 ? $"（{saved}）" : "") + "。";
+        }
+
+        /// <summary>清理微信凭据（解绑/换绑共用）：accounts 全目录文件 + .env 的 WEIXIN_* 键。绝不触碰其他配置与 vault。</summary>
+        private static void CleanWeixinCredentials(string hermesHome)
+        {
+            try
+            {
+                var acctDir = Path.Combine(hermesHome, "weixin", "accounts");
+                if (Directory.Exists(acctDir))
+                    foreach (var f in Directory.GetFiles(acctDir)) { try { File.Delete(f); } catch { } }
+                var envFile = Path.Combine(hermesHome, ".env");
+                if (File.Exists(envFile))
+                {
+                    var keep = File.ReadAllLines(envFile).Where(l => !l.StartsWith("WEIXIN_", StringComparison.Ordinal)).ToArray();
+                    File.WriteAllLines(envFile, keep, new UTF8Encoding(false));
+                }
+            }
+            catch { }
+        }
+
+        private async void BtnWxBind_Click(object sender, RoutedEventArgs e)
+        {
+            if (EnvHasWeixin())
+            {
+                var r = System.Windows.MessageBox.Show(
+                    "扫码后本机夺回绑定，原绑定设备将失效。继续？",
+                    "重新绑定微信", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                if (r != MessageBoxResult.Yes) return;
+            }
+            BtnWxBind.IsEnabled = false;
+            BtnWxUnbind.IsEnabled = false;
+            WxBindStatus.Text = "正在准备，稍候拉起二维码……";
+            await Task.Run(() =>
+            {
+                try { HermesCtl.Run("gateway stop", 60); } catch { }
+                CleanWeixinCredentials(HermesHome);
+            });
+            BtnWxBind.IsEnabled = true;
+            _wxRebind = true;
+            ShowPage("PageQr");
+            StartQrFlow();
+        }
+
+        private async void BtnWxUnbind_Click(object sender, RoutedEventArgs e)
+        {
+            var r = System.Windows.MessageBox.Show(
+                "解绑仅断开微信通道，记忆与文档不受影响。继续？",
+                "解绑微信", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            if (r != MessageBoxResult.Yes) return;
+            BtnWxBind.IsEnabled = false;
+            BtnWxUnbind.IsEnabled = false;
+            WxBindStatus.Text = "正在解绑……";
+            await Task.Run(() =>
+            {
+                try { HermesCtl.Run("gateway stop", 60); } catch { }
+                CleanWeixinCredentials(HermesHome);
+                try { HermesCtl.Run("gateway start", 60); } catch { }
+            });
+            BtnWxBind.IsEnabled = true;
+            UpdateWeixinStatus();
         }
 
         private void FocusCfg()
@@ -520,14 +699,16 @@ namespace HerMemory
                 WindowStartupLocation = WindowStartupLocation.CenterOwner,
                 Owner = this,
                 ResizeMode = ResizeMode.NoResize,
-                Background = new System.Windows.Media.SolidColorBrush(
-                    (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#FAFBFC")),
+                Background = System.Windows.Application.Current.Resources["WindowBg"] as System.Windows.Media.Brush
+                    ?? new System.Windows.Media.SolidColorBrush(
+                        (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#FAFBFC")),
             };
             var rememberBox = new System.Windows.Controls.CheckBox
             {
                 Content = "记住此选择，以后不再询问",
                 FontSize = 12.5,
-                Foreground = System.Windows.Media.Brushes.DimGray,
+                Foreground = System.Windows.Application.Current.Resources["Ink"] as System.Windows.Media.Brush
+                    ?? System.Windows.Media.Brushes.DimGray,
                 Margin = new Thickness(0, 16, 0, 0),
             };
             string? result = null;
@@ -537,8 +718,8 @@ namespace HerMemory
                 Text = "要退出 HerMemory，还是最小化到系统托盘？",
                 FontSize = 14.5,
                 TextWrapping = TextWrapping.Wrap,
-                Foreground = new System.Windows.Media.SolidColorBrush(
-                    System.Windows.Media.Color.FromArgb(255, 15, 23, 42)),
+                Foreground = System.Windows.Application.Current.Resources["Ink"] as System.Windows.Media.Brush
+                    ?? System.Windows.Media.Brushes.Black,
             });
             stack.Children.Add(new TextBlock
             {
@@ -572,6 +753,8 @@ namespace HerMemory
         private async Task RunPrecheckAsync()
         {
             var notes = new List<string>();
+            // 构建戳：exe 文件修改时间即构建时间——沙盒/多包测试一眼确认跑的是哪个包，杜绝"用旧包测新修复"
+            try { BuildStamp.Text = "构建戳：" + File.GetLastWriteTime(Environment.ProcessPath!).ToString("yyyy-MM-dd HH:mm:ss"); } catch { }
             // 仓库定位：从 exe 所在目录逐级向上找 install.ps1；找不到则解压内嵌发行包（裸 exe 分发，无需仓库文件随行）
             _repoRoot = FindRepoRoot();
             if (_repoRoot == null)
@@ -586,24 +769,37 @@ namespace HerMemory
             // git 不再预检：上游官方安装器自带 Stage-Git，自动便携化安装 PortableGit（pin 版上游源码实证），
             // 装后 sync_check.sh 所需 Git Bash 亦由其提供。
 
+            // 网络探测：多主机 GET 探活 + 重试；任何 HTTP 应答（含 403/404）即视为可达——TCP/TLS/HTTP 全通就是通。
+            // 单主机单次 HEAD 直连探测在沙盒/代理环境误报率高（浏览器代理插件不走系统代理、IPv6 优先失败、HEAD 被中间设备重置），
+            // 故探测失败不作硬闸门：降级为警示，「开始安装」仍可点——真实下载有自己的重试，真不通时安装页会红字给出具体原因。
             bool net = await Task.Run(async () =>
             {
-                try
+                var hosts = new[] { "https://github.com", "https://codeload.github.com" };
+                for (int attempt = 0; attempt < 2; attempt++)
                 {
-                    using var h = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
-                    using var r = new HttpRequestMessage(HttpMethod.Head, "https://github.com");
-                    var resp = await h.SendAsync(r);
-                    return true;
+                    foreach (var host in hosts)
+                    {
+                        try
+                        {
+                            using var h = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+                            using var resp = await h.GetAsync(host);
+                            return true;
+                        }
+                        catch { }
+                    }
+                    if (attempt == 0) await Task.Delay(1500);
                 }
-                catch { return false; }
+                return false;
             });
-            notes.Add(net ? "√ 网络可达 GitHub" : "× 无法连上 GitHub——请开一次代理后再安装（安装完成后日常使用不再需要）");
+            notes.Add(net
+                ? "√ 网络可达 GitHub"
+                : "△ 未能直连 GitHub——安装器会自动切换境内镜像链，可直接安装");
 
-            bool allOk = _repoRoot != null && net;
+            bool allOk = _repoRoot != null;
             PrecheckStatus.Text = string.Join(Environment.NewLine, notes);
-            PrecheckStatus.Foreground = new System.Windows.Media.SolidColorBrush(allOk
-                ? (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#2E7D32")
-                : (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#C62828"));
+            PrecheckStatus.Foreground = new System.Windows.Media.SolidColorBrush(
+                (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(
+                    allOk ? (net ? "#2E7D32" : "#EF6C00") : "#C62828"));
             BtnStart.IsEnabled = allOk;
         }
 
@@ -617,6 +813,25 @@ namespace HerMemory
             return null;
         }
 
+        /// <summary>定位微信登录脚本：优先发行仓库目录文件；缺失（从旧的发行目录拷贝/残缺仓库启动）
+        /// 时回落本 exe 内嵌 payload（构建戳保证新鲜）——QR 流对启动位置免疫。</summary>
+        private string? ResolveQrScript()
+        {
+            try
+            {
+                var inRepo = _repoRoot == null ? null : Path.Combine(_repoRoot, "scripts", "weixin_qr_login.py");
+                if (inRepo != null && File.Exists(inRepo)) return inRepo;
+            }
+            catch { }
+            var pd = PayloadDir;
+            if (ExtractPayload(pd))
+            {
+                var s = Path.Combine(pd, "scripts", "weixin_qr_login.py");
+                if (File.Exists(s)) return s;
+            }
+            return null;
+        }
+
         /// <summary>内嵌发行包解压目录（按版本隔离，exe 升级后旧解压不残留使用）。</summary>
         private static string PayloadDir => Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -624,12 +839,22 @@ namespace HerMemory
             (System.Reflection.Assembly.GetExecutingAssembly().GetName().Version ?? new Version(0, 1)).ToString(3));
 
         /// <summary>把构建期嵌入的仓库 payload（payload/… 资源，对应 memory/docs/skins/scripts + 根部脚本）
-        /// 逐字节解压到 dir——BOM/编码与仓库文件一致（install.ps1 的 UTF-8 BOM 得以保留）。已就位则跳过。</summary>
+        /// 逐字节解压到 dir——BOM/编码与仓库文件一致（install.ps1 的 UTF-8 BOM 得以保留）。
+        /// 新鲜度以 exe 构建时间戳为准（.hm-payload-stamp）：同版本号目录换新版 exe 也整包重刷，杜绝陈旧快照复用。</summary>
         private static bool ExtractPayload(string dir)
         {
             try
             {
-                if (File.Exists(Path.Combine(dir, "install.ps1"))) return true;
+                long stamp = 0;
+                try { stamp = File.GetLastWriteTimeUtc(Environment.ProcessPath ?? typeof(MainWindow).Assembly.Location).Ticks; } catch { }
+                var stampFile = Path.Combine(dir, ".hm-payload-stamp");
+                try
+                {
+                    if (File.Exists(Path.Combine(dir, "install.ps1")) && File.Exists(stampFile)
+                        && long.TryParse(File.ReadAllText(stampFile), out var s) && s == stamp)
+                        return true; // 构建戳一致 = 目录内容与本 exe 完全同步
+                }
+                catch { }
                 var asm = System.Reflection.Assembly.GetExecutingAssembly();
                 foreach (var name in asm.GetManifestResourceNames())
                 {
@@ -641,6 +866,7 @@ namespace HerMemory
                     using var fs = File.Create(dst);
                     rs.CopyTo(fs);
                 }
+                try { File.WriteAllText(stampFile, stamp.ToString()); } catch { }
                 return File.Exists(Path.Combine(dir, "install.ps1"));
             }
             catch { return false; }
@@ -725,10 +951,99 @@ namespace HerMemory
                 ParamStatus.Foreground = Brush("#C62828");
                 return;
             }
+            // 档位：三选一，或自定义（确定时校验两个 100-9999999 整数）
+            string tier; int customMem = 0, customUser = 0;
+            if (Tier4.IsChecked == true)
+            {
+                if (!int.TryParse(CustomMem.Text.Trim(), out customMem) || !int.TryParse(CustomUser.Text.Trim(), out customUser)
+                    || customMem < 100 || customMem > 9999999 || customUser < 100 || customUser > 9999999)
+                {
+                    ParamStatus.Text = "自定义档位：MEMORY 与 USER 需分别填 100-9999999 的整数。";
+                    ParamStatus.Foreground = Brush("#C62828");
+                    return;
+                }
+                tier = "custom";
+            }
+            else tier = Tier1.IsChecked == true ? "1" : Tier2.IsChecked == true ? "2" : "3";
             _provBase = url;
             _provModel = model;
-            var tier = Tier1.IsChecked == true ? "1" : Tier2.IsChecked == true ? "2" : "3";
-            StartInstall(tier, url, key, model);
+            StartInstall(tier, url, key, model, customMem, customUser);
+        }
+
+        /// <summary>档位单选切换：仅「自定义」时启用两个自由输入框。解析期 Tier1 默认选中会先于输入框创建触发，需判空。</summary>
+        private void Tier_Checked(object sender, RoutedEventArgs e)
+        {
+            if (CustomMem == null || CustomUser == null) return;
+            var on = Tier4 != null && Tier4.IsChecked == true;
+            CustomMem.IsEnabled = on;
+            CustomUser.IsEnabled = on;
+            if (on) CustomMem.Focus();
+        }
+
+        /// <summary>URL 检测：与「获取模型列表」完全同通道（curl GET {url}/models，先直连、失败走代理兜底，填了 Key 则带认证）。</summary>
+        private async void BtnCheckUrl_Click(object sender, RoutedEventArgs e)
+        {
+            var url = CleanAscii(UrlBox.Text).TrimEnd('/');
+            if (url.Length == 0)
+            {
+                ParamStatus.Text = "请先填写 API 地址。";
+                ParamStatus.Foreground = Brush("#C62828");
+                return;
+            }
+            var key = CleanAscii(KeyBox.Text);
+            BtnCheckUrl.IsEnabled = false;
+            ParamStatus.Text = "正在检测地址……";
+            ParamStatus.Foreground = Brush("#78909C");
+            var (level, msg) = await Task.Run(() => ProbeUrl(url, key));
+            ParamStatus.Text = msg;
+            ParamStatus.Foreground = Brush(level == 2 ? "#2E7D32" : level == 1 ? "#EF6C00" : "#C62828");
+            BtnCheckUrl.IsEnabled = true;
+        }
+
+        /// <summary>探活 {url}/models：任何 HTTP 应答即可达（level 2 绿 / 1 橙 / 0 红）；curl 000 时按退出码给出失败原因。</summary>
+        private static (int level, string msg) ProbeUrl(string url, string key)
+        {
+            var tmp = Path.Combine(Path.GetTempPath(), $"hm-probe-{Guid.NewGuid():N}.json");
+            (string code, int exit) Run(string extra)
+            {
+                try
+                {
+                    var auth = key.Length > 0 ? $" -H \"Authorization: Bearer {key}\"" : "";
+                    var psi = new ProcessStartInfo
+                    {
+                        FileName = "curl.exe",
+                        Arguments = $"-sL {extra} --max-time 10 -o \"{tmp}\" -w \"%{{http_code}}\" \"{url}/models\"{auth}",
+                        UseShellExecute = false,
+                        RedirectStandardOutput = true,
+                        CreateNoWindow = true,
+                    };
+                    using var p = Process.Start(psi)!;
+                    var code = p.StandardOutput.ReadToEnd().Trim();
+                    p.WaitForExit(20000);
+                    return (code, p.ExitCode);
+                }
+                catch { return ("", -1); }
+            }
+            try
+            {
+                var (code, exit) = Run("--noproxy \"*\"");
+                if (code == "000" || code.Length == 0) (code, exit) = Run("");
+                if (code.Length > 0 && code != "000")
+                {
+                    if (code == "200") return (2, "✓ 地址有效（HTTP 200）。");
+                    if (code == "401" || code == "403") return (1, $"△ 地址可达（HTTP {code}），认证未通过，请检查 Key。");
+                    return (2, $"✓ 地址可达（HTTP {code}）。");
+                }
+                return (0, exit switch
+                {
+                    6 => "✗ 无法连接：域名解析失败。",
+                    7 => "✗ 无法连接：服务器拒绝连接。",
+                    28 => "✗ 无法连接：连接超时。",
+                    35 => "✗ 无法连接：TLS 握手失败。",
+                    _ => $"✗ 无法连接：网络错误（代码 {exit}）。",
+                });
+            }
+            finally { try { File.Delete(tmp); } catch { } }
         }
 
         // ================= 页 3：安装 =================
@@ -738,13 +1053,27 @@ namespace HerMemory
             ["config-ai"] = 78, ["wechat"] = 82, ["gateway"] = 92, ["done"] = 100
         };
 
-        private void StartInstall(string tier, string url, string key, string model)
+        private readonly List<string> _installTail = new();   // 安装输出环形尾部（≤400 行，失败红字取材）
+        private string? _mirrorInfo;                          // ##HM-MIRROR## 标记：本次安装链路模式（失败红字头部展示，远程定位用）
+
+        private void StartInstall(string tier, string url, string key, string model, int customMem = 0, int customUser = 0)
         {
             ShowPage("PageInstall");
             InstallBar.Value = 2;
             InstallTitle.Text = "正在安装，首次约 5-10 分钟。";
             InstallDetail.Text = "";
+            InstallFail.Text = "";
+            InstallFail.Visibility = Visibility.Collapsed;
+            lock (_installTail) _installTail.Clear();
+            _mirrorInfo = null;
             StartTips();
+
+            void Record(string? l)
+            {
+                if (string.IsNullOrWhiteSpace(l)) return;
+                lock (_installTail) { _installTail.Add(l); if (_installTail.Count > 400) _installTail.RemoveAt(0); }
+                Dispatcher.Invoke(() => InstallDetail.Text = l);
+            }
 
             Task.Run(async () =>
             {
@@ -752,10 +1081,16 @@ namespace HerMemory
                 {
                     // 1. 答案文件（key 明文短暂落盘，成功后即删）
                     _answersPath = Path.Combine(Path.GetTempPath(), $"hermemory-answers-{Guid.NewGuid():N}.json");
-                    var payload = JsonSerializer.Serialize(new Dictionary<string, string>
+                    var answers = new Dictionary<string, string>
                     {
                         ["memoryTier"] = tier, ["baseUrl"] = url, ["apiKey"] = key, ["model"] = model
-                    });
+                    };
+                    if (tier == "custom")
+                    {
+                        answers["customMem"] = customMem.ToString();
+                        answers["customUser"] = customUser.ToString();
+                    }
+                    var payload = JsonSerializer.Serialize(answers);
                     await File.WriteAllTextAsync(_answersPath, payload, new UTF8Encoding(false));
 
                     // 2. 静默安装
@@ -767,41 +1102,80 @@ namespace HerMemory
                         RedirectStandardOutput = true,
                         RedirectStandardError = true,
                         CreateNoWindow = true,
-                        StandardOutputEncoding = Encoding.UTF8,
+                        // 不设 StandardOutputEncoding：手工字节级读取 + 逐行自适应解码（见下）
                     };
+
+                    // 自适应解码：install.ps1 默认 GBK（chcp 936 自愈），上游脚本中途把会话切成 UTF-8（其 L101），
+                    // 归位调用在重定向下不可靠（实测）——流内编码会中途切换，任何单一编码解码必乱一段（VM 两轮实测踩中）。
+                    // 按行字节解码：严格 UTF-8 优先，解码失败退 GBK——GBK 中文序列几乎必然非法 UTF-8，UTF-8 中文必然合法，ASCII 两者共通。
+                    var utf8Strict = new UTF8Encoding(false, true);
+                    var gbk = Encoding.GetEncoding(936);
+                    string Decode(byte[] arr)
+                    {
+                        try { return utf8Strict.GetString(arr); }
+                        catch { return gbk.GetString(arr); }
+                    }
+
                     int exit;
                     using (var p = Process.Start(psi)!)
                     {
-                        p.OutputDataReceived += (_, a) =>
+                        void HandleLine(string raw)
                         {
-                            if (a.Data == null) return;
-                            var line = a.Data;
+                            var line = raw.EndsWith("\r") ? raw[..^1] : raw;
+                            if (line.StartsWith("##HM-MIRROR## "))
+                            {
+                                _mirrorInfo = line["##HM-MIRROR## ".Length..].Trim();
+                                lock (_installTail) { _installTail.Add(line); if (_installTail.Count > 400) _installTail.RemoveAt(0); }
+                                return;
+                            }
                             if (line.StartsWith("##HM-PROGRESS## "))
                             {
                                 var step = line["##HM-PROGRESS## ".Length..].Trim();
                                 if (ProgressMap.TryGetValue(step, out var pct))
                                     Dispatcher.Invoke(() => InstallBar.Value = pct);
+                                lock (_installTail) { _installTail.Add(line); if (_installTail.Count > 400) _installTail.RemoveAt(0); }
                             }
-                            else
+                            else Record(line);
+                        }
+                        void Pump(Stream stream)
+                        {
+                            using var bs = new BufferedStream(stream, 4096);
+                            var buf = new List<byte>(512);
+                            var one = new byte[1];
+                            int n;
+                            while ((n = bs.Read(one, 0, 1)) > 0)
                             {
-                                Dispatcher.Invoke(() => InstallDetail.Text = line);
+                                if (one[0] == (byte)'\n') { HandleLine(Decode(buf.ToArray())); buf.Clear(); }
+                                else buf.Add(one[0]);
                             }
-                        };
-                        p.BeginErrorReadLine();
-                        p.BeginOutputReadLine();
+                            if (buf.Count > 0) HandleLine(Decode(buf.ToArray()));
+                        }
+                        var errTask = Task.Run(() => Pump(p.StandardError.BaseStream));
+                        await Task.Run(() => Pump(p.StandardOutput.BaseStream));
+                        await errTask;
                         await p.WaitForExitAsync();
                         exit = p.ExitCode;
                     }
 
                     if (exit != 0)
                     {
+                        // 答案文件保留：续装还要用（成功才删）
+                        string tailText;
+                        lock (_installTail)
+                            tailText = string.Join(Environment.NewLine,
+                                _installTail.Where(l => !string.IsNullOrWhiteSpace(l) && !l.StartsWith("##HM-PROGRESS##") && !l.StartsWith("##HM-MIRROR##"))
+                                            .Select(l => l.Trim()).TakeLast(16));
                         Dispatcher.Invoke(() =>
                         {
                             InstallTitle.Text = "安装未成功";
-                            InstallDetail.Text += Environment.NewLine + "已完成步骤将自动跳过；排除问题后点击“重新安装”继续。";
+                            InstallFail.Text = $"失败原因（退出码 {exit}，输出末尾 16 行）："
+                                + (_mirrorInfo != null ? Environment.NewLine + "[链路] " + _mirrorInfo : "")
+                                + Environment.NewLine + tailText
+                                + Environment.NewLine + Environment.NewLine
+                                + "已完成步骤将自动跳过；排除问题后点击「重新安装」继续。";
+                            InstallFail.Visibility = Visibility.Visible;
+                            AddRetryButton();
                         });
-                        // 答案文件保留：续装还要用（成功才删）
-                        Dispatcher.Invoke(() => AddRetryButton());
                         return;
                     }
 
@@ -818,7 +1192,8 @@ namespace HerMemory
                     Dispatcher.Invoke(() =>
                     {
                         InstallTitle.Text = "安装出错";
-                        InstallDetail.Text = ex.Message;
+                        InstallFail.Text = "失败原因：" + ex;
+                        InstallFail.Visibility = Visibility.Visible;
                         AddRetryButton();
                     });
                 }
@@ -871,31 +1246,44 @@ namespace HerMemory
 
         private async Task WeChatFlowAsync()
         {
-            _qrCts = new CancellationTokenSource(TimeSpan.FromMinutes(8));
+            // 9 分钟上限 = 上游 qr_login 内部 8 分钟 + 收尾余量
+            _qrCts = new CancellationTokenSource(TimeSpan.FromMinutes(9));
             var ct = _qrCts.Token;
 
             SetQr("正在检查微信接入状态……");
             if (EnvHasWeixin()) { await AfterWechatAsync(); return; }
 
+            // Headless 二维码登录：venv python 直调发行脚本 scripts\weixin_qr_login.py（内部走上游 qr_login 并落 .env）。
+            // 不再用 gateway setup——其 curses 菜单在非 TTY stdin 下直接返回取消值、完全不读管道输入
+            //（上游 curses_ui._run_curses_menu isatty 守卫实证），旧答题卡自动化在结构上无法通过；install.ps1 交互路径不受影响（真 TTY 由人应答）。
             SetQr("正在启动微信接入，浏览器将自动打开二维码页面。");
             try
             {
+                var pyExe = Path.Combine(HermesHome, "hermes-agent", "venv", "Scripts", "python.exe");
+                var script = ResolveQrScript();
+                if (!File.Exists(pyExe) || script == null)
+                {
+                    SetQr(!File.Exists(pyExe)
+                        ? "微信接入组件缺失（Python 环境未就绪）：" + pyExe
+                        : $"微信接入组件缺失（登录脚本，安装源={_repoRoot ?? "未定位"}，内嵌包解压也失败——请检查磁盘空间与权限）");
+                    Dispatcher.Invoke(() => BtnQrRetry.Visibility = Visibility.Visible);
+                    return;
+                }
                 bool urlOpened = false;
                 var psi = new ProcessStartInfo
                 {
-                    FileName = HermsExe,
-                    Arguments = "gateway setup",
+                    FileName = pyExe,
+                    Arguments = $"\"{script}\" \"{Path.Combine(HermesHome, "hermes-agent")}\" \"{HermesHome}\"",
                     UseShellExecute = false,
-                    RedirectStandardInput = true,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     CreateNoWindow = true,
                     StandardOutputEncoding = Encoding.UTF8,
                 };
-                psi.EnvironmentVariables["NO_COLOR"] = "1"; // 颜色码会污染 URL 提取与关键词答题
+                psi.EnvironmentVariables["NO_COLOR"] = "1";
+                psi.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8";
+                psi.EnvironmentVariables["PYTHONUTF8"] = "1";
                 using var p = Process.Start(psi)!;
-                StdinWriter = p.StandardInput;
-                StdinWriter.AutoFlush = true;
                 var readerTask = Task.Run(() =>
                 {
                     try
@@ -904,7 +1292,7 @@ namespace HerMemory
                         {
                             var line = p.StandardOutput.ReadLine();
                             if (line == null) break;
-                            // 自动开浏览器：提取二维码链接
+                            // 二维码链接裸行（过期刷新后重打，仅首次拉起浏览器）
                             var idx = line.IndexOf("https://liteapp.weixin.qq.com", StringComparison.OrdinalIgnoreCase);
                             if (!urlOpened && idx >= 0)
                             {
@@ -919,24 +1307,25 @@ namespace HerMemory
                                 }
                                 catch { }
                             }
-                            FeedWizardAnswer(line);
                         }
                     }
                     catch { }
                 });
                 _ = Task.Run(() => { try { p.StandardError.ReadToEnd(); } catch { } });
 
-                // 轮询 .env 等凭据落盘
+                // 轮询 .env 等凭据落盘（登录脚本成功后最后一步写 WEIXIN_ACCOUNT_ID）；脚本自行退出（超时/失败）即停止等待
                 while (!ct.IsCancellationRequested)
                 {
                     if (EnvHasWeixin()) break;
+                    if (p.HasExited) break;
                     await Task.Delay(2000, CancellationToken.None);
                 }
                 try { if (!p.HasExited) p.Kill(true); } catch { }
+                try { await readerTask; } catch { }
 
-                if (ct.IsCancellationRequested && !EnvHasWeixin())
+                if (!EnvHasWeixin())
                 {
-                    SetQr("二维码已超时或未完成扫码。");
+                    SetQr("二维码已超时或未完成扫码，可重试。");
                     Dispatcher.Invoke(() => BtnQrRetry.Visibility = Visibility.Visible);
                     return;
                 }
@@ -951,45 +1340,6 @@ namespace HerMemory
             }
         }
 
-        // 向导自动答题：按上游 gateway setup 的题目关键词喂答案
-        private void FeedWizardAnswer(string line)
-        {
-            string? answer = null;
-            if (line.Contains("Select platform", StringComparison.OrdinalIgnoreCase))
-            {
-                // 平台菜单：找出含 weixin/wechat 的选项序号
-                answer = null; // 序号在后续菜单行里给出，见下
-            }
-            if (System.Text.RegularExpressions.Regex.IsMatch(line, @"^\s*\d+[\.\)]") &&
-                line.Contains("weixin", StringComparison.OrdinalIgnoreCase))
-            {
-                var num = System.Text.RegularExpressions.Regex.Match(line, @"^\s*(\d+)").Groups[1].Value;
-                answer = num;
-            }
-            else if (line.Contains("Start QR login", StringComparison.OrdinalIgnoreCase))
-            {
-                answer = ""; // 回车确认
-            }
-            else if (line.Contains("direct messages", StringComparison.OrdinalIgnoreCase))
-            {
-                answer = "3"; // allowlist
-            }
-            else if (line.Contains("user IDs", StringComparison.OrdinalIgnoreCase))
-            {
-                answer = ""; // 预填
-            }
-            else if (line.Contains("group chats", StringComparison.OrdinalIgnoreCase))
-            {
-                answer = "1"; // 禁用群聊
-            }
-            if (answer != null)
-            {
-                try { StdinWriter?.WriteLine(answer); StdinWriter?.Flush(); } catch { }
-            }
-        }
-
-        private StreamWriter? StdinWriter;
-
         private void SetQr(string text) => Dispatcher.Invoke(() => QrStatus.Text = text);
 
         private bool EnvHasWeixin()
@@ -997,7 +1347,10 @@ namespace HerMemory
             try
             {
                 var env = Path.Combine(HermesHome, ".env");
-                return File.Exists(env) && File.ReadAllLines(env).Any(l => l.StartsWith("WEIXIN_ACCOUNT_ID=", StringComparison.Ordinal));
+                // 必须有非空值：登录脚本异常时可能写入空值，空值不得判定为已绑定
+                return File.Exists(env) && File.ReadAllLines(env)
+                    .Any(l => l.StartsWith("WEIXIN_ACCOUNT_ID=", StringComparison.Ordinal)
+                              && l.Length > "WEIXIN_ACCOUNT_ID=".Length);
             }
             catch { return false; }
         }
@@ -1039,6 +1392,15 @@ namespace HerMemory
 
         private async Task AfterWechatAsync()
         {
+            if (_wxRebind)
+            {
+                // 换绑/重绑成功：重启 gateway 加载新凭据（allowlist 已由 ApplyAllowlist 跟随新微信 ID），回绑定页
+                SetQr("绑定成功，正在重启 Gateway……");
+                await Task.Run(() => { try { HermesCtl.Run("gateway start", 60); } catch { } });
+                _wxRebind = false;
+                Dispatcher.Invoke(() => { ShowPage("PageWeixin"); UpdateWeixinStatus(); });
+                return;
+            }
             // gateway 服务（计划任务）缺则补装；失败不阻塞完成
             SetQr("检查 gateway 服务……");
             bool taskExists = await Task.Run(() =>
@@ -1049,8 +1411,11 @@ namespace HerMemory
             if (!taskExists)
             {
                 SetQr("正在安装 gateway 服务，约一两分钟。");
-                await Task.Run(() => RunCapture(HermsExe, "gateway install", 600));
+                await Task.Run(() => HermesCtl.Run("gateway install", 600));
             }
+            // 凭据已落 .env——重启 gateway 加载 weixin 通道（install.ps1 第 10 段起的服务不含微信凭据）
+            SetQr("正在重启 Gateway 加载微信通道……");
+            await Task.Run(() => { try { HermesCtl.Run("gateway restart", 120); } catch { } });
 
             var warn = taskExists ? "" : "gateway 计划任务未注册，不影响微信使用，可稍后补装。";
             Dispatcher.Invoke(() =>
@@ -1071,10 +1436,18 @@ namespace HerMemory
         private void BtnQrSkip_Click(object sender, RoutedEventArgs e)
         {
             _qrCts?.Cancel();
+            if (_wxRebind)
+            {
+                // 重绑中途取消：恢复 gateway（保持解绑前运行态语义），回绑定页如实回显状态
+                _wxRebind = false;
+                _ = Task.Run(() => { try { HermesCtl.Run("gateway start", 60); } catch { } });
+                Dispatcher.Invoke(() => { ShowPage("PageWeixin"); UpdateWeixinStatus(); });
+                return;
+            }
             Dispatcher.Invoke(() =>
             {
                 DoneText.Text = "安装完成，微信暂未接入。" + Environment.NewLine +
-                    "可随时重新接入：运行 gateway-run.bat 或重新运行安装向导。";
+                    "可随时重新接入：主界面「微信绑定」，或重新运行安装向导。";
                 ShowPage("PageDone");
             });
         }
@@ -1134,6 +1507,8 @@ namespace HerMemory
             }
             BtnUninsRun.IsEnabled = false;
             BtnUninsBack.IsEnabled = false;
+            UninsVault.IsEnabled = false;
+            UninsExe.IsEnabled = false;
             UninsBar.Visibility = Visibility.Visible;
             UninsBar.Value = 2;
             _ = Task.Run(() => DoUninstall(delVault, delExe));
@@ -1184,6 +1559,14 @@ namespace HerMemory
                 var slot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".hermes.md");
                 if (File.Exists(slot) && ((new FileInfo(slot).Attributes & FileAttributes.ReparsePoint) != 0
                     || new FileInfo(slot).Length == 0)) File.Delete(slot);
+            }
+            catch { }
+
+            SetUnins("移除内嵌发行包缓存……", 33);
+            try
+            {
+                var cache = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HerMemory");
+                if (Directory.Exists(cache)) Directory.Delete(cache, true);
             }
             catch { }
 
@@ -1275,7 +1658,7 @@ namespace HerMemory
 
         private static (string code, string body) CurlModels(string url, string key)
         {
-            var tmp = Path.Combine(Path.GetTempPath(), "hm-models-exe.json");
+            var tmp = Path.Combine(Path.GetTempPath(), $"hm-models-{Guid.NewGuid():N}.json");
             string Run(string extra)
             {
                 var psi = new ProcessStartInfo
@@ -1294,6 +1677,7 @@ namespace HerMemory
             var code = Run("--noproxy \"*\"");
             if (code == "000") code = Run("");
             var body = File.Exists(tmp) ? File.ReadAllText(tmp) : "";
+            try { File.Delete(tmp); } catch { }
             return (code, body);
         }
     }

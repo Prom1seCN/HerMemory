@@ -17,6 +17,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- .NET 8 不自带代码页编码；安装器输出按 GBK(936) 解码需显式注册 CodePagesEncodingProvider（App 启动时） -->
+    <PackageReference Include="System.Text.Encoding.CodePages" Version="8.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
     <EmbeddedResource Include="assets\*.png">
       <LogicalName>%(Filename)%(Extension)</LogicalName>
     </EmbeddedResource>

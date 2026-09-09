@@ -6,6 +6,31 @@ namespace HerMemory
     /// <summary>exe 与托盘共用的 hermes 操作层。</summary>
     internal static class HermesCtl
     {
+        // hermes CLI 并发调用会争用配置存储（并发读取偶发空输出 → 配置回显缺失、状态误判）。
+        // 工程纪律：全进程串行调用。
+        private static readonly object _sync = new object();
+
+        /// <summary>统一的进程执行：stdout/stderr 并发读取（避免单侧缓冲满导致死锁）+ 超时强杀。</summary>
+        private static string RunPsi(ProcessStartInfo psi, int timeoutSec)
+        {
+            lock (_sync)
+            {
+                try
+                {
+                    using var p = Process.Start(psi)!;
+                    var so = p.StandardOutput.ReadToEndAsync();
+                    var se = p.StandardError.ReadToEndAsync();
+                    if (!p.WaitForExit(timeoutSec * 1000))
+                    {
+                        try { p.Kill(true); } catch { }
+                    }
+                    try { Task.WaitAll(new Task[] { so, se }, 5000); } catch { }
+                    return (so.Result ?? "") + (se.Result ?? "");
+                }
+                catch { return ""; }
+            }
+        }
+
         public static string HermesHome => Environment.GetEnvironmentVariable("HERMES_HOME")
             ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "hermes");
 
@@ -40,18 +65,7 @@ namespace HerMemory
         }
 
         /// <summary>gateway 原始状态输出。注意停止时输出为 "✗ Gateway is not running"——包含 "running"。</summary>
-        public static string RawStatus(int timeoutSec = 15)
-        {
-            try
-            {
-                using var p = Process.Start(HermsPsi("gateway status"))!;
-                var so = p.StandardOutput.ReadToEnd();
-                var se = p.StandardError.ReadToEnd();
-                p.WaitForExit(timeoutSec * 1000);
-                return so + se;
-            }
-            catch { return ""; }
-        }
+        public static string RawStatus(int timeoutSec = 15) => RunPsi(HermsPsi("gateway status"), timeoutSec);
 
         /// <summary>状态二态：running / stopped。顺序关键：先判否定，"not running" 也包含 "running"；读取失败一律按停止。</summary>
         public static string State()
@@ -62,40 +76,22 @@ namespace HerMemory
             return "stopped";
         }
 
-        public static string Run(string args, int timeoutSec = 120)
-        {
-            try
-            {
-                using var p = Process.Start(HermsPsi(args))!;
-                var so = p.StandardOutput.ReadToEnd();
-                var se = p.StandardError.ReadToEnd();
-                p.WaitForExit(timeoutSec * 1000);
-                return so + se;
-            }
-            catch { return ""; }
-        }
+        public static string Run(string args, int timeoutSec = 120) => RunPsi(HermsPsi(args), timeoutSec);
 
         /// <summary>任意命令捕获（卸载器用：schtasks 等）。</summary>
         public static string? RunCaptureRaw(string exe, string args, int timeoutSec)
         {
-            try
+            var psi = new ProcessStartInfo
             {
-                var psi = new ProcessStartInfo
-                {
-                    FileName = exe,
-                    Arguments = args,
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true,
-                };
-                using var p = Process.Start(psi)!;
-                var so = p.StandardOutput.ReadToEnd();
-                var se = p.StandardError.ReadToEnd();
-                p.WaitForExit(timeoutSec * 1000);
-                return so + se;
-            }
-            catch { return null; }
+                FileName = exe,
+                Arguments = args,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+            };
+            var s = RunPsi(psi, timeoutSec);
+            return string.IsNullOrEmpty(s) ? null : s;
         }
 
         public static bool EnvHasWeixin()
@@ -104,7 +100,8 @@ namespace HerMemory
             {
                 var env = Path.Combine(HermesHome, ".env");
                 return File.Exists(env) && File.ReadAllLines(env)
-                    .Any(l => l.StartsWith("WEIXIN_ACCOUNT_ID=", StringComparison.Ordinal));
+                    .Any(l => l.StartsWith("WEIXIN_ACCOUNT_ID=", StringComparison.Ordinal)
+                              && l.Length > "WEIXIN_ACCOUNT_ID=".Length);
             }
             catch { return false; }
         }
@@ -147,14 +144,15 @@ namespace HerMemory
                 var u = new Uri(baseUrl);
                 var hostId = u.Host;
                 if (u.Port > 0) hostId += "_" + u.Port;
+                // 与 install.ps1 同构命名：非 [A-Z0-9] 连续段折叠为单个下划线（防止两侧产生不同 env 名）
                 var keyEnv = "HERMES_CUSTOM_" +
-                    new string(hostId.ToUpperInvariant().Select(c => char.IsLetterOrDigit(c) ? c : '_').ToArray()).Trim('_') +
+                    System.Text.RegularExpressions.Regex.Replace(hostId.ToUpperInvariant(), @"[^A-Z0-9]+", "_").Trim('_') +
                     "_API_KEY";
 
                 Run($"config set model.base_url {baseUrl}", 30);
                 Run($"config set {keyEnv} {apiKey}", 30);
                 Run("config set model.provider custom", 30);
-                Run("config set model.api_key ${{{keyEnv}}}", 30);
+                Run($"config set model.api_key ${{{keyEnv}}}", 30);   // 注意 $ 前缀：必须插值出真实 env 名（曾是漏 $ 的字面量事故：${{keyEnv}} 写进 yaml → 网关 401）
                 Run("config set model.api_mode chat_completions", 30);
 
                 // .env：写入新键、清除其他 HERMES_CUSTOM_* 旧键

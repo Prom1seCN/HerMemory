@@ -39,7 +39,7 @@ function Die([string]$m)  { Write-Host "[error] $m" -ForegroundColor Red; exit 1
 function Run-Quiet { $ErrorActionPreference = "Continue"; try { & $args 2>&1 | Out-Null } catch {} }
 
 # ---------- 静默模式（exe 契约）：-AnswersFile 提供 JSON 答案，跳过全部交互 ----------
-# JSON 字段：memoryTier(1/2/3) / baseUrl / apiKey / model——均为必填。
+# JSON 字段：memoryTier(1/2/3/custom；custom 须伴随 customMem/customUser，各为 100-9999999 整数) / baseUrl / apiKey / model——均为必填。
 # 与交互路径共用同一套验证与落盘逻辑；区别仅在：验证失败即 Die（重试界面由 exe 负责），微信扫码由 exe 接管。
 # 安全语义：key 明文经 JSON 短暂落盘，exe 在安装成功后负责删除。
 $Answers = $null
@@ -91,11 +91,178 @@ if (Test-Done "upstream") {
     Mark-Done "upstream"
 } else {
     if ($SkipUpstream) { Die "hermes CLI 不可用，且指定了 -SkipUpstream" }
-    try {
-        Invoke-WebRequest -Uri "https://github.com" -Method Head -TimeoutSec 10 -UseBasicParsing | Out-Null
-    } catch {
-        Die "无法连上 GitHub（Windows 安装器需从 GitHub 获取内核与组件）。请开一次代理后再双击 install.bat——安装完成后日常使用不再需要。"
+    # GitHub 探活：多主机 GET + 重试；任何 HTTP 应答（含 403/404）即视为可达——单主机单次 HEAD 在代理/沙盒环境误报多。
+    # PS5.1 的 Invoke-WebRequest 对非 2xx 也抛错，故 catch 里有 Response 对象 = 网络通。
+    $ghOk = $false
+    foreach ($probeUrl in @("https://github.com", "https://codeload.github.com", "https://objects.githubusercontent.com")) {
+        foreach ($probeTry in 1..2) {
+            try { Invoke-WebRequest -Uri $probeUrl -Method Get -TimeoutSec 12 -UseBasicParsing | Out-Null; $ghOk = $true }
+            catch { if ($_.Exception.Response) { $ghOk = $true } }
+            if ($ghOk) { break }
+            Start-Sleep -Seconds 2
+        }
+        if ($ghOk) { break }
     }
+
+    # PBS Python 运行时镜像——**无条件**首选 npmmirror，不依赖 GitHub 探测结果：
+    # github.com 可通 ≠ objects.githubusercontent.com 可通（PBS 资产实际托管在后者、境内更易被断；
+    # 沙盒实测：直连探测全过但 uv 拉 Python 3.11 死于此）。本机实证：uv 0.12.10 + npmmirror 装 cpython-3.11.16（24MB，5.4s）。
+    # npmmirror 不可达时镜像链模式内再退加速器；两者皆不成立（海外/有代理）留空 = uv 默认 GitHub。
+    $pbsSource = "default"
+    if ($env:UV_PYTHON_INSTALL_MIRROR) {
+        $pbsSource = "preset"
+    } else {
+        $prevEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+        try {
+            Invoke-WebRequest -Uri "https://registry.npmmirror.com/-/binary/python-build-standalone/" -Method Get -TimeoutSec 10 -UseBasicParsing | Out-Null
+            $env:UV_PYTHON_INSTALL_MIRROR = "https://registry.npmmirror.com/-/binary/python-build-standalone"
+            $pbsSource = "npmmirror"
+        } catch { }
+        $ErrorActionPreference = $prevEAP
+    }
+
+    if (-not $ghOk) {
+        # ---------- 境内镜像链模式 ----------
+        # GitHub 裸 TLS 直连不通（境内常态：浏览器走 ECH/HTTP3 能进，原始客户端被 SNI-RST）。
+        # 三个 GitHub 承载工件全部改走国内通道，预置后上游官方安装器按其幂等探测自动跳过对应下载
+        #（上游 pin 版源码实证）：
+        #   git   —— Install-Git：PATH 里有 git 即快速通道，不下载 PortableGit（L1432）
+        #   内核  —— Install-Repository：已有有效仓库走 fetch+checkout，且 fetch 失败即 throw（L2201），
+        #            所以 origin 必须保留加速器前缀；后续 hermes update 同通道，加速器失效可 remote set-url 改回直连
+        #   Python—— uv 官方旋钮 UV_PYTHON_INSTALL_MIRROR（PBS 发行包也在 GitHub）
+        #   uv    —— 预置到 %HERMES_HOME%\bin\uv.exe（上游对已存在的可用 uv 容忍断网，L800 注释实证）；失败不致命（astral.sh 境内通常可达）
+        Log "GitHub 直连不通，切换境内镜像链模式……"
+
+        # ①：PortableGit 预置（三源顺试：npmmirror → ghproxy.net → gh-proxy.com；版本随上游 pin v2.54.0.windows.1，上游升级 git pin 时同步此处）。
+        # 沙盒四轮实证：npmmirror 会偶发不可达（上轮同一源可用），单源=单点；加速器直链下载不依赖 git，无鸡生蛋问题。
+        # 下载失败透出内层 SocketException——DNS 解析失败与 TCP 拒连在红字里一眼可分。
+        $gitDir = Join-Path $HermesHome "git"
+        $gitExe = Join-Path $gitDir "cmd\git.exe"
+        if (-not (Test-Path $gitExe)) {
+            if (Get-Command git -ErrorAction SilentlyContinue) {
+                Log "镜像链①：系统已有 git，跳过 PortableGit 预置"
+            } else {
+                $pgAsset = "PortableGit-2.54.0-64-bit.7z.exe"
+                $pgRel = "https://github.com/git-for-windows/git/releases/download/v2.54.0.windows.1/$pgAsset"
+                $pgSources = @(
+                    "https://registry.npmmirror.com/-/binary/git-for-windows/v2.54.0.windows.1/$pgAsset",
+                    "https://ghproxy.net/$pgRel",
+                    "https://gh-proxy.com/$pgRel"
+                )
+                $pgTmp = Join-Path $env:TEMP "hm-PortableGit.7z.exe"
+                $pgOk = $false
+                foreach ($pgSrc in $pgSources) {
+                    Log "镜像链①：下载 PortableGit 2.54.0（约 65MB，源：$(([uri]$pgSrc).Host)）……"
+                    try {
+                        Invoke-WebRequest -Uri $pgSrc -OutFile $pgTmp -UseBasicParsing
+                        $pgOk = $true; break
+                    } catch {
+                        $why = $_.Exception.Message
+                        if ($_.Exception.InnerException) { $why += " <- $($_.Exception.InnerException.Message)" }
+                        Warn "镜像链①：该源失败（$(([uri]$pgSrc).Host)）：$why"
+                        Remove-Item $pgTmp -Force -ErrorAction SilentlyContinue
+                    }
+                }
+                if (-not $pgOk) { Die "PortableGit 三源均不可达（npmmirror / ghproxy.net / gh-proxy.com）。若为 DNS 解析失败，请检查网络设置；或开一次代理后重跑（已完成步骤自动跳过）。" }
+                New-Item -ItemType Directory -Force -Path $gitDir | Out-Null
+                $sp = Start-Process -FilePath $pgTmp -ArgumentList "-o`"$gitDir`"", "-y" -NoNewWindow -Wait -PassThru
+                Remove-Item $pgTmp -Force -ErrorAction SilentlyContinue
+                if ($sp.ExitCode -ne 0 -or -not (Test-Path $gitExe)) { Die "PortableGit 解压失败（退出码 $($sp.ExitCode)）——重跑可续装" }
+            }
+        }
+        if (Test-Path $gitExe) {
+            $env:Path = "$gitDir\cmd;$env:Path"
+            # 持久化用户 PATH：上游 Install-Git 的下载路径会做这件事（快速通道默认已持久）；装后 agent 端也要 git
+            $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+            if ($userPath -notlike "*$gitDir\cmd*") {
+                [Environment]::SetEnvironmentVariable("Path", ($userPath.TrimEnd(';') + ";$gitDir\cmd"), "User")
+            }
+        }
+
+        # ②：选可用 git 加速器（ls-remote 轻探针；PS5.1 原生调用需降级 EAP 防 2>$null 炸 NativeCommandError）
+        $GhProxy = ""
+        foreach ($cand in @("https://ghproxy.net/", "https://gh-proxy.com/", "https://ghfast.top/")) {
+            if (-not (Get-Command git -ErrorAction SilentlyContinue)) { break }
+            $prevEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+            $null = git ls-remote ($cand + $UpstreamRepo) "refs/tags/$Tag" 2>&1
+            $lsOk = ($LASTEXITCODE -eq 0)
+            $ErrorActionPreference = $prevEAP
+            if ($lsOk) { $GhProxy = $cand; break }
+        }
+        if (-not $GhProxy) {
+            Die "GitHub 与全部加速器（ghproxy.net / gh-proxy.com / ghfast.top）均不可达。请开一次代理后重跑（已完成步骤自动跳过）——安装完成后日常使用不再需要。"
+        }
+        Ok "镜像链加速器：$GhProxy"
+
+        # ③：内核源码预置（浅克隆 pin tag；origin 保留加速器前缀——上游 fetch origin 失败即 throw）
+        $kernelDir = Join-Path $HermesHome "hermes-agent"
+        if (Test-Path "$kernelDir\.git") {
+            Log "镜像链③：内核源码已在（跳过预克隆）"
+        } else {
+            Log "镜像链③：经加速器预置内核源码（$Tag，浅克隆）……"
+            if (Test-Path $kernelDir) { Remove-Item -Recurse -Force $kernelDir -ErrorAction SilentlyContinue }
+            $prevEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+            $null = git clone --depth 1 --branch $Tag ($GhProxy + $UpstreamRepo) $kernelDir 2>&1
+            $cloneOk = ($LASTEXITCODE -eq 0)
+            $ErrorActionPreference = $prevEAP
+            if (-not $cloneOk -or -not (Test-Path "$kernelDir\.git")) { Die "内核预克隆失败——加速器波动，重跑可续装" }
+        }
+
+        # ④：uv 预置（非致命：astral.sh 走 Fastly CDN 境内通常可达，失败则上游自装）
+        $uvExe = Join-Path $HermesHome "bin\uv.exe"
+        if (-not (Test-Path $uvExe)) {
+            Log "镜像链④：预置 uv（加速器，官方 release）……"
+            $uvZip = Join-Path $env:TEMP "hm-uv.zip"
+            try {
+                Invoke-WebRequest -Uri ($GhProxy + "https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip") -OutFile $uvZip -UseBasicParsing
+                $uvTmp = Join-Path $env:TEMP "hm-uv-x"
+                Expand-Archive -Path $uvZip -DestinationPath $uvTmp -Force
+                $found = Get-ChildItem $uvTmp -Recurse -Filter uv.exe | Select-Object -First 1
+                if ($found) {
+                    New-Item -ItemType Directory -Force -Path (Join-Path $HermesHome "bin") | Out-Null
+                    Copy-Item $found.FullName $uvExe -Force
+                    Ok "uv 已就位（镜像链）"
+                } else { Warn "uv 预置未找到 uv.exe（非致命，上游将自行安装）" }
+                Remove-Item $uvTmp -Recurse -Force -ErrorAction SilentlyContinue
+            } catch {
+                $whyUv = $_.Exception.Message
+                if ($_.Exception.InnerException) { $whyUv += " <- $($_.Exception.InnerException.Message)" }
+                Warn "uv 预置失败（非致命）：$whyUv"
+            }
+            Remove-Item $uvZip -Force -ErrorAction SilentlyContinue
+        }
+
+        # ⑤：PBS 兜底（npmmirror 已在前面无条件探测首选；仅当其不可达时镜像链内退加速器——ghproxy 大文件不稳，最后手段）
+        if (-not $env:UV_PYTHON_INSTALL_MIRROR) {
+            $env:UV_PYTHON_INSTALL_MIRROR = $GhProxy + "https://github.com/astral-sh/python-build-standalone/releases/download"
+            $pbsSource = "ghproxy"
+        }
+
+        Ok "镜像链就绪：git/内核/Python/uv→国内通道，PyPI/npm/Playwright→国内源（Node 走 nodejs.org 官方）"
+        # 机器标记行：exe 捕获后随失败红字展示，用于远程定位走了哪条链路（交互模式不输出）
+        if ($Answers) { Write-Host "##HM-MIRROR## mode=on proxy=$GhProxy pbs=$pbsSource" }
+    }
+    else {
+        if ($Answers) { Write-Host "##HM-MIRROR## mode=off pbs=$pbsSource" }
+    }
+    # ---------- 内核仓库预清理（无条件 stash） ----------
+    # 七轮实证：既有 %HERMES_HOME%\hermes-agent 存在运行时 churn（uv.lock / website docs），上游更新路径的
+    # 自动 stash 偶发静默失败（失败不中止流程），git checkout tag 当场 abort 整个安装。本脚本先行 stash——
+    # 改动保留进 stash list 可随时恢复，与上游"保留本地修改"语义完全一致，只是提前且无条件。
+    $existingRepo = Join-Path $HermesHome "hermes-agent"
+    if ((Test-Path "$existingRepo\.git") -and (Get-Command git -ErrorAction SilentlyContinue)) {
+        $prevEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+        $dirty = git -C $existingRepo status --porcelain 2>&1
+        if (-not [string]::IsNullOrWhiteSpace(($dirty -join ""))) {
+            Log "内核仓库有本地改动，先行 stash（在 $existingRepo 用 git stash list 可恢复）……"
+            $null = git -C $existingRepo stash push --include-untracked -m ("hermemory-install-prestash-" + (Get-Date -Format "yyyyMMddHHmmss")) 2>&1
+            $still = git -C $existingRepo status --porcelain 2>&1
+            if ([string]::IsNullOrWhiteSpace(($still -join ""))) { Ok "内核仓库已清洁（改动在 stash，未丢失）" }
+            else { Warn "stash 后仍不清洁——交由上游自行处理（其自带 stash/reset 兜底逻辑）" }
+        }
+        $ErrorActionPreference = $prevEAP
+    }
+
     Log "运行上游官方 install.ps1（pin $Tag；uv + Python 3.11 + Node + PortableGit，首次约 5-10 分钟）..."
     # 上游安装器已 vendored：scripts\upstream-install.ps1 = 上游 pin tag v2026.8.31 的 scripts/install.ps1 逐字节副本（SHA256 核对过，纯 ASCII 无编码风险）。
     # 不再运行时从 raw.githubusercontent/main 拉取——该域境内最常被墙，且 main 会与内核 pin 漂移；MIT 许可允许随发行版分发。
@@ -107,8 +274,55 @@ if (Test-Done "upstream") {
     if (-not $env:UV_DEFAULT_INDEX)          { $env:UV_DEFAULT_INDEX = "https://pypi.tuna.tsinghua.edu.cn/simple" }
     if (-not $env:npm_config_registry)       { $env:npm_config_registry = "https://registry.npmmirror.com" }
     if (-not $env:PLAYWRIGHT_DOWNLOAD_HOST)  { $env:PLAYWRIGHT_DOWNLOAD_HOST = "https://cdn.npmmirror.com/binaries/playwright" }
-    Log "镜像加速：PyPI→清华 / npm→npmmirror / Playwright→npmmirror（GitHub 直连项：内核源码、PortableGit、Python，上游自带重试与兜底）"
+    Log "镜像加速：PyPI→清华 / npm→npmmirror / Playwright→npmmirror / Python 运行时→$pbsSource（GitHub 直连残留项上游自带重试与兜底）"
+
+    # ---------- 2.4 Python 3.11 预置（把 PBS 下载从 uv 关键路径上摘掉） ----------
+    # 沙盒六轮实证：探测全过（mode=off、pbs 探针 OK）不等于 20 分钟后那次 24MB 下载能过——波动网络里探测不承诺任何事。
+    # 对策：把真的 Python 3.11 直接放进 PATH——上游 Install-Python 第一步 `uv python find 3.11` 即命中"search path"，
+    # 完全跳过 uv 托管下载（错误 "No interpreter found ... search path" 反证了该搜索路径的存在）。
+    # 仅镜像场景执行（pbs=npmmirror/ghproxy）；海外直连场景（pbs=default）维持 uv 默认，避免跨洋 CDN 反而拖慢。
+    if ($pbsSource -in @("npmmirror", "ghproxy")) {
+        $pyDir = Join-Path $HermesHome "python-3.11"
+        $pyExe = Join-Path $pyDir "python\python.exe"
+        $pyAsset = "cpython-3.11.16+20260901-x86_64-pc-windows-msvc-install_only.tar.gz"
+        $pyBase1 = "https://registry.npmmirror.com/-/binary/python-build-standalone/20260901/$pyAsset"
+        $pyBase2 = "https://ghproxy.net/https://github.com/astral-sh/python-build-standalone/releases/download/20260901/$pyAsset"
+        if (Test-Path $pyExe) {
+            Log "Python 预置：已在（跳过下载）"
+        } else {
+            $pySources = if ($pbsSource -eq "npmmirror") { @($pyBase1, $pyBase2) } else { @($pyBase2, $pyBase1) }
+            $pyTmp = Join-Path $env:TEMP "hm-py311.tar.gz"
+            $pyOk = $false
+            foreach ($pySrc in $pySources) {
+                Log "Python 预置：下载 cpython-3.11.16（约 24MB，源：$(([uri]$pySrc).Host)）……"
+                try {
+                    Invoke-WebRequest -Uri $pySrc -OutFile $pyTmp -UseBasicParsing
+                    $pyOk = $true; break
+                } catch {
+                    $whyPy = $_.Exception.Message
+                    if ($_.Exception.InnerException) { $whyPy += " <- $($_.Exception.InnerException.Message)" }
+                    Warn "Python 预置：该源失败（$(([uri]$pySrc).Host)）：$whyPy"
+                    Remove-Item $pyTmp -Force -ErrorAction SilentlyContinue
+                }
+            }
+            if ($pyOk) {
+                New-Item -ItemType Directory -Force -Path $pyDir | Out-Null
+                tar -xzf $pyTmp -C $pyDir
+                Remove-Item $pyTmp -Force -ErrorAction SilentlyContinue
+                if (Test-Path $pyExe) { Ok "Python 3.11.16 已预置（上游将直接命中，跳过 uv 托管下载）" }
+                else { Warn "Python 预置解压异常——回落 uv 默认流程（镜像已配）" }
+            } else {
+                Warn "Python 预置双源均失败——回落 uv 默认流程（镜像已配）"
+            }
+        }
+        if (Test-Path $pyExe) { $env:Path = (Split-Path $pyExe) + ";$env:Path" }
+    }
+
     & ([scriptblock]::Create((Get-Content $up -Raw))) -Tag $Tag -SkipSetup
+    # 编码归位：上游安装脚本开头执行 [Console]::OutputEncoding=UTF8（scriptblock 同会话运行，会“传染”本脚本后续输出）。
+    # exe 端已按行自适应解码（UTF-8 严格优先、失败退 GBK），流内切换不再乱码；此处归位主要惠及 install.bat 交互用户的肉眼输出
+    #（重定向场景下该 setter 实测不回退、无害保留；交互控制台场景有效）。
+    try { [Console]::OutputEncoding = [System.Text.Encoding]::GetEncoding(936) } catch { Run-Quiet chcp.com 936 }
     if (-not (Get-Command hermes -ErrorAction SilentlyContinue)) {
         Warn "hermes 未进当前会话 PATH；刷新后重试或手动确认 %LOCALAPPDATA%\hermes\bin"
         $env:Path += ";$HermesHome\bin"
@@ -198,7 +412,14 @@ if ($Answers) {
         "1" { $memLimit = 2200;  $userLimit = 1375 }
         "2" { $memLimit = 5000;  $userLimit = 3000 }
         "3" { $memLimit = 10000; $userLimit = 5000 }
-        default { Die "AnswersFile.memoryTier 必须是 1/2/3（实际：$($Answers.memoryTier)）" }
+        "custom" {
+            # exe 端已校验同款规则；此处独立复核（契约防御：AnswersFile 可能被手工构造）
+            if ("$($Answers.customMem)" -notmatch '^[1-9]\d{2,6}$' -or "$($Answers.customUser)" -notmatch '^[1-9]\d{2,6}$') {
+                Die "memoryTier=custom 需要 customMem/customUser 为 100-9999999 的整数（实际：$($Answers.customMem) / $($Answers.customUser)）"
+            }
+            $memLimit = [int]"$($Answers.customMem)"; $userLimit = [int]"$($Answers.customUser)"
+        }
+        default { Die "AnswersFile.memoryTier 必须是 1/2/3/custom（实际：$($Answers.memoryTier)）" }
     }
 } else {
 Log "MEMORY/USER容量设置"
@@ -359,7 +580,12 @@ if (-not (Select-String -Path "$HermesHome\.env" -Pattern ("^" + $keyEnv + "=") 
 # 清除会劫持路由的 OPENAI_*（上游 auxiliary_client 明确告警的 env 污染场景）
 Run-Quiet hermes config unset OPENAI_API_KEY
 Run-Quiet hermes config unset OPENAI_BASE_URL
-$envClean = (Get-Content "$HermesHome\.env") | Where-Object { $_ -notmatch "^OPENAI_API_KEY=" -and $_ -notmatch "^OPENAI_BASE_URL=" }
+# 存在性保护：.env 可能因上游未落盘而缺失，EAP=Stop 下直接 Get-Content 会中断安装
+$envClean = @()
+if (Test-Path "$HermesHome\.env") {
+    $envClean = @(Get-Content "$HermesHome\.env" -ErrorAction SilentlyContinue) | Where-Object { $_ -notmatch "^OPENAI_API_KEY=" -and $_ -notmatch "^OPENAI_BASE_URL=" }
+}
+if (-not $envClean -or $envClean.Count -eq 0) { $envClean = @("$keyEnv=$apiKey") }
 # PS5.1 的 Set-Content -Encoding UTF8 会写 BOM——.env 首行键名会被 BOM 污染，必须无 BOM 落盘
 [IO.File]::WriteAllLines("$HermesHome\.env", [string[]]@($envClean), (New-Object Text.UTF8Encoding($false)))
 & hermes config set model.default $provModel | Out-Null
@@ -369,12 +595,12 @@ $envClean = (Get-Content "$HermesHome\.env") | Where-Object { $_ -notmatch "^OPE
 & hermes config set model.api_mode chat_completions | Out-Null
 # 落盘验证：provider/custom 与 key 引用缺一不可，缺则直改文件
 $cfgPath = Join-Path $HermesHome "config.yaml"
-if (-not (Select-String -Path $cfgPath -Pattern "provider: custom" -Quiet)) {
+if ((Test-Path $cfgPath) -and -not (Select-String -Path $cfgPath -Pattern "provider: custom" -Quiet)) {
     $cfgText = Get-Content $cfgPath -Raw
     $cfgText = $cfgText -replace "(?m)^(  provider:).*$", "  provider: custom"
     [IO.File]::WriteAllText($cfgPath, $cfgText, (New-Object Text.UTF8Encoding($false)))
 }
-if (-not (Select-String -Path $cfgPath -Pattern ([regex]::Escape("api_key: `${$keyEnv}")) -Quiet)) {
+if ((Test-Path $cfgPath) -and -not (Select-String -Path $cfgPath -Pattern ([regex]::Escape("api_key: `${$keyEnv}")) -Quiet)) {
     $cfgText = Get-Content $cfgPath -Raw
     if ($cfgText -match "(?m)^  base_url: .*$") {
         $cfgText = $cfgText -replace "(?m)^(  base_url: .*)$", ("`$1`n  api_key: `${" + $keyEnv + "}`n  api_mode: chat_completions")

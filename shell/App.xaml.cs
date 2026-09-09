@@ -17,6 +17,8 @@ namespace HerMemory
         protected override void OnStartup(StartupEventArgs e)
         {
             base.OnStartup(e);
+            // .NET 8 缺代码页数据：注册后 Encoding.GetEncoding(936) 才可用（安装器输出按 GBK 解码，见 StartInstall）
+            System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
             Theme.Apply();
             _single = new Mutex(true, "HerMemory-SingleInstance", out var first);
             if (!first)
@@ -34,6 +36,7 @@ namespace HerMemory
                 _tray.OpenWizard += () => Dispatcher.Invoke(ShowWizard);
                 _tray.OpenMain += () => Dispatcher.Invoke(ShowMain);
                 _tray.OpenUninstall += () => Dispatcher.Invoke(ShowUninstall);
+                _tray.OpenWeixin += () => Dispatcher.Invoke(ShowWeixinFromTray);
                 _wizard = new MainWindow { HomeMode = true };
                 _wizard.Closed += (_, _) => _wizard = null;
                 _tray.StatusChanged += (state, _) => Dispatcher.Invoke(() => _wizard?.UpdateHomeStatus(state));
@@ -61,6 +64,18 @@ namespace HerMemory
             }
             else _wizard.ShowFromTray();
             _wizard.ShowUninstall();
+        }
+
+        private void ShowWeixinFromTray()
+        {
+            if (_wizard == null)
+            {
+                _wizard = new MainWindow { HomeMode = true };
+                _wizard.Closed += (_, _) => _wizard = null;
+                _wizard.Show();
+            }
+            else _wizard.ShowFromTray();
+            _wizard.ShowWeixin();
         }
 
         private void ShowWizard()
