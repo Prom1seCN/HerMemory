@@ -196,6 +196,199 @@ namespace HerMemory
             _homeBusy = false;
         }
 
+        /// <summary>刷新：立即重取 Gateway/WebDAV/档位/配置区状态（与 10s 托盘轮询同一入口）。</summary>
+        private async void BtnRefresh_Click(object sender, RoutedEventArgs e)
+        {
+            if (_homeBusy) return;
+            _homeBusy = true;
+            HomeStatus.Text = "正在刷新…";
+            HomeStatus.Foreground = Brush("#78909C");
+            var st = await Task.Run(HermesCtl.State);
+            _lastState = st;
+            UpdateHomeStatus(st);
+            _homeBusy = false;
+        }
+
+        // ================= 一键导出（原生实现，包结构与 export.sh 一致） =================
+        private bool _exporting;
+
+        private void BtnExport_Click(object sender, RoutedEventArgs e) => ShowExportDialog();
+
+        private void ShowExportDialog()
+        {
+            if (_exporting) return;
+            _exporting = true;
+            var appRes = System.Windows.Application.Current.Resources;
+            var dlg = new Window
+            {
+                Title = "一键导出",
+                Width = 540,
+                SizeToContent = SizeToContent.Height,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                Owner = this,
+                ResizeMode = ResizeMode.NoResize,
+                Background = appRes["WindowBg"] as System.Windows.Media.Brush,
+            };
+            var status = new TextBlock
+            {
+                Text = "正在准备导出……",
+                FontSize = 13.5,
+                TextWrapping = TextWrapping.Wrap,
+                Foreground = appRes["Ink"] as System.Windows.Media.Brush,
+            };
+            var bar = new System.Windows.Controls.ProgressBar
+            {
+                Height = 8,
+                IsIndeterminate = true,
+                Margin = new Thickness(0, 16, 0, 0),
+            };
+            var pathText = new TextBlock
+            {
+                FontSize = 12,
+                TextWrapping = TextWrapping.Wrap,
+                Foreground = System.Windows.Media.Brushes.Gray,
+                Margin = new Thickness(0, 10, 0, 0),
+                Visibility = Visibility.Collapsed,
+            };
+            string? zipPath = null;
+            var btnOpen = new System.Windows.Controls.Button
+            {
+                Content = "打开所在文件夹",
+                Style = appRes["AccentButton"] as Style,
+                FontSize = 13.5,
+                Padding = new Thickness(18, 8, 18, 8),
+                Visibility = Visibility.Collapsed,
+            };
+            btnOpen.Click += (_, _) =>
+            {
+                if (zipPath != null)
+                    Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{zipPath}\"") { UseShellExecute = true });
+            };
+            var btnClose = new System.Windows.Controls.Button
+            {
+                Content = "关闭",
+                Style = appRes["GhostButton"] as Style,
+                FontSize = 13.5,
+                Margin = new Thickness(12, 0, 0, 0),
+                Padding = new Thickness(18, 8, 18, 8),
+            };
+            btnClose.Click += (_, _) => dlg.Close();
+            var row = new System.Windows.Controls.StackPanel
+            {
+                Orientation = System.Windows.Controls.Orientation.Horizontal,
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Right,
+                Margin = new Thickness(0, 18, 0, 0),
+            };
+            row.Children.Add(btnOpen);
+            row.Children.Add(btnClose);
+            var stack = new System.Windows.Controls.StackPanel { Margin = new Thickness(28, 24, 28, 20) };
+            stack.Children.Add(status);
+            stack.Children.Add(bar);
+            stack.Children.Add(pathText);
+            stack.Children.Add(row);
+            dlg.Content = stack;
+            dlg.Closed += (_, _) => _exporting = false;
+
+            void Report(string m) => Dispatcher.Invoke(() => status.Text = m);
+
+            _ = Task.Run(() =>
+            {
+                var (ok, msg, zip) = DoExport(Report);
+                Dispatcher.Invoke(() =>
+                {
+                    bar.IsIndeterminate = false;
+                    bar.Value = ok ? 100 : 0;
+                    status.Text = msg;
+                    if (ok && zip != null)
+                    {
+                        zipPath = zip;
+                        pathText.Text = zip;
+                        pathText.Visibility = Visibility.Visible;
+                        btnOpen.Visibility = Visibility.Visible;
+                    }
+                });
+            });
+            dlg.ShowDialog();
+        }
+
+        /// <summary>导出主流程：vault 拷贝 + hermes backup 热备 + README_REBORN → staging → zip 到桌面。
+        /// 包结构与 export.sh 一致：zip 内单一顶层目录 hermemory-export-&lt;时间戳&gt;/{vault/, hermes-home.zip, README_REBORN.md}。</summary>
+        private (bool ok, string msg, string? zip) DoExport(Action<string> report)
+        {
+            try
+            {
+                var vault = VaultDir;
+                if (!Directory.Exists(vault))
+                    return (false, $"导出中止：同步库不存在（{vault}）。", null);
+
+                var ts = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+                var name = $"hermemory-export-{ts}";
+                var stageParent = Path.Combine(Path.GetTempPath(), name + "-stage");
+                var stage = Path.Combine(stageParent, name);
+                Directory.CreateDirectory(stage);
+
+                report("① 复制文档库（vault）……");
+                int skipped = 0;
+                CopyDirTolerant(vault, Path.Combine(stage, "vault"), ref skipped);
+
+                report("② 生成 AI 端全量备份（hermes backup，数据库热备不锁库）……");
+                var backup = Path.Combine(stage, "hermes-home.zip");
+                var bout = HermesCtl.Run($"backup -o \"{backup}\"", 900);
+                if (!File.Exists(backup))
+                    return (false, "导出中止：hermes backup 未产出备份包。\n" + Tail(bout), null);
+
+                var reborn = Path.Combine(vault, "HerMemory", "docs", "README_REBORN.md");
+                if (!File.Exists(reborn) && _repoRoot != null)
+                {
+                    var alt = Path.Combine(_repoRoot, "docs", "README_REBORN.md");
+                    if (File.Exists(alt)) reborn = alt;
+                }
+                var hasReborn = File.Exists(reborn);
+                if (hasReborn) File.Copy(reborn, Path.Combine(stage, "README_REBORN.md"), true);
+
+                report("③ 打包 zip……");
+                var dest = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+                    name + ".zip");
+                if (File.Exists(dest)) File.Delete(dest);
+                System.IO.Compression.ZipFile.CreateFromDirectory(stageParent, dest,
+                    System.IO.Compression.CompressionLevel.Fastest, false);
+
+                try { Directory.Delete(stageParent, true); } catch { }
+
+                var mb = new FileInfo(dest).Length / 1024.0 / 1024.0;
+                var msg = $"导出完成（{mb:F1} MB），已保存到桌面。";
+                if (skipped > 0)
+                    msg += $"\n注意：{skipped} 个文件被其他程序占用，未包含在内——关闭占用程序后可重新导出。";
+                if (!hasReborn)
+                    msg += "\n注意：未找到 README_REBORN.md，恢复指引未随包（不影响数据完整性）。";
+                return (true, msg, dest);
+            }
+            catch (Exception ex)
+            {
+                return (false, "导出失败：" + ex.Message, null);
+            }
+        }
+
+        /// <summary>递归复制；单文件失败（占用/权限）跳过并计数，不让整次导出报废。</summary>
+        private static void CopyDirTolerant(string src, string dst, ref int skipped)
+        {
+            Directory.CreateDirectory(dst);
+            foreach (var f in Directory.GetFiles(src))
+            {
+                try { File.Copy(f, Path.Combine(dst, Path.GetFileName(f)), true); }
+                catch { skipped++; }
+            }
+            foreach (var d in Directory.GetDirectories(src))
+                CopyDirTolerant(d, Path.Combine(dst, Path.GetFileName(d)), ref skipped);
+        }
+
+        private static string Tail(string s, int n = 200)
+        {
+            s = (s ?? "").Trim();
+            return s.Length <= n ? s : s[^n..];
+        }
+
         // ================= 关闭行为：注册表勾选（托盘菜单可改）= 直接最小化；否则每次询问 =================
         protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
         {

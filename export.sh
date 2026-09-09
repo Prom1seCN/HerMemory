@@ -30,6 +30,7 @@ warn() { printf '\033[33m[注意]\033[0m %s\n' "$*"; }
 die()  { printf '\033[31m[错误]\033[0m %s\n' "$*" >&2; exit 1; }
 
 command -v hermes >/dev/null || die "hermes CLI 不可用（~/.local/bin 不在 PATH？）——但导出 vault 部分不依赖它，见文末手动路径"
+command -v zip >/dev/null || die "zip 命令缺失（第 4 步合包需要，最小化镜像常见）：Debian/Ubuntu 执行 apt install zip，Alpine 执行 apk add zip；Windows 侧请改用 HerMemory.exe 主界面的一键导出"
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ---------- 0. vault 位置 ----------
@@ -72,7 +73,7 @@ if command -v systemctl >/dev/null 2>&1 && systemctl is-system-running >/dev/nul
     IS_SERVER=1
 fi
 
-if [ "$IS_SERVER" = "1" ] && [ -z "$OUT_DIR" ]; then
+if [ "$IS_SERVER" = "1" ] && [ -z "$OUT_DIR" ] && command -v python3 >/dev/null 2>&1; then
     SERVER_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
     PORT=$(( RANDOM % 2000 + 8100 ))
     log "服务器模式：启动临时下载服务（Ctrl+C 即关闭）"
@@ -84,6 +85,9 @@ if [ "$IS_SERVER" = "1" ] && [ -z "$OUT_DIR" ]; then
     python3 -m http.server "$PORT" --bind 0.0.0.0 --directory "$(dirname "$FINAL_PATH")" &
     HTTP_PID=$!
     wait "$HTTP_PID"
+elif [ "$IS_SERVER" = "1" ] && [ -z "$OUT_DIR" ]; then
+    warn "python3 不可用，无法起临时下载服务——导出包已生成，请自行取走（scp / sftp）："
+    ok "$FINAL_PATH"
 else
     # PC / 本地：存本地文件夹
     DEST="${OUT_DIR:-$HOME/Desktop}"
