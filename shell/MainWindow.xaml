@@ -41,7 +41,7 @@
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
             <StackPanel Grid.Row="0" VerticalAlignment="Top" Margin="0,6,0,0">
-                <TextBlock FontSize="32" FontWeight="Bold" Foreground="{DynamicResource Ink}" Margin="0,0,0,14">HerMemory. <Run Foreground="{DynamicResource Accent}">Your memory.</Run><LineBreak/><Run FontSize="20" FontStyle="Italic" Foreground="{DynamicResource Accent}">Memory that grows with you.</Run></TextBlock>
+                <TextBlock FontSize="32" FontWeight="Bold" Foreground="{DynamicResource Ink}" Margin="0,0,0,14">HerMemory. <Run Foreground="{DynamicResource Accent}">Your memory.</Run></TextBlock>
             </StackPanel>
             <StackPanel Grid.Row="1" VerticalAlignment="Center">
                 <TextBlock x:Name="HomeStatus" Margin="0,22,0,0" FontSize="15" FontWeight="SemiBold" Foreground="{DynamicResource Ink}" Text="正在检查 Gateway 状态……"/>
@@ -148,7 +148,7 @@
                 <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/>
                 <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
-            <TextBlock Grid.Row="0" FontSize="32" FontWeight="Bold" Foreground="{DynamicResource Ink}" Margin="0,0,0,14">HerMemory. <Run Foreground="{DynamicResource Accent}">Your memory.</Run><LineBreak/><Run FontSize="20" FontStyle="Italic" Foreground="{DynamicResource Accent}">Memory that grows with you.</Run></TextBlock>
+            <TextBlock Grid.Row="0" FontSize="32" FontWeight="Bold" Foreground="{DynamicResource Ink}" Margin="0,0,0,14">HerMemory. <Run Foreground="{DynamicResource Accent}">Your memory.</Run></TextBlock>
             <StackPanel Grid.Row="2" Margin="0,10,0,0" VerticalAlignment="Top">
                 <TextBlock Style="{StaticResource Body}" Text="即将安装 Hermes 内核、记忆库与微信接入，约 5-10 分钟，需联网。"/>
                 <TextBlock Style="{StaticResource Body}" Text="安装完成后，AI 将接入微信；全部记忆为纯文本文件，可随时查看、修改与迁移。"/>

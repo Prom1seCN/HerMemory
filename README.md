@@ -4,7 +4,7 @@
 
 # HerMemory. **Your memory.**
 
-*Memory that grows with you.*
+# 你的AI。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Hermes](https://img.shields.io/badge/Hermes-v0.21.0%20(v2026.8.31)-22D3EE)
@@ -178,5 +178,5 @@ bash install.sh
 ---
 
 <div align="center">
-<sub><em>HerMemory. Your memory. · Memory that grows with you.</em></sub>
+<sub><em>HerMemory. Your memory. </em></sub>
 </div>
