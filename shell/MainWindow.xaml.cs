@@ -572,14 +572,19 @@ namespace HerMemory
         private async Task RunPrecheckAsync()
         {
             var notes = new List<string>();
-            // 仓库定位：从 exe 所在目录逐级向上找 install.ps1
+            // 仓库定位：从 exe 所在目录逐级向上找 install.ps1；找不到则解压内嵌发行包（裸 exe 分发，无需仓库文件随行）
             _repoRoot = FindRepoRoot();
+            if (_repoRoot == null)
+            {
+                var pd = PayloadDir;
+                if (ExtractPayload(pd)) _repoRoot = pd;
+            }
             notes.Add(_repoRoot != null
                 ? "√ 安装源已就位"
-                : "× 未找到 install.ps1——请把本程序放在发行版仓库目录内运行");
+                : "× 安装源缺失（请检查磁盘空间与权限）");
 
-            bool git = await Task.Run(() => RunCapture("git", "--version") != null);
-            notes.Add(git ? "√ git 已安装" : "× 缺 git：请先安装 Git for Windows（git-scm.com）");
+            // git 不再预检：上游官方安装器自带 Stage-Git，自动便携化安装 PortableGit（pin 版上游源码实证），
+            // 装后 sync_check.sh 所需 Git Bash 亦由其提供。
 
             bool net = await Task.Run(async () =>
             {
@@ -594,7 +599,7 @@ namespace HerMemory
             });
             notes.Add(net ? "√ 网络可达 GitHub" : "× 无法连上 GitHub——请开一次代理后再安装（安装完成后日常使用不再需要）");
 
-            bool allOk = _repoRoot != null && git && net;
+            bool allOk = _repoRoot != null && net;
             PrecheckStatus.Text = string.Join(Environment.NewLine, notes);
             PrecheckStatus.Foreground = new System.Windows.Media.SolidColorBrush(allOk
                 ? (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#2E7D32")
@@ -610,6 +615,35 @@ namespace HerMemory
                 if (File.Exists(Path.Combine(dir.FullName, "install.ps1"))) return dir.FullName;
             }
             return null;
+        }
+
+        /// <summary>内嵌发行包解压目录（按版本隔离，exe 升级后旧解压不残留使用）。</summary>
+        private static string PayloadDir => Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "HerMemory", "payload",
+            (System.Reflection.Assembly.GetExecutingAssembly().GetName().Version ?? new Version(0, 1)).ToString(3));
+
+        /// <summary>把构建期嵌入的仓库 payload（payload/… 资源，对应 memory/docs/skins/scripts + 根部脚本）
+        /// 逐字节解压到 dir——BOM/编码与仓库文件一致（install.ps1 的 UTF-8 BOM 得以保留）。已就位则跳过。</summary>
+        private static bool ExtractPayload(string dir)
+        {
+            try
+            {
+                if (File.Exists(Path.Combine(dir, "install.ps1"))) return true;
+                var asm = System.Reflection.Assembly.GetExecutingAssembly();
+                foreach (var name in asm.GetManifestResourceNames())
+                {
+                    if (!name.StartsWith("payload/", StringComparison.Ordinal)) continue;
+                    var dst = Path.Combine(dir, name["payload/".Length..].Replace('/', Path.DirectorySeparatorChar));
+                    Directory.CreateDirectory(Path.GetDirectoryName(dst)!);
+                    using var rs = asm.GetManifestResourceStream(name);
+                    if (rs == null) continue;
+                    using var fs = File.Create(dst);
+                    rs.CopyTo(fs);
+                }
+                return File.Exists(Path.Combine(dir, "install.ps1"));
+            }
+            catch { return false; }
         }
 
         private void ShowPage(string name)

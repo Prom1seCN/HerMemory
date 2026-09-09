@@ -1,7 +1,6 @@
 # HerMemory 部署指南
 
-HerMemory.Your memory.
-Memory that grows with you.
+HerMemory. Your memory.
 
 安装花 5-10 分钟，中途只需要你做三个决定：选记忆档位、贴 API 地址和 Key、扫微信码。其余安装器自动完成。
 
@@ -10,7 +9,7 @@ Memory that grows with you.
 **Windows PC**
 
 - Windows 10/11
-- [Git for Windows](https://git-scm.com/download/win)，一路默认安装即可（自带 Git Bash）
+- 只需要 `HerMemory.exe` 一个文件：无需其他安装文件，也无需预装 git、Python 等任何工具（安装器自动携带便携版运行环境）
 - 安装时能连上 GitHub（内核从那里下载；日常使用不需要，装完就可以断。连不上就先开一次代理）
 - 管理员权限或开发者模式（建软链需要；设置 → 更新与安全 → 开发者选项）
 
@@ -24,9 +23,7 @@ API key 不用提前准备，安装流程会引导你填。HerMemory 不指定�
 
 ## 安装
 
-**Windows PC（图形）**：双击 `HerMemory.exe`，跟着向导走：环境预检、记忆档位、配置 AI、微信扫码（二维码页面自动打开）、完成。装好后它常驻系统托盘，日常启停都在那里。
-
-**Windows PC（命令行）**：克隆仓库后双击 `install.bat`。
+**Windows PC**：下载 `HerMemory.exe` 后双击，跟着向导走：环境预检 → 记忆档位 → 配置 AI → 微信扫码（二维码页面自动打开）→ 完成。全程无命令行窗口，不依赖任何其他文件。装好后常驻系统托盘，启动、停止、刷新、一键导出都在主界面。
 
 **服务器 / NAS（Linux）**：
 

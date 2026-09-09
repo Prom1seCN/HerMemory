@@ -22,4 +22,21 @@
     </EmbeddedResource>
   </ItemGroup>
 
+  <!-- 发行版 payload 内嵌（裸 exe 分发）：install.ps1 + memory/docs/skins/scripts + 根部脚本/文档。
+       exe 找不到仓库目录时自动解压到 %LOCALAPPDATA%\HerMemory\payload\<版本>\ 作为安装源。
+       四个目录均扁平（无子目录）；逐字节嵌入，BOM/编码与仓库文件完全一致。
+       icons/、banner-preview.html、女孩设计原图为仓库/网页专用，安装流程不引用，不嵌。 -->
+  <ItemGroup>
+    <PayloadRoot Include="..\install.ps1;..\install.bat;..\install.sh;..\gateway-run.bat;..\sync_check.sh;..\export.sh;..\memory-size.sh;..\README.md;..\LICENSE" />
+    <EmbeddedResource Include="@(PayloadRoot)" LogicalName="payload/%(Filename)%(Extension)" />
+    <PayloadMemory Include="..\memory\**\*" />
+    <EmbeddedResource Include="@(PayloadMemory)" LogicalName="payload/memory/%(Filename)%(Extension)" />
+    <PayloadDocs Include="..\docs\**\*" />
+    <EmbeddedResource Include="@(PayloadDocs)" LogicalName="payload/docs/%(Filename)%(Extension)" />
+    <PayloadSkins Include="..\skins\**\*" />
+    <EmbeddedResource Include="@(PayloadSkins)" LogicalName="payload/skins/%(Filename)%(Extension)" />
+    <PayloadScripts Include="..\scripts\**\*" />
+    <EmbeddedResource Include="@(PayloadScripts)" LogicalName="payload/scripts/%(Filename)%(Extension)" />
+  </ItemGroup>
+
 </Project>

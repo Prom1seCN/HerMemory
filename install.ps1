@@ -1,12 +1,12 @@
 ﻿# ============================================================
 # HerMemory installer (Windows native) — v0.1.0
 # 基于 Hermes Agent v0.21.0 (tag v2026.8.31)，MIT。
-# 上游官方 PowerShell 安装器负责内核（clone pin tag + uv + venv + CLI），
+# 上游官方 PowerShell 安装器负责内核（自取 pin tag + uv + Python + Node + PortableGit + venv + CLI），
 # 本脚本只做发行版的铺设：vault + 四文件 + 软链 + 皮肤 + 配置键 + docs。
 # 对应 Linux 侧的 install.sh；上游怎么装，Windows 就怎么装。
 #
 # 运行：PowerShell 中  powershell -ExecutionPolicy Bypass -File install.ps1
-# 前置：git（无则装 Git for Windows）。软链需要管理员权限或开发者模式。
+# 前置：无需预装任何工具（git/Python/Node 由上游官方安装器自动便携化安装）。软链需要管理员权限或开发者模式。
 # ============================================================
 param(
     [string]$Tag = "v2026.8.31",
@@ -76,7 +76,7 @@ Log "安装状态文件：$StateFile（已完成的步骤在重新安装时自�
 
 # ---------- 0. 环境检查 ----------
 if ($env:OS -ne "Windows_NT") { Die "本脚本仅用于 Windows 原生路径；Linux/macOS 用 install.sh" }
-if (-not (Get-Command git -ErrorAction SilentlyContinue)) { Die "缺 git：先安装 Git for Windows（https://git-scm.com）" }
+# git 不预检：上游官方安装器自带 Stage-Git 自动装 PortableGit（pin 版上游源码实证），装后 Git Bash 即就位
 Log "可在 docs\INSTALL.md 查看安装说明"
 Progress "precheck"
 
