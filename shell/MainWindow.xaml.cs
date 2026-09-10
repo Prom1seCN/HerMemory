@@ -758,7 +758,7 @@ namespace HerMemory
         private async Task RunPrecheckAsync()
         {
             var notes = new List<string>();
-            // 构建戳显示已移除（用户定）；payload 新鲜度仍由 .hm-payload-stamp 机制保证
+            // payload 新鲜度由 .hm-payload-stamp 机制保证
             // 仓库定位：从 exe 所在目录逐级向上找 install.ps1；找不到则解压内嵌发行包（裸 exe 分发，无需仓库文件随行）
             _repoRoot = FindRepoRoot();
             if (_repoRoot == null)
@@ -1046,7 +1046,7 @@ namespace HerMemory
         {
             ShowPage("PageInstall");
             InstallBar.Value = 2;
-            InstallTitle.Text = "正在安装，首次约 5-10 分钟。";
+            InstallTitle.Text = "正在安装 HerMemory...";
             InstallDetail.Text = "";
             InstallFail.Text = "";
             InstallFail.Visibility = Visibility.Collapsed;
@@ -1406,7 +1406,7 @@ namespace HerMemory
             });
             if (!taskExists)
             {
-                SetQr("正在安装 gateway 服务，约一两分钟。");
+                SetQr("正在安装 gateway 服务...");
                 await Task.Run(() => HermesCtl.Run("gateway install", 600));
             }
             // 凭据已落 .env——重启 gateway 加载 weixin 通道（install.ps1 第 10 段起的服务不含微信凭据）
