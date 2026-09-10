@@ -95,10 +95,13 @@ if ((Test-Path $OfflineZip) -and -not (Get-OfflineRoot $OfflineDir)) {
     # 主路径：标准 zip 解压器（.NET，带 central directory 校验，任何 zip 都能解）。
     # 不用 tar：2026-09-10 实测 GNU tar 对 zip 直接 "This does not look like a tar archive" 且退出码为 0，
     # 静默解出空目录——正是"离线包在场却 manifest 缺失"的根因。
+    # 重载选择：只用两参基础重载 ExtractToDirectory($zip, $dir)——.NET Framework 4.5 起即有，PS5.1/PS7 通吃。
+    # 三参重载的第三参在 .NET Framework 是 entryNameEncoding(Encoding)、在 .NET Core 才是 OverwriteFiles 枚举，
+    # 跨版本语义不一致（2026-09-10 VM 实录：传 $true 报 InvalidCast）。目标目录调用前已清空，无需覆盖语义。
     $ZIP_OK = $false
     try {
         Add-Type -AssemblyName System.IO.Compression.FileSystem
-        [System.IO.Compression.ZipFile]::ExtractToDirectory($OfflineZip, $OfflineDir, $true)
+        [System.IO.Compression.ZipFile]::ExtractToDirectory($OfflineZip, $OfflineDir)
         $ZIP_OK = $true
     } catch {
         $zipErr = $_.Exception.Message
@@ -414,11 +417,14 @@ if (Test-Done "upstream") {
         } else {
             Log "Node 预置：解压内嵌 Node.js 22……"
             New-Item -ItemType Directory -Force -Path $ndDir | Out-Null
+            # 文件名含版本号（node-v22.23.0-win-x64.zip）——通配定位，勿硬编码 "node.zip"（2026-09-10 实录：硬编码致 FileNotFound）
+            $ndZip = Get-ChildItem $OfflineDir -File -Filter "node-v*.zip" | Select-Object -First 1
+            if (-not $ndZip) { Die "离线包内未找到 node-v*.zip——内嵌资源包不完整，请重新获取 HerMemory 离线版" }
             # 标准 zip 解压器（tar 不解 zip，见段 0 注释）
             Add-Type -AssemblyName System.IO.Compression.FileSystem
             $ndTmp = Join-Path $env:TEMP "hm-node-unzip"
             Remove-Item $ndTmp -Recurse -Force -ErrorAction SilentlyContinue
-            [System.IO.Compression.ZipFile]::ExtractToDirectory((Join-Path $OfflineDir "node.zip"), $ndTmp, $true)
+            [System.IO.Compression.ZipFile]::ExtractToDirectory($ndZip.FullName, $ndTmp)
             $ndInner = Get-ChildItem $ndTmp -Directory -Filter "node-v*" | Select-Object -First 1
             if ($ndInner) {
                 Copy-Item -Path (Join-Path $ndInner.FullName "*") -Destination $ndDir -Recurse -Force
@@ -507,7 +513,7 @@ if (Test-Done "upstream") {
             New-Item -ItemType Directory -Force -Path $tmpOff | Out-Null
             # 标准 zip 解压器（tar 不解 zip，见段 0 注释）
             Add-Type -AssemblyName System.IO.Compression.FileSystem
-            [System.IO.Compression.ZipFile]::ExtractToDirectory((Join-Path $OfflineDir "hermes-agent.zip"), $tmpOff, $true)
+            [System.IO.Compression.ZipFile]::ExtractToDirectory((Join-Path $OfflineDir "hermes-agent.zip"), $tmpOff)
             # zip 内可能带 hermes-agent/ 顶层目录——找到含 .git 的那层作为仓库根
             $repoSrc = $tmpOff
             if (-not (Test-Path (Join-Path $tmpOff ".git"))) {
