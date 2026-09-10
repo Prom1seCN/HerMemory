@@ -84,16 +84,58 @@ namespace HerMemory
                 _ => "Gateway 已停止，AI 离线",
             };
             HomeStatus.Foreground = Brush(state == "running" ? "#2E7D32" : "#90A4AE");
-            UpdateTierTable();
-            UpdateCfgRegion(state);
-            WebDavStatus.Text = HermesCtl.WebDavRunning()
-                ? "同步服务（WebDAV）：运行中"
-                : "同步服务（WebDAV）：未运行";
+            // 只刷新"当前正看着的那一页"。本方法会被托盘每 10 秒的轮询触发，而无差别刷新代价很大：
+            // UpdateTierTable 要起两次 hermes CLI，WebDAV 探测占 UI 线程——更要命的是 hermes 调用
+            // 全局串行，用户点的按钮会排在轮询发起的 config get 后面等锁，表现为"按下去几秒才反应"。
+            if (PageMemory.Visibility == Visibility.Visible) UpdateTierTable();
+            if (PageApi.Visibility == Visibility.Visible) UpdateCfgRegion(state);
+            if (PageWebdav.Visibility == Visibility.Visible) RefreshWebdavStatus();
+        }
+
+        /// <summary>WebDAV 状态异步填充：WebDavRunning 是回环端口探测（超时 400ms），
+        /// 同步调用会让 UI 线程每 10 秒卡一下；改为先占位、后台探测后回填。</summary>
+        private void RefreshWebdavStatus()
+        {
+            WebDavStatus.Text = "同步服务（WebDAV）：检测中……";
+            _ = Task.Run(() =>
+            {
+                var up = HermesCtl.WebDavRunning();
+                try
+                {
+                    Dispatcher.Invoke(() => WebDavStatus.Text = up
+                        ? "同步服务（WebDAV）：运行中"
+                        : "同步服务（WebDAV）：未运行");
+                }
+                catch { }   // 退出期 Dispatcher 会拒绝新工作
+            });
+        }
+
+        /// <summary>启停/刷新期间的可见忙态：把按钮置灰 = 明确的"收到了、正在处理"。
+        /// 旧实现只靠 _homeBusy 静默 return，用户看到的正是"按下去没反应"。</summary>
+        private void SetHomeBusy(bool busy)
+        {
+            try
+            {
+                HomeStart.IsEnabled = !busy;
+                HomeStop.IsEnabled = !busy;
+                BtnRefresh.IsEnabled = !busy;
+            }
+            catch { }
         }
 
         private string _cfgState = "";
         private bool _cfgSaving;
         private string _lastState = "unknown";
+
+        // —— API 设置页 · 模型状态机 ——
+        // 修于 2026-09-10。原实现在"只改 url/key、未点获取列表"时 SelectedItem 为 null，
+        // model.default 一个字都不写、提示里也没有模型后缀 → 换服务商后静默留下旧型号
+        // （网关拿新地址请求旧型号必失败）；而安装期同一步是校验的（install.ps1：型号不在
+        // 返回列表中即 Die），两条路径口径不一致。
+        private bool _cfgLoading;                      // 回填中：抑制 CfgUrl.TextChanged 的失效判定
+        private string _cfgDefaultModel = "";          // config 里的 model.default（进页回读）
+        private List<string> _cfgModels = new();       // 已抓取的模型列表
+        private string? _cfgListUrl;                   // 该列表对应的 API 地址（null = 无有效列表）
 
         /// <summary>模型接口配置区：字段恒可用（光标恒在）；保存时校验 Gateway 已停止。进页回显当前默认模型。</summary>
         private void UpdateCfgRegion(string state, bool load = false)
@@ -111,14 +153,67 @@ namespace HerMemory
                     try { def = HermesCtl.Run("config get model.default", 20).Trim().Trim('"'); } catch { }
                     Dispatcher.Invoke(() =>
                     {
-                        CfgUrl.Text = url;
-                        CfgKey.Text = key;
-                        if (def.Length > 0 && def.Length < 80 && !def.Contains("not set", StringComparison.OrdinalIgnoreCase))
-                            CfgHint.Text = baseHint + $"当前默认模型：{def}，可获取列表后切换。";
+                        _cfgLoading = true;
+                        try
+                        {
+                            CfgUrl.Text = url;
+                            CfgKey.Text = key;
+                        }
+                        finally { _cfgLoading = false; }   // 回填期间不得触发"地址变更 → 列表失效"
+                        var known = def.Length > 0 && def.Length < 80
+                                    && !def.Contains("not set", StringComparison.OrdinalIgnoreCase);
+                        _cfgDefaultModel = known ? def : "";
+                        // 控件里先只放"当前默认模型"，让现值可见可保留；完整列表要点了「获取模型列表」才有
+                        CfgSetModels(_cfgDefaultModel.Length > 0 ? new[] { _cfgDefaultModel } : Array.Empty<string>(), null);
+                        CfgHint.Text = baseHint + (_cfgDefaultModel.Length > 0
+                            ? $"当前默认模型：{_cfgDefaultModel}。"
+                            : "当前未设置默认模型。");
                     });
                 });
             }
             _cfgState = state;
+        }
+
+        /// <summary>装填模型下拉：优先保留原选择（须仍在新列表内），其次选中当前默认模型，都没有则不选。
+        /// **绝不默认选中第一项**——旧实现 `SelectedIndex = 0` 会在"只想改 Key"时把默认模型静默换掉。</summary>
+        private void CfgSetModels(IEnumerable<string> ids, string? forUrl)
+        {
+            _cfgModels = ids.Where(s => s.Length > 0).Distinct().ToList();
+            _cfgListUrl = forUrl;
+            var prev = CleanAscii(CfgModelCombo.SelectedItem as string ?? "");
+            CfgModelCombo.ItemsSource = _cfgModels;
+            string? want = null;
+            if (prev.Length > 0 && _cfgModels.Contains(prev)) want = prev;
+            else if (_cfgDefaultModel.Length > 0 && _cfgModels.Contains(_cfgDefaultModel)) want = _cfgDefaultModel;
+            CfgModelCombo.SelectedItem = want;   // null = 不选中，交由用户显式选择
+        }
+
+        /// <summary>从 /models 响应体解析模型 id（与向导同一解析口径，避免两处各写一遍）。</summary>
+        private static List<string> ParseModelIds(string body)
+        {
+            var ids = new List<string>();
+            try
+            {
+                using var doc = JsonDocument.Parse(body);
+                if (doc.RootElement.TryGetProperty("data", out var arr) && arr.ValueKind == JsonValueKind.Array)
+                    foreach (var m in arr.EnumerateArray())
+                        if (m.TryGetProperty("id", out var id)) ids.Add(id.GetString() ?? "");
+            }
+            catch { }
+            return ids.Where(s => s.Length > 0).Distinct().ToList();
+        }
+
+        /// <summary>地址被改动 → 已抓取的列表立即失效：那份列表属于另一个服务商，型号不可跨用。</summary>
+        private void CfgUrl_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (_cfgLoading) return;
+            var url = CleanAscii(CfgUrl.Text).TrimEnd('/');
+            if (_cfgListUrl != null && !string.Equals(_cfgListUrl, url, StringComparison.Ordinal))
+            {
+                CfgSetModels(_cfgDefaultModel.Length > 0 ? new[] { _cfgDefaultModel } : Array.Empty<string>(), null);
+                CfgHint.Foreground = Brush("#78909C");
+                CfgHint.Text = "API 地址已变更，请点「获取模型列表」核对并选择模型。";
+            }
         }
 
         private async void CfgSave_Click(object sender, RoutedEventArgs e)
@@ -134,16 +229,75 @@ namespace HerMemory
                 // 运行中同样允许保存：hermes config set 写的是配置文件，不影响正在跑的进程；
                 // 文案已承诺"可保存"（UpdateCfgRegion），此处不得拒绝——否则出现"能编辑但保存不了"的死结。
                 var state = await Task.Run(HermesCtl.State);
+
+                // —— 模型决策 ——
+                // 只有"列表确实对应当前地址、且从中选定了型号"才算明确；否则必须核对当前默认模型
+                // 在新地址上是否仍存在（与安装期同一口径），绝不静默保留一个可能已失效的型号。
+                var picked = CleanAscii(CfgModelCombo.SelectedItem as string ?? "");
+                var listValid = _cfgListUrl != null && string.Equals(_cfgListUrl, url, StringComparison.Ordinal);
+                string modelToWrite = "";
+                string note;
+                if (listValid && picked.Length > 0)
+                {
+                    modelToWrite = picked;
+                    note = $"默认模型：{picked}";
+                }
+                else if (listValid)
+                {
+                    // 列表对应当前地址却没选型号：不猜，让用户选
+                    CfgHint.Foreground = Brush("#C62828");
+                    CfgHint.Text = "请先在列表中选择要使用的模型。";
+                    return;
+                }
+                else
+                {
+                    CfgHint.Text = "正在核对模型……";
+                    var cur = "";
+                    try { cur = CleanAscii(HermesCtl.Run("config get model.default", 20).Trim().Trim('"')); } catch { }
+                    var (mcode, mbody) = await Task.Run(() => CurlModels(url, key));
+                    var ids = ParseModelIds(mbody);
+                    if (mcode == "200" && ids.Count > 0)
+                    {
+                        if (cur.Length > 0 && ids.Contains(cur))
+                        {
+                            note = $"默认模型未变更（仍为 {cur}），该地址可用";
+                        }
+                        else
+                        {
+                            // 拦下：绝不在未确认的情况下写入一个该地址不提供的型号。
+                            // 此时尚未写入任何配置，保持原子性——选好型号再点一次保存即可。
+                            CfgSetModels(ids, url);
+                            CfgHint.Foreground = Brush("#C62828");
+                            CfgHint.Text = cur.Length > 0
+                                ? $"该地址不含当前默认模型 {cur}。请在列表中选择要使用的模型，再点「保存」。"
+                                : "该地址可用模型如下，请选择要使用的模型，再点「保存」。";
+                            return;
+                        }
+                    }
+                    else if (mcode == "200")
+                    {
+                        note = cur.Length > 0
+                            ? $"该地址未返回可用模型，默认模型未变更（仍为 {cur}）"
+                            : "该地址未返回可用模型";
+                    }
+                    else
+                    {
+                        // 网络/鉴权不通时不拦截改配置（否则抖动一次就再也改不了），但如实声明未核对
+                        note = cur.Length > 0
+                            ? $"未能核对模型（HTTP {mcode}），默认模型未变更（仍为 {cur}）"
+                            : $"未能核对模型（HTTP {mcode}）";
+                    }
+                }
+
                 var ok2 = await Task.Run(() => HermesCtl.SetModelCfg(url, key));
-                var model = CleanAscii(CfgModelCombo.SelectedItem as string ?? "");
-                if (ok2 && model.Length > 0)
-                    await Task.Run(() => HermesCtl.Run($"config set model.default \"{model}\"", 30));
+                if (ok2 && modelToWrite.Length > 0)
+                    await Task.Run(() => HermesCtl.Run($"config set model.default \"{modelToWrite}\"", 30));
                 CfgHint.Foreground = Brush(ok2 ? "#2E7D32" : "#C62828");
                 if (!ok2) { CfgHint.Text = "保存失败，请重试。"; return; }
-                var suffix = model.Length > 0 ? $"（默认模型：{model}）" : "";
+                if (modelToWrite.Length > 0) _cfgDefaultModel = modelToWrite;
                 CfgHint.Text = state == "running"
-                    ? $"已保存{suffix}；Gateway 正在运行，需停止后重新启动才生效。"
-                    : $"已保存{suffix}，启动 Gateway 后生效。";
+                    ? $"已保存（{note}）；Gateway 正在运行，需停止后重新启动才生效。"
+                    : $"已保存（{note}），启动 Gateway 后生效。";
                 _cfgState = state;
             }
             catch (Exception ex)
@@ -188,25 +342,19 @@ namespace HerMemory
             CfgHint.Text = "正在获取模型列表……";
             CfgHint.Foreground = Brush("#78909C");
             var (code, body) = await Task.Run(() => CurlModels(url, key));
-            var ids = new List<string>();
-            try
-            {
-                using var doc = JsonDocument.Parse(body);
-                if (doc.RootElement.TryGetProperty("data", out var arr) && arr.ValueKind == JsonValueKind.Array)
-                    foreach (var m in arr.EnumerateArray())
-                        if (m.TryGetProperty("id", out var id)) ids.Add(id.GetString() ?? "");
-            }
-            catch { }
-            ids = ids.Where(s => s.Length > 0).Distinct().ToList();
+            var ids = ParseModelIds(body);
             if (code == "200" && ids.Count > 0)
             {
-                CfgModelCombo.ItemsSource = ids;
-                CfgModelCombo.SelectedIndex = 0;
-                CfgHint.Text = $"已获取 {ids.Count} 个可用模型，选中后保存即切换默认模型。";
+                CfgSetModels(ids, url);
+                var sel = CleanAscii(CfgModelCombo.SelectedItem as string ?? "");
                 CfgHint.Foreground = Brush("#2E7D32");
+                CfgHint.Text = sel.Length > 0
+                    ? $"已获取 {ids.Count} 个可用模型，当前选中 {sel}；保存即写入默认模型。"
+                    : $"已获取 {ids.Count} 个可用模型，列表不含当前默认模型，请选择要使用的模型。";
             }
             else
             {
+                _cfgListUrl = null;   // 列表不可用 → 保存时走现场核对
                 CfgHint.Text = code == "401" || code == "403" ? $"[{code}] 认证未通过，请检查 API Key。"
                     : code == "000" || code.Length == 0 ? "[连接超时] 无法连接该地址。"
                     : $"[{code}] 获取失败，请核对地址与 Key。";
@@ -263,41 +411,44 @@ namespace HerMemory
         {
             if (_homeBusy) return;
             _homeBusy = true;
+            var cmd = sender == HomeStart ? "start" : "stop";
+            SetHomeBusy(true);                                    // 立即给可见反馈（按钮置灰）
+            HomeStatus.Text = cmd == "stop" ? "正在停止……" : "正在启动……";
+            HomeStatus.Foreground = Brush("#78909C");
             try
             {
-                var cmd = sender == HomeStart ? "start" : "stop";
-                HomeStatus.Text = cmd == "stop" ? "正在停止……" : "正在启动……";
-                HomeStatus.Foreground = Brush("#78909C");
                 var pre = _lastState;
                 await Task.Run(() => HermesCtl.Run($"gateway {cmd}", 120));
                 var st = await Task.Run(HermesCtl.State);
-                for (int i = 0; i < 3 && st == pre; i++)   // 状态未翻转则稍候重读（进程收尾有延迟）
+                // 短间隔轮询、状态一翻转就停：旧实现固定 3×1500ms，最快也要等满 4.5 秒才回填真实状态
+                for (int i = 0; i < 6 && st == pre; i++)
                 {
-                    await Task.Delay(1500);
+                    await Task.Delay(600);
                     st = await Task.Run(HermesCtl.State);
                 }
                 _lastState = st;
                 UpdateHomeStatus(st);
             }
             catch (Exception ex) { ReportUiError("启停网关", ex); }
-            finally { _homeBusy = false; }   // 必须 finally：异常时不清标记 = 这两个按钮永久失效
+            finally { _homeBusy = false; SetHomeBusy(false); }   // 必须 finally：异常时不清标记 = 这两个按钮永久失效
         }
 
-        /// <summary>刷新：立即重取 Gateway/WebDAV/档位/配置区状态（与 10s 托盘轮询同一入口）。</summary>
+        /// <summary>刷新：立即重取 Gateway 状态（与 10s 托盘轮询同一入口）。</summary>
         private async void BtnRefresh_Click(object sender, RoutedEventArgs e)
         {
             if (_homeBusy) return;
             _homeBusy = true;
+            SetHomeBusy(true);
+            HomeStatus.Text = "正在刷新……";
+            HomeStatus.Foreground = Brush("#78909C");
             try
             {
-                HomeStatus.Text = "正在刷新……";
-                HomeStatus.Foreground = Brush("#78909C");
                 var st = await Task.Run(HermesCtl.State);
                 _lastState = st;
                 UpdateHomeStatus(st);
             }
             catch (Exception ex) { ReportUiError("刷新状态", ex); }
-            finally { _homeBusy = false; }
+            finally { _homeBusy = false; SetHomeBusy(false); }
         }
 
         /// <summary>async void 事件处理器里的异常无人接管 → 会直接掀掉进程。
@@ -585,9 +736,7 @@ namespace HerMemory
         private void LinkWebdav_Click(object sender, RoutedEventArgs e)
         {
             ShowPage("PageWebdav");
-            WebDavStatus.Text = HermesCtl.WebDavRunning()
-                ? "同步服务（WebDAV）：运行中"
-                : "同步服务（WebDAV）：未运行";
+            RefreshWebdavStatus();   // 异步：同步探测会卡 UI 线程最长 400ms
         }
 
         // ================= 微信绑定（绑定 / 换绑夺回 / 解绑）=================

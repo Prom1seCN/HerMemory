@@ -20,8 +20,15 @@
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter Property="Background" Value="{DynamicResource AccentHover}"/>
                             </Trigger>
+                            <!-- 按压反馈：缺了它，点下去到状态回填之间（最长数秒）毫无视觉变化，
+                                 用户只会认为"没点上"。用透明度而非换色，深浅主题都成立。 -->
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter Property="Background" Value="{DynamicResource AccentHover}"/>
+                                <Setter Property="Opacity" Value="0.75"/>
+                            </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Background" Value="#B0BEC5"/>
+                                <Setter Property="Opacity" Value="0.7"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -45,6 +52,13 @@
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter Property="Background" Value="#E0F7FA"/>
+                            </Trigger>
+                            <!-- 按压 / 禁用态：与 AccentButton 同一口径（见上） -->
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter Property="Opacity" Value="0.6"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.45"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>

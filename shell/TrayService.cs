@@ -175,7 +175,15 @@ namespace HerMemory
 
         private void RunGw(string cmd, bool silent = true)
         {
-            Ui(() => { try { _poll.Stop(); } catch { } }); // 命令执行期间暂停轮询，避免状态抖动
+            var doing = cmd == "stop" ? "停止中……" : "启动中……";
+            Ui(() =>
+            {
+                try { _poll.Stop(); } catch { } // 命令执行期间暂停轮询，避免状态抖动
+                // 立即反馈：菜单首项与悬停提示都先改成"进行中"。否则从点击到下一次轮询刷新之间
+                // （最长 10 秒）界面上毫无变化，用户只会以为没点上。
+                try { if (_miStatus != null) _miStatus.Text = "状态：" + doing; } catch { }
+                try { _icon.Text = "HerMemory — " + doing; } catch { }
+            });
             Task.Run(() =>
             {
                 try
