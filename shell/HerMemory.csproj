@@ -32,7 +32,7 @@
        四个目录均扁平（无子目录）；逐字节嵌入，BOM/编码与仓库文件完全一致。
        icons/、banner-preview.html、女孩设计原图为仓库/网页专用，安装流程不引用，不嵌。 -->
   <ItemGroup>
-    <PayloadRoot Include="..\install.ps1;..\install.bat;..\install.sh;..\gateway-run.bat;..\sync_check.sh;..\export.sh;..\memory-size.sh;..\README.md;..\LICENSE" />
+    <PayloadRoot Include="..\install.ps1;..\install.bat;..\install.sh;..\gateway-run.bat;..\export.sh;..\memory-size.sh;..\README.md;..\LICENSE" />
     <EmbeddedResource Include="@(PayloadRoot)" LogicalName="payload/%(Filename)%(Extension)" />
     <PayloadMemory Include="..\memory\**\*" />
     <EmbeddedResource Include="@(PayloadMemory)" LogicalName="payload/memory/%(Filename)%(Extension)" />
@@ -42,6 +42,14 @@
     <EmbeddedResource Include="@(PayloadSkins)" LogicalName="payload/skins/%(Filename)%(Extension)" />
     <PayloadScripts Include="..\scripts\**\*" />
     <EmbeddedResource Include="@(PayloadScripts)" LogicalName="payload/scripts/%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <!-- 离线资源内嵌：build/offline/assets-offline.zip（由 build-offline.ps1 产出）存在时自动嵌入，
+       产物仍为 HerMemory.exe（唯一发行版，安装全程无需网络）。zip 不在场时构建瘦版（仅开发调试用）。
+       安装器检测 payload 同目录 assets-offline\manifest.json 走全离线安装。 -->
+  <ItemGroup>
+    <OfflineZip Include="..\build\offline\assets-offline.zip" Condition="Exists('..\build\offline\assets-offline.zip')" />
+    <EmbeddedResource Include="@(OfflineZip)" LogicalName="payload/assets-offline.zip" />
   </ItemGroup>
 
 </Project>

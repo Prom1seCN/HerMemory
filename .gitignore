@@ -17,3 +17,6 @@ shell/bin/
 shell/obj/
 shell/publish/
 shell/publish-dark/
+
+# 离线资源收集（build-offline.ps1 产出，GB 级不进库）
+build/

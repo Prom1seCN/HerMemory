@@ -69,6 +69,23 @@ try {
 
 # ---------- 断点续装（状态文件记录已完成步骤；删除它 = 全部重来） ----------
 $StateFile = Join-Path $HermesHome "hermemory-install.state"
+
+# ---------- 0. 离线模式检测（assets-offline.zip 由离线发行版 exe 内嵌，ExtractPayload 自动解出到本目录） ----------
+$OfflineZip = Join-Path $PSScriptRoot "assets-offline.zip"
+$OfflineDir = Join-Path $PSScriptRoot "assets-offline"
+if (-not (Test-Path $OfflineZip) -and $PSScriptRoot -match '^(.*)\\[^\\]+$') {
+    # 仓库模式直跑 install.sh 同级的 install.ps1 时，资源包在 build\offline\ 下
+    $repoOffline = Join-Path ($Matches[1] + "\build\offline") "assets-offline.zip"
+    if (Test-Path $repoOffline) { $OfflineZip = $repoOffline }
+}
+if ((Test-Path $OfflineZip) -and -not (Test-Path (Join-Path $OfflineDir "manifest.json"))) {
+    Log "解压内嵌离线资源包（一次性，数百 MB，视磁盘速度需一两分钟）……"
+    New-Item -ItemType Directory -Force -Path $OfflineDir | Out-Null
+    tar -xf $OfflineZip -C $OfflineDir
+    if (Test-Path (Join-Path $OfflineDir "manifest.json")) { Ok "离线资源包就绪" }
+    else { Warn "离线资源包解压异常——回落在线安装流程" }
+}
+$IsOffline = Test-Path (Join-Path $OfflineDir "manifest.json")
 New-Item -ItemType Directory -Force -Path $HermesHome | Out-Null
 function Test-Done([string]$step) { (Test-Path $StateFile) -and ((Get-Content $StateFile -ErrorAction SilentlyContinue) -contains $step) }
 function Mark-Done([string]$step) { if (-not (Test-Done $step)) { Add-Content -Path $StateFile -Value $step } }
@@ -86,7 +103,9 @@ $VaultDir = "$HOME\vault"
 # ---------- 2. 上游内核（官方安装器，pin tag；本脚本不自研内核安装） ----------
 if (Test-Done "upstream") {
     Log "上游内核：已完成（自动跳过）"
-} elseif ((Test-Path (Join-Path $HermesHome "bin\hermes.cmd")) -or (Get-Command hermes -ErrorAction SilentlyContinue)) {
+# 判据必须含 hermes.exe：Windows 上官方安装器只产出 bin\hermes.exe，从不产出 hermes.cmd（本机实证）。
+# 旧判据只看 .cmd，新 PowerShell 会话 PATH 尚未刷新时 Get-Command 也落空 → 会误判"未装"而重装一遍上游内核。
+} elseif ((Test-Path (Join-Path $HermesHome "bin\hermes.exe")) -or (Test-Path (Join-Path $HermesHome "bin\hermes.cmd")) -or (Get-Command hermes -ErrorAction SilentlyContinue)) {
     Log "上游内核：检测到已安装，跳过"
     Mark-Done "upstream"
 } else {
@@ -271,17 +290,42 @@ if (Test-Done "upstream") {
     if (-not (Test-Path $up)) { Die "缺 vendored 上游安装器：$up（发行包不完整，请重新获取 HerMemory）" }
     # 境内镜像注入：三个都是对应工具的官方环境变量旋钮，上游脚本零修改；用户/代理环境已自设时尊重不覆盖。
     # 覆盖安装期大头流量：PyPI 依赖（uv）、npm 包（Node 依赖与浏览器组件）、Playwright 内核；Electron 上游已自带 npmmirror 兜底。
-    if (-not $env:UV_DEFAULT_INDEX)          { $env:UV_DEFAULT_INDEX = "https://pypi.tuna.tsinghua.edu.cn/simple" }
-    if (-not $env:npm_config_registry)       { $env:npm_config_registry = "https://registry.npmmirror.com" }
-    if (-not $env:PLAYWRIGHT_DOWNLOAD_HOST)  { $env:PLAYWRIGHT_DOWNLOAD_HOST = "https://cdn.npmmirror.com/binaries/playwright" }
-    Log "镜像加速：PyPI→清华 / npm→npmmirror / Playwright→npmmirror / Python 运行时→$pbsSource（GitHub 直连残留项上游自带重试与兜底）"
+    if ($IsOffline) {
+        # 离线模式：全部流量改走内嵌 assets-offline（uv/npm 的内容寻址缓存 + 预置二进制），零网络
+        $env:UV_OFFLINE = "1"
+        $env:UV_CACHE_DIR = Join-Path $OfflineDir "uv-cache"
+        $env:npm_config_cache = Join-Path $OfflineDir "npm-cache"
+        $env:npm_config_offline = "true"
+        $env:PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1"
+        Log "离线模式：全部资源取自内嵌 assets-offline，零网络依赖"
+        if ($Answers) { Write-Host "##HM-MIRROR## mode=offline pbs=assets" }
+    } else {
+        if (-not $env:UV_DEFAULT_INDEX)          { $env:UV_DEFAULT_INDEX = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+        if (-not $env:npm_config_registry)       { $env:npm_config_registry = "https://registry.npmmirror.com" }
+        if (-not $env:PLAYWRIGHT_DOWNLOAD_HOST)  { $env:PLAYWRIGHT_DOWNLOAD_HOST = "https://cdn.npmmirror.com/binaries/playwright" }
+        Log "镜像加速：PyPI→清华 / npm→npmmirror / Playwright→npmmirror / Python 运行时→$pbsSource（GitHub 直连残留项上游自带重试与兜底）"
+    }
 
     # ---------- 2.4 Python 3.11 预置（把 PBS 下载从 uv 关键路径上摘掉） ----------
     # 沙盒六轮实证：探测全过（mode=off、pbs 探针 OK）不等于 20 分钟后那次 24MB 下载能过——波动网络里探测不承诺任何事。
     # 对策：把真的 Python 3.11 直接放进 PATH——上游 Install-Python 第一步 `uv python find 3.11` 即命中"search path"，
     # 完全跳过 uv 托管下载（错误 "No interpreter found ... search path" 反证了该搜索路径的存在）。
     # 仅镜像场景执行（pbs=npmmirror/ghproxy）；海外直连场景（pbs=default）维持 uv 默认，避免跨洋 CDN 反而拖慢。
-    if ($pbsSource -in @("npmmirror", "ghproxy")) {
+    if ($IsOffline) {
+        # 离线：Python 运行时直接取自内嵌 assets
+        $pyDir = Join-Path $HermesHome "python-3.11"
+        $pyExe = Join-Path $pyDir "python\python.exe"
+        if (Test-Path $pyExe) {
+            Log "Python 预置：已在（离线，跳过）"
+        } else {
+            Log "Python 预置：解压内嵌 CPython 3.11 运行时……"
+            New-Item -ItemType Directory -Force -Path $pyDir | Out-Null
+            tar -xzf (Join-Path $OfflineDir "python-pbs.tar.gz") -C $pyDir
+            if (Test-Path $pyExe) { Ok "Python 3.11 已预置（离线，上游将直接命中）" }
+            else { Die "离线 Python 解压异常（缺 python\python.exe）——内嵌资源包不完整，请重新获取 HerMemory 离线版" }
+        }
+        if (Test-Path $pyExe) { $env:Path = (Split-Path $pyExe) + ";$env:Path" }
+    } elseif ($pbsSource -in @("npmmirror", "ghproxy")) {
         $pyDir = Join-Path $HermesHome "python-3.11"
         $pyExe = Join-Path $pyDir "python\python.exe"
         $pyAsset = "cpython-3.11.16+20260901-x86_64-pc-windows-msvc-install_only.tar.gz"
@@ -316,6 +360,143 @@ if (Test-Done "upstream") {
             }
         }
         if (Test-Path $pyExe) { $env:Path = (Split-Path $pyExe) + ";$env:Path" }
+    }
+
+    # ---------- 2.45 Node.js 22 预置（境内实测：上游 Stage-Node 直连 nodejs.org/dist 且 Invoke-WebRequest 无超时，常无限挂起） ----------
+    # 与 Python 预置同思路：把真的 Node 22 提前放进上游探测位 $HermesHome\node\node.exe——
+    # 上游 Test-Node 见位即用（自带 npm 满足其版本下限），整体跳过 nodejs.org 下载，钉死在 npmmirror。
+    # 仅镜像场景执行（pbs=npmmirror/ghproxy）；海外直连场景维持上游默认（nodejs.org 本就快）。
+    # x64 写死与 Python 预置同取舍；ARM 上游会自行下载正确架构（探测失败回落上游流程）。
+    if ($IsOffline) {
+        # 离线：Node 直接取自内嵌 assets（版本以离线包为准）
+        $ndDir = Join-Path $HermesHome "node"
+        $ndExe = Join-Path $ndDir "node.exe"
+        if (Test-Path $ndExe) {
+            Log "Node 预置：已在（离线，跳过）"
+        } else {
+            Log "Node 预置：解压内嵌 Node.js 22……"
+            New-Item -ItemType Directory -Force -Path $ndDir | Out-Null
+            tar -xf (Join-Path $OfflineDir "node.zip") -C $OfflineDir
+            $ndInner = Get-ChildItem $OfflineDir -Directory -Filter "node-v*" | Select-Object -First 1
+            if ($ndInner) {
+                Copy-Item -Path (Join-Path $ndInner.FullName "*") -Destination $ndDir -Recurse -Force
+                Remove-Item $ndInner.FullName -Recurse -Force -ErrorAction SilentlyContinue
+            }
+            if (Test-Path $ndExe) { Ok "Node.js $(((& $ndExe --version) | Out-String).Trim()) 已预置（离线）" }
+            else { Die "离线 Node 解压异常——内嵌资源包不完整，请重新获取 HerMemory 离线版" }
+        }
+    } elseif ($pbsSource -in @("npmmirror", "ghproxy")) {
+        $ndDir = Join-Path $HermesHome "node"
+        $ndExe = Join-Path $ndDir "node.exe"
+        if (Test-Path $ndExe) {
+            Log "Node 预置：已在（跳过下载）"
+        } else {
+            # 版本实测钉死（2026-09-10 npmmirror HTTP 200 验证），不做任何列表解析——PS5.1 下列表 API 行为不可靠。
+            # 版本须满足上游 engines ^22.22.0（npm ci EBADENGINE 教训）
+            $ndVer = "22.23.0"
+            $ndTmp = Join-Path $env:TEMP "hm-node22"
+            try {
+                Log "Node 预置：下载 v$ndVer（约 34MB，源 npmmirror）……"
+                Invoke-WebRequest -Uri "https://registry.npmmirror.com/-/binary/node/v$ndVer/node-v$ndVer-win-x64.zip" -OutFile "$ndTmp.zip" -UseBasicParsing -TimeoutSec 600
+                if (Test-Path $ndTmp) { Remove-Item -Recurse -Force $ndTmp }
+                Expand-Archive -Path "$ndTmp.zip" -DestinationPath $ndTmp -Force
+                $ndInner = Get-ChildItem $ndTmp -Directory | Select-Object -First 1
+                if ($ndInner) {
+                    New-Item -ItemType Directory -Force -Path $ndDir | Out-Null
+                    Copy-Item -Path (Join-Path $ndInner.FullName "*") -Destination $ndDir -Recurse -Force
+                }
+                if (Test-Path $ndExe) { Ok "Node.js $(((& $ndExe --version) | Out-String).Trim()) 已预置（上游将直接命中，跳过 nodejs.org 下载）" }
+                else { Warn "Node 预置解压异常——回落上游默认流程（nodejs.org 直连，境内可能很慢或挂起）" }
+            } catch {
+                $whyNd = $_.Exception.Message
+                if ($_.Exception.InnerException) { $whyNd += " <- $($_.Exception.InnerException.Message)" }
+                Warn "Node 预置失败（$whyNd）——回落上游默认流程；若再卡住：开代理后重跑，或手动装 Node 22 后重跑"
+            } finally {
+                Remove-Item "$ndTmp.zip" -Force -ErrorAction SilentlyContinue
+                Remove-Item $ndTmp -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+
+    if ($IsOffline) {
+        # 离线：系统件预置（PortableGit / uv / rg / ffmpeg）——放在仓库落位之前，后续 git 操作直接可用。
+        # 上游各 Stage 全是 PATH 探测（Get-Command git/rg/ffmpeg；uv 看 $HermesHome\bin\uv.exe），预置即命中。
+        if (-not (Test-Path (Join-Path $HermesHome "git\bin\git.exe"))) {
+            Log "离线：解压 PortableGit（约半分钟）……"
+            New-Item -ItemType Directory -Force -Path (Join-Path $HermesHome "git") | Out-Null
+            & (Join-Path $OfflineDir "portable-git.7z.exe") "-o$(Join-Path $HermesHome 'git')" -y | Out-Null
+        }
+        $env:Path = "$(Join-Path $HermesHome 'git\bin');$(Join-Path $HermesHome 'bin');$env:Path"
+        New-Item -ItemType Directory -Force -Path (Join-Path $HermesHome "bin") | Out-Null
+        foreach ($f in @("uv.exe", "rg.exe", "ffmpeg.exe", "ffprobe.exe")) {
+            $srcF = Join-Path $OfflineDir $f
+            $dstF = Join-Path $HermesHome "bin\$f"
+            if ((Test-Path $srcF) -and -not (Test-Path $dstF)) { Copy-Item $srcF $dstF -Force }
+        }
+        Copy-Item (Join-Path $OfflineDir "THIRD-PARTY-NOTICES.txt") (Join-Path $HermesHome "THIRD-PARTY-NOTICES.txt") -Force -ErrorAction SilentlyContinue
+        if (Test-Path (Join-Path $HermesHome "git\bin\git.exe")) { Ok "离线系统件就位：PortableGit / uv / rg / ffmpeg（上游探测将直接命中）" }
+        else { Die "离线 PortableGit 解压异常——内嵌资源包不完整，请重新获取 HerMemory 离线版" }
+    }
+
+    # ---------- 2.46 内核仓库预 clone（原子落位；境内 clone 慢且易被 AV 打断，半成品会让上游 heal 撞锁死循环） ----------
+    # 上游对"存在但非 valid git repo"的目录是挪 broken 后重 clone——AV 锁住半成品时挪失败直接 throw，
+    # 用户重试再撞锁（2026-09-10 00:05 实测两连败）。这里把 clone 重活自己做：临时目录 + 重试 3 次 +
+    # 完成后同盘原子 Move，上游见完好仓库走增量路径（fetch 小流量）。残缺半成品直接删——无保留价值。
+    $repoDir = Join-Path $HermesHome "hermes-agent"
+    $repoOk = $false
+    if (Test-Path $repoDir) {
+        $inTree  = (& git -c windows.appendAtomically=false -C $repoDir rev-parse --is-inside-work-tree 2>$null)
+        $hasHead = (& git -c windows.appendAtomically=false -C $repoDir rev-parse --verify HEAD 2>$null)
+        if ("$inTree" -eq "true" -and $hasHead) {
+            $repoOk = $true
+            Log "内核仓库已在且完好（上游将走增量校验，跳过 clone）"
+        } else {
+            Log "发现残缺的 hermes-agent（clone 半成品）——清除后重新 clone……"
+            Remove-Item -Recurse -Force $repoDir -ErrorAction SilentlyContinue
+            if (Test-Path $repoDir) { Die "残缺目录被占用清不掉：$repoDir——关闭正在使用它的程序（含后台 git 进程）后点「重新安装」" }
+        }
+    }
+    if ($IsOffline) {
+        # 离线：仓库从内嵌 zip 落位；origin 指向内嵌 bundle——上游 update 的 fetch 命中本地，零网络
+        if (-not (Test-Path $repoDir)) {
+            Log "离线：落位内嵌 hermes-agent 源码树（pin $Tag）……"
+            $tmpOff = Join-Path $env:TEMP "hm-hermes-agent-off"
+            if (Test-Path $tmpOff) { Remove-Item -Recurse -Force $tmpOff }
+            New-Item -ItemType Directory -Force -Path $tmpOff | Out-Null
+            tar -xf (Join-Path $OfflineDir "hermes-agent.zip") -C $tmpOff
+            Move-Item $tmpOff $repoDir
+        }
+        & git -C $repoDir remote set-url origin (Join-Path $OfflineDir "hermes-agent.bundle") 2>$null
+        $inTree  = (& git -C $repoDir rev-parse --is-inside-work-tree 2>$null)
+        $hasHead = (& git -C $repoDir rev-parse --verify HEAD 2>$null)
+        if ("$inTree" -eq "true" -and $hasHead) {
+            $repoOk = $true
+            Ok "内核仓库已离线落位（pin $Tag；origin 指向内嵌 bundle，上游 fetch 零网络）"
+        } else { Die "离线仓库落位异常（非有效 git repo）——内嵌资源包不完整，请重新获取 HerMemory 离线版" }
+    } elseif (-not $repoOk -and (Get-Command git -ErrorAction SilentlyContinue)) {
+        $repoUrl = "https://github.com/NousResearch/hermes-agent.git"
+        if ($GhProxy) { $repoUrl = $GhProxy + $repoUrl }
+        $tmpRepo = Join-Path $env:TEMP "hm-hermes-agent"
+        $prevEapRepo = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+        for ($i = 1; $i -le 3 -and -not $repoOk; $i++) {
+            Log "预 clone 内核仓库（第 $i/3 次，pin $Tag，源 $(([uri]$repoUrl).Host)）……"
+            try {
+                if (Test-Path $tmpRepo) { Remove-Item -Recurse -Force $tmpRepo -ErrorAction SilentlyContinue }
+                & git -c windows.appendAtomically=false clone --depth 1 --branch $Tag $repoUrl $tmpRepo 2>&1 | ForEach-Object { "$_" }
+                if ($LASTEXITCODE -eq 0 -and (Test-Path (Join-Path $tmpRepo ".git"))) {
+                    Move-Item -LiteralPath $tmpRepo -Destination $repoDir -ErrorAction Stop
+                    $repoOk = $true
+                    Ok "内核仓库已预 clone（pin $Tag）——上游将跳过下载直接增量校验"
+                } else {
+                    Warn "预 clone 第 $i 次未成功（git 退出码 $LASTEXITCODE）"
+                }
+            } catch {
+                Warn "预 clone 第 $i 次失败：$($_.Exception.Message)"
+            }
+            if (-not $repoOk -and (Test-Path $tmpRepo)) { Remove-Item -Recurse -Force $tmpRepo -ErrorAction SilentlyContinue }
+        }
+        $ErrorActionPreference = $prevEapRepo
+        if (-not $repoOk) { Warn "预 clone 未成功——回落上游默认流程（SSH/HTTPS/ZIP 逐级尝试，境内可能很慢或被占）" }
     }
 
     & ([scriptblock]::Create((Get-Content $up -Raw))) -Tag $Tag -SkipSetup
@@ -364,25 +545,60 @@ Progress "files"
 # ---------- 5. 软链四件（官方注入槽位）----------
 # NTFS 符号链接需要管理员权限或开发者模式（Win10 1703+ 设置→更新→开发者选项）。
 function LinkOne([string]$src, [string]$dst) {
+    # 幂等：符号链接已就位即跳过
+    if (Test-Path $dst) {
+        $ex = Get-Item $dst -Force
+        if ($ex.LinkType -eq "SymbolicLink" -and $ex.Target -eq $src) { Log "符号链接已就位：$dst"; return }
+    }
     $dir = Split-Path -Parent $dst
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
-    if ((Test-Path $dst) -and ((Get-Item $dst -Force).LinkType -eq "SymbolicLink") -and
-        ((Get-Item $dst -Force).Target -eq $src)) { Log "软链已就位：$dst"; return }
     if (Test-Path $dst) {
         $bak = "$dst.pre-hermemory.$(Get-Date -Format yyyyMMddHHmmss)"
         Move-Item $dst $bak
-        Warn "检测到已有文件 $dst，已备份为 $bak 后建立软链"
+        Warn "检测到已有文件 $dst，已备份为 $bak 后建立链接"
     }
-    try { New-Item -ItemType SymbolicLink -Path $dst -Target $src -Force | Out-Null; Ok "软链：$dst" }
-    catch { Die "创建符号链接失败（需要管理员权限或开发者模式）。开启方法：设置 → 更新与安全 → 开发者选项 → 开发人员模式；或以管理员重跑本脚本。已完成的步骤不会丢失。" }
+    # 坑（2026-09-10 00:13 实测）：New-Item 符号链接失败抛的是【非终止错误】，
+    # 不加 -ErrorAction Stop 时 catch 接不住 → 静默假成功 → HERMES_HOME 无 SOUL.md
+    # → hermes 首次 load_config 播种默认身份，用户所见即"注入失效"。
+    # 故：-ErrorAction Stop + 事后 LinkType 双验证；再降级 HardLink（同卷免特权，
+    # 同一文件两个目录项，改 vault 即改 AI 所读，语义与软链一致）。
+    try { New-Item -ItemType SymbolicLink -Path $dst -Target $src -Force -ErrorAction Stop | Out-Null } catch { }
+    $ex = if (Test-Path $dst) { Get-Item $dst -Force } else { $null }
+    if (-not $ex -or $ex.LinkType -ne "SymbolicLink") {
+        if (Test-Path $dst) { Remove-Item $dst -Force -ErrorAction SilentlyContinue }
+        Die "符号链接创建失败：请右键「以管理员身份运行」重新打开 HerMemory 完成安装；或开启开发者模式（设置 → 更新与安全 → 开发者选项）。已完成的步骤不会丢失，重新安装时自动跳过。"
+    }
+    Ok "符号链接：$dst -> $src"
 }
 LinkOne "$VaultDir\HerMemory\memory\SOUL.md"   "$HermesHome\SOUL.md"
 # AGENTS.md 的注入槽位是"会话工作目录链"（git 根→cwd），不是 HERMES_HOME。
 # 槽位用 .hermes.md（Hermes 专属、优先级最前）：用户可见文件仍是 vault 里的 AGENTS.md，
 # 且不会污染机器上其他遵循 AGENTS 约定的工具（Codex CLI 等不读 .hermes.md）。
 LinkOne "$VaultDir\HerMemory\memory\AGENTS.md" "$HOME\.hermes.md"
-LinkOne "$VaultDir\HerMemory\memory\MEMORY.md" "$HermesHome\memories\MEMORY.md"
-LinkOne "$VaultDir\HerMemory\memory\USER.md"   "$HermesHome\memories\USER.md"
+
+# ---------- 5.5 memories 整目录 junction（免特权）----------
+# hermes 的 memories 路径硬编码为 $HermesHome\memories（agent/learning_mutations.py），不可配置。
+# 用 junction 做路径级重定向：hermes 对 memories\ 的任何写入方式——含 atomic_replace 的
+# tmp+rename 原子替换（实测 2026-09-10 01:55）——都天然落在 vault 目标目录内，结构上无断链概念。
+# 优于文件级硬链接（会被 os.replace 静默断链）与文件级符号链接（同需特权且依赖上游保护）。
+$memDir = Join-Path $HermesHome "memories"
+$jTarget = "$VaultDir\HerMemory\memory"
+New-Item -ItemType Directory -Force -Path $jTarget | Out-Null
+$exJ = Get-Item $memDir -Force -ErrorAction SilentlyContinue
+if ($exJ -and $exJ.LinkType -eq "Junction" -and "$($exJ.Target)" -eq $jTarget) {
+    Log "memories junction 已就位：$memDir -> $jTarget"
+} else {
+    if (Test-Path $memDir) {
+        # 迁移既有记忆到 vault（仅拷 vault 缺失的文件，绝不覆盖）
+        Get-ChildItem $memDir -File -Force | ForEach-Object {
+            $d = Join-Path $jTarget $_.Name
+            if (-not (Test-Path $d)) { Copy-Item $_.FullName $d -Force; Warn "迁移既有记忆：$($_.Name)" }
+        }
+        Remove-Item $memDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    New-Item -ItemType Junction -Path $memDir -Target $jTarget -ErrorAction Stop | Out-Null
+    Ok "memories 已以 junction 挂到 vault：$memDir -> $jTarget（AI 写记忆 = Obsidian 立刻可见）"
+}
 
 # ---------- 6. 品牌皮肤 ----------
 New-Item -ItemType Directory -Force -Path "$HermesHome\skins" | Out-Null
@@ -697,14 +913,6 @@ Progress "gateway"
 # ---------- 11. 脚本下线 ----------
 # 设计（用户流程 2）：key 配置完成后 AI 上线，脚本下线。
 # WebDAV / 微信接入 / 同步引导 / 能力演示全部由 AI 完成（#13）——AI 读 AGENTS.md 指针（内容在 docs）。
-
-# ---------- 12. 自检脚本（配置区写入实际路径） ----------
-$chk = Get-Content "$SRC\sync_check.sh" -Raw
-$chk = $chk -replace '^(HERMES_HOME=).*', ('$1"' + $HermesHome.Replace('\','/') + '"')
-$chk = $chk -replace '^(SYNC_ROOT=).*', ('$1"' + $VaultDir.Replace('\','/') + '"')
-# 无 BOM UTF-8：PS5.1 的 Set-Content -Encoding UTF8 会写 BOM 炸 Git Bash 首行；默认 ASCII 会毁中文注释
-[IO.File]::WriteAllText("$HermesHome\sync_check.sh", $chk, (New-Object Text.UTF8Encoding($false)))
-Ok "自检脚本已就位：$HermesHome\sync_check.sh（agent 终端工具走 Git Bash，可直接执行）"
 
 # ---------- 13. 完成提示 ----------
 Write-Host ""

@@ -162,8 +162,27 @@ link_one "$VAULT_DIR/HerMemory/memory/SOUL.md"   "$HERMES_HOME/SOUL.md"
 # 槽位用 .hermes.md（Hermes 专属、优先级最前）：用户可见文件仍是 vault 里的 AGENTS.md，
 # 且不会污染机器上其他遵循 AGENTS 约定的工具（Codex CLI 等不读 .hermes.md）。
 link_one "$VAULT_DIR/HerMemory/memory/AGENTS.md" "$HOME/.hermes.md"
-link_one "$VAULT_DIR/HerMemory/memory/MEMORY.md" "$HERMES_HOME/memories/MEMORY.md"
-link_one "$VAULT_DIR/HerMemory/memory/USER.md"   "$HERMES_HOME/memories/USER.md"
+
+# memories 整目录软链（与 Windows 版 junction 同构）：hermes 的 memories 路径硬编码
+# （agent/learning_mutations.py: get_hermes_home()/"memories"），目录级重定向使其对
+# memories\ 的任何写入方式——含 atomic_replace 的 tmp+rename 原子替换——天然落在
+# vault 内。Linux 符号链接免特权，且上游断链保护只认 symlink（正好覆盖）。
+mem_dir="$HERMES_HOME/memories"
+mem_target="$VAULT_DIR/HerMemory/memory"
+mkdir -p "$mem_target"
+if [ -L "$mem_dir" ] && [ "$(readlink "$mem_dir")" = "$mem_target" ]; then
+    log "memories 软链已就位：$mem_dir"
+else
+    if [ -e "$mem_dir" ] && [ ! -L "$mem_dir" ]; then
+        bak="$mem_dir.pre-hermemory.$(date +%s)"
+        mv "$mem_dir" "$bak"
+        warn "检测到已有目录 $mem_dir，已备份为 $bak 后建立软链（既有记忆已迁移）"
+    elif [ -L "$mem_dir" ]; then
+        rm "$mem_dir"
+    fi
+    ln -s "$mem_target" "$mem_dir"
+    ok "memories 已以目录软链挂到 vault：AI 写记忆 = 同步端立刻可见"
+fi
 
 # ---------- 6. 品牌皮肤 ----------
 mkdir -p "$HERMES_HOME/skins"
@@ -224,7 +243,6 @@ hermes config set memory.user_char_limit   "$USER_LIMIT" >/dev/null
 ok "记忆档位：MEMORY $MEM_LIMIT / USER $USER_LIMIT 字符（随时改档：bash memory-size.sh）"
 mark_done memory-tier
 fi
-ok "记忆档位：MEMORY $MEM_LIMIT / USER $USER_LIMIT 字符（随时改档：bash memory-size.sh）"
 
 # ---------- 9.5/9.6 配置 AI（用户流程 2：地址先验证，Key 后验证；Key 阶段输 1 可返回地址；完成后 AI 上线） ----------
 if done_step config-ai; then
@@ -410,15 +428,19 @@ log "安装 gateway 服务（消息通道 + 定时任务）……"
 if hermes gateway install >/dev/null 2>&1; then
     ok "gateway 服务已安装（消息 + 定时任务）"
     # AGENTS.md 走 cwd 目录链：服务必须以 $HOME 为 WorkingDirectory
+    # unit 文件在用户自己的 ~/.config 下——直接改写即可，用 sudo 反而会在无免密环境静默失败
     for unit in "$HOME/.config/systemd/user/"*hermes*.service; do
         [ -f "$unit" ] || continue
         if grep -q "^WorkingDirectory=" "$unit"; then
-            sudo -n sed -i "s|^WorkingDirectory=.*|WorkingDirectory=$HOME|" "$unit" 2>/dev/null || true
+            sed -i "s|^WorkingDirectory=.*|WorkingDirectory=$HOME|" "$unit" \
+                && ok "服务 WorkingDirectory 固定为 \$HOME（AGENTS.md 目录链单点）：$unit" \
+                || warn "改写 WorkingDirectory 失败：$unit —— AGENTS.md 可能不生效，请手动加一行 WorkingDirectory=$HOME"
         else
-            echo "WorkingDirectory=$HOME" >> "$unit"
+            echo "WorkingDirectory=$HOME" >> "$unit" \
+                && ok "服务 WorkingDirectory 固定为 \$HOME（AGENTS.md 目录链单点）：$unit" \
+                || warn "写入 WorkingDirectory 失败：$unit —— AGENTS.md 可能不生效，请手动加一行 WorkingDirectory=$HOME"
         fi
         systemctl --user daemon-reload 2>/dev/null || true
-        ok "服务 WorkingDirectory 固定为 \$HOME（AGENTS.md 目录链单点）：$unit"
     done
 else
     warn "gateway 服务未安装成功，消息通道与定时任务暂不可用"
@@ -428,14 +450,6 @@ fi
 # ---------- 12. 脚本下线 ----------
 # 设计（用户流程 2）：key 配置完成后 AI 上线，脚本下线。
 # WebDAV / 微信接入 / 同步引导 / 能力演示全部由 AI 完成（#13）——AI 读 AGENTS.md 指针（内容在 docs）。
-
-# ---------- 12. 自检脚本（HERMES_HOME / SYNC_ROOT 写进配置区） ----------
-mkdir -p "$HERMES_HOME"
-sed -e "s|^HERMES_HOME=.*|HERMES_HOME=\"$HERMES_HOME\"|" \
-    -e "s|^SYNC_ROOT=.*|SYNC_ROOT=\"$VAULT_DIR\"|" \
-    "$SRC/sync_check.sh" > "$HERMES_HOME/sync_check.sh"
-chmod +x "$HERMES_HOME/sync_check.sh"
-ok "自检脚本已就位：~/.hermes/sync_check.sh（对 agent 说「体检一下」也会调它）"
 
 # ---------- 13. 完成提示（两处如实告知，不隐瞒） ----------
 echo ""

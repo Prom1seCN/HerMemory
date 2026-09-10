@@ -16,15 +16,6 @@ namespace HerMemory
             ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "hermes");
         private string VaultDocs => Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "vault", "HerMemory", "docs");
-        private string HermsExe
-        {
-            get
-            {
-                var p = Path.Combine(HermesHome, "bin", "hermes.exe");
-                return File.Exists(p) ? p : "hermes";
-            }
-        }
-
         private string? _answersPath;                 // 本次静默安装的答案文件（成功后删除）
         private string? _provBase, _provModel;
         private CancellationTokenSource? _qrCts;
@@ -35,34 +26,42 @@ namespace HerMemory
         /// <summary>托盘菜单"退出"置位：跳过最小化询问，真退出。</summary>
         public static bool ReallyExit;
 
+        /// <summary>本程序 exe 路径。单文件发布下 Assembly.Location 恒为空字符串（IL3000），只能用 ProcessPath。</summary>
+        private static string SelfPath => Environment.ProcessPath ?? "";
+
         public MainWindow()
         {
             InitializeComponent();
             // 标题栏构建戳：任何页面一眼确认跑的是哪个包（根治"用旧包测新修复"类混淆）
-            try { Title = "HerMemory · 构建 " + File.GetLastWriteTime(Environment.ProcessPath ?? typeof(MainWindow).Assembly.Location).ToString("MM-dd HH:mm"); } catch { }
+            try { var self = SelfPath; if (self.Length > 0) Title = "HerMemory · 构建 " + File.GetLastWriteTime(self).ToString("MM-dd HH:mm"); } catch { }
             ThemeGlyph.Text = Theme.IsDark ? "☾" : "☀";
             Loaded += async (_, _) =>
             {
                 ApplyGirlIcon();   // 右上角女孩图标：随主题（Assets 为相对路径，用绝对资源文件流加载）
-                if (HomeMode)
-                {
-                    ShowPage("PageHome");
-                    HomeFooter.Text = string.Join(Environment.NewLine,
-                        "关闭窗口默认最小化到托盘，可在托盘菜单修改",
-                        $"同步库位于 {VaultDir}",
-                        $"记忆文件位于 {Path.Combine(VaultDir, "HerMemory", "memory")}");
-                    _ = Task.Run(async () =>
-                    {
-                        var s = await Task.Run(HermesCtl.State);
-                        await Dispatcher.InvokeAsync(() => UpdateHomeStatus(s));
-                    });
-                }
-                else
-                {
-                    await RunPrecheckAsync();
-                }
+                if (HomeMode) GoHome();
+                else await RunPrecheckAsync();
             };
         }
+
+        /// <summary>进入日常主界面：置 HomeMode、显示首页、刷新网关状态。
+        /// 构造 Loaded 与完成页「完成」按钮共用（运行中切换不会自动触发 Loaded）。</summary>
+        public void GoHome()
+        {
+            HomeMode = true;
+            ShowPage("PageHome");
+            HomeFooter.Text = string.Join(Environment.NewLine,
+                "关闭窗口默认最小化到托盘，可在托盘菜单修改",
+                $"同步库位于 {VaultDir}",
+                $"记忆文件位于 {Path.Combine(VaultDir, "HerMemory", "memory")}");
+            _ = Task.Run(async () =>
+            {
+                var s = await Task.Run(HermesCtl.State);
+                await Dispatcher.InvokeAsync(() => UpdateHomeStatus(s));
+            });
+        }
+
+        /// <summary>安装成功：置为日常态（关窗走"最小化到托盘"），但停在完成页——点「完成」才进主界面。</summary>
+        public void PrepareHome() => HomeMode = true;
 
         // ================= 主界面（托盘模式日常页） =================
 
@@ -102,7 +101,7 @@ namespace HerMemory
         {
             string baseHint = state == "stopped"
                 ? "Gateway 已停止，可修改；保存后启动生效。"
-                : "Gateway 运行中；修改可保存，但需停止后执行。";
+                : "Gateway 运行中；修改可保存，保存后需停止再启动才生效。";
             CfgHint.Text = baseHint;
             if (load || (state == "stopped" && _cfgState != "stopped"))
             {
@@ -131,22 +130,21 @@ namespace HerMemory
             if (url.Length == 0 || key.Length == 0) { CfgHint.Text = "请填写 API 地址与 API Key。"; return; }
             _cfgSaving = true;
             CfgHint.Text = "正在保存……";
+            // 运行中同样允许保存：hermes config set 写的是配置文件，不影响正在跑的进程；
+            // 文案已承诺"可保存"（UpdateCfgRegion），此处不得拒绝——否则出现"能编辑但保存不了"的死结。
             var state = await Task.Run(HermesCtl.State);
-            if (state == "running")
-            {
-                _cfgSaving = false;
-                CfgHint.Text = "Gateway 正在运行，请先停止再保存。";
-                return;
-            }
             var ok2 = await Task.Run(() => HermesCtl.SetModelCfg(url, key));
-            var model = CfgModelCombo.SelectedItem as string;
-            if (ok2 && !string.IsNullOrEmpty(model))
+            var model = CleanAscii(CfgModelCombo.SelectedItem as string ?? "");
+            if (ok2 && model.Length > 0)
                 await Task.Run(() => HermesCtl.Run($"config set model.default \"{model}\"", 30));
             _cfgSaving = false;
             CfgHint.Foreground = Brush(ok2 ? "#2E7D32" : "#C62828");
-            CfgHint.Text = ok2
-                ? (string.IsNullOrEmpty(model) ? "已保存，启动 Gateway 后生效。" : $"已保存（默认模型：{model}），启动 Gateway 后生效。")
-                : "保存失败，请重试。";
+            if (!ok2) { CfgHint.Text = "保存失败，请重试。"; return; }
+            var suffix = model.Length > 0 ? $"（默认模型：{model}）" : "";
+            CfgHint.Text = state == "running"
+                ? $"已保存{suffix}；Gateway 正在运行，需停止后重新启动才生效。"
+                : $"已保存{suffix}，启动 Gateway 后生效。";
+            _cfgState = state;
         }
 
         /// <summary>API 设置页 · 地址检测：与向导同一实现（ProbeUrl，探 {url}/models；无 Key 时 401 也算地址可达）。</summary>
@@ -413,7 +411,11 @@ namespace HerMemory
                 var backup = Path.Combine(stage, "hermes-home.zip");
                 var bout = HermesCtl.Run($"backup -o \"{backup}\"", 900);
                 if (!File.Exists(backup))
+                {
+                    // 中止时清掉已铺开的 staging，否则整份 vault 副本会烂在 temp 里
+                    try { Directory.Delete(stageParent, true); } catch { }
                     return (false, "导出中止：hermes backup 未产出备份包。\n" + Tail(bout), null);
+                }
 
                 var reborn = Path.Combine(vault, "HerMemory", "docs", "README_REBORN.md");
                 if (!File.Exists(reborn) && _repoRoot != null)
@@ -519,6 +521,7 @@ namespace HerMemory
         // 本层编排：停 gateway → 文件清理 → （重绑走安装同款 WeChatFlowAsync 二维码流）→ 起 gateway。绝不触碰 vault。
 
         private bool _wxRebind;   // QR 流来源：true=主界面重绑（成功/跳过回 PageWeixin 并重启 gateway），false=安装向导（走 PageDone）
+        private bool _wxPrevRunning;  // 进入微信流程前 Gateway 是否在运行：用于恢复原状，避免把用户主动停掉的 Gateway 强行拉起
 
         public void ShowWeixin()
         {
@@ -590,6 +593,7 @@ namespace HerMemory
             BtnWxBind.IsEnabled = false;
             BtnWxUnbind.IsEnabled = false;
             WxBindStatus.Text = "正在准备，稍候拉起二维码……";
+            _wxPrevRunning = await Task.Run(HermesCtl.State) == "running";
             await Task.Run(() =>
             {
                 try { HermesCtl.Run("gateway stop", 60); } catch { }
@@ -610,11 +614,13 @@ namespace HerMemory
             BtnWxBind.IsEnabled = false;
             BtnWxUnbind.IsEnabled = false;
             WxBindStatus.Text = "正在解绑……";
+            var wasRunning = await Task.Run(HermesCtl.State) == "running";
             await Task.Run(() =>
             {
                 try { HermesCtl.Run("gateway stop", 60); } catch { }
                 CleanWeixinCredentials(HermesHome);
-                try { HermesCtl.Run("gateway start", 60); } catch { }
+                // 只在原本运行时才恢复：解绑不该把用户主动停掉的 Gateway 拉起来
+                if (wasRunning) { try { HermesCtl.Run("gateway start", 60); } catch { } }
             });
             BtnWxBind.IsEnabled = true;
             UpdateWeixinStatus();
@@ -767,39 +773,20 @@ namespace HerMemory
                 : "× 安装源缺失（请检查磁盘空间与权限）");
 
             // git 不再预检：上游官方安装器自带 Stage-Git，自动便携化安装 PortableGit（pin 版上游源码实证），
-            // 装后 sync_check.sh 所需 Git Bash 亦由其提供。
+            // 装后 export.sh / memory-size.sh 等 bash 脚本所需的 Git Bash 亦由其提供。
 
-            // 网络探测：多主机 GET 探活 + 重试；任何 HTTP 应答（含 403/404）即视为可达——TCP/TLS/HTTP 全通就是通。
-            // 单主机单次 HEAD 直连探测在沙盒/代理环境误报率高（浏览器代理插件不走系统代理、IPv6 优先失败、HEAD 被中间设备重置），
-            // 故探测失败不作硬闸门：降级为警示，「开始安装」仍可点——真实下载有自己的重试，真不通时安装页会红字给出具体原因。
-            bool net = await Task.Run(async () =>
-            {
-                var hosts = new[] { "https://github.com", "https://codeload.github.com" };
-                for (int attempt = 0; attempt < 2; attempt++)
-                {
-                    foreach (var host in hosts)
-                    {
-                        try
-                        {
-                            using var h = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
-                            using var resp = await h.GetAsync(host);
-                            return true;
-                        }
-                        catch { }
-                    }
-                    if (attempt == 0) await Task.Delay(1500);
-                }
-                return false;
-            });
-            notes.Add(net
-                ? "√ 网络可达 GitHub"
-                : "△ 未能直连 GitHub——安装器会自动切换境内镜像链，可直接安装");
+            // 网络探测已移除（2026-09-10 定案：只发行离线版，全部资源内嵌，无需网络）。
+            // 离线版预检改为「离线资源包在场」：payload 解压后 assets-offline.zip 应与 install.ps1 同目录。
+            bool offlinePack = File.Exists(Path.Combine(PayloadDir, "assets-offline.zip"));
+            notes.Add(offlinePack
+                ? "√ 离线资源包已就位（安装全程无需网络）"
+                : "△ 未发现离线资源包——将走在线镜像安装（需网络）");
 
             bool allOk = _repoRoot != null;
             PrecheckStatus.Text = string.Join(Environment.NewLine, notes);
             PrecheckStatus.Foreground = new System.Windows.Media.SolidColorBrush(
                 (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(
-                    allOk ? (net ? "#2E7D32" : "#EF6C00") : "#C62828"));
+                    allOk ? (offlinePack ? "#2E7D32" : "#EF6C00") : "#C62828"));
             BtnStart.IsEnabled = allOk;
         }
 
@@ -846,11 +833,12 @@ namespace HerMemory
             try
             {
                 long stamp = 0;
-                try { stamp = File.GetLastWriteTimeUtc(Environment.ProcessPath ?? typeof(MainWindow).Assembly.Location).Ticks; } catch { }
+                try { var self = SelfPath; stamp = self.Length > 0 ? File.GetLastWriteTimeUtc(self).Ticks : 0; } catch { }
                 var stampFile = Path.Combine(dir, ".hm-payload-stamp");
                 try
                 {
-                    if (File.Exists(Path.Combine(dir, "install.ps1")) && File.Exists(stampFile)
+                    // stamp=0 表示取不到自身路径：不认缓存，整包重解，避免误判为"已是最新"
+                    if (stamp != 0 && File.Exists(Path.Combine(dir, "install.ps1")) && File.Exists(stampFile)
                         && long.TryParse(File.ReadAllText(stampFile), out var s) && s == stamp)
                         return true; // 构建戳一致 = 目录内容与本 exe 完全同步
                 }
@@ -1242,7 +1230,8 @@ namespace HerMemory
         }
 
         // ================= 页 4：微信扫码 =================
-        private void StartQrFlow() => Task.Run(() => WeChatFlowAsync().Wait());
+        // 不要 .Wait()：那会白白占住一个线程池线程长达 9 分钟；Task.Run 直接跑异步流即可
+        private void StartQrFlow() => _ = Task.Run(WeChatFlowAsync);
 
         private async Task WeChatFlowAsync()
         {
@@ -1313,15 +1302,20 @@ namespace HerMemory
                 });
                 _ = Task.Run(() => { try { p.StandardError.ReadToEnd(); } catch { } });
 
-                // 轮询 .env 等凭据落盘（登录脚本成功后最后一步写 WEIXIN_ACCOUNT_ID）；脚本自行退出（超时/失败）即停止等待
+                // 轮询 .env 等凭据落盘（登录脚本成功后最后一步写 WEIXIN_ACCOUNT_ID）；脚本自行退出（超时/失败）即停止等待。
+                // Delay 必须吃 ct：否则点了「跳过」后旧流程仍会在下一次扫码成功时切走页面。
                 while (!ct.IsCancellationRequested)
                 {
                     if (EnvHasWeixin()) break;
                     if (p.HasExited) break;
-                    await Task.Delay(2000, CancellationToken.None);
+                    try { await Task.Delay(2000, ct); }
+                    catch (OperationCanceledException) { break; }
                 }
                 try { if (!p.HasExited) p.Kill(true); } catch { }
                 try { await readerTask; } catch { }
+
+                // 已取消（用户点跳过 / 离开本页）：到此为止，绝不触碰页面
+                if (ct.IsCancellationRequested) return;
 
                 if (!EnvHasWeixin())
                 {
@@ -1335,6 +1329,7 @@ namespace HerMemory
             }
             catch (Exception ex)
             {
+                if (ct.IsCancellationRequested) return;
                 SetQr("微信接入异常：" + ex.Message);
                 Dispatcher.Invoke(() => BtnQrRetry.Visibility = Visibility.Visible);
             }
@@ -1392,6 +1387,9 @@ namespace HerMemory
 
         private async Task AfterWechatAsync()
         {
+            // 取消闸门：用户已跳过或已离开二维码页时，不得再改页面（旧流程可能晚于取消完成）
+            if (_qrCts?.IsCancellationRequested == true) return;
+
             if (_wxRebind)
             {
                 // 换绑/重绑成功：重启 gateway 加载新凭据（allowlist 已由 ApplyAllowlist 跟随新微信 ID），回绑定页
@@ -1422,13 +1420,16 @@ namespace HerMemory
             {
                 DoneText.Text = "HerMemory 已就绪。" + warn + Environment.NewLine +
                     "在微信发送首条消息，AI 将自我介绍并引导完成剩余部署。" + Environment.NewLine +
-                    "② 记忆是纯文本：vault\\HerMemory\\memory\\ 下任何文件随时可看可改，开新对话即生效。";
+                    "② 记忆是纯文本：vault\\HerMemory\\memory\\ 下任何文件随时可看可改，开新对话即生效。" + Environment.NewLine +
+                    "③ 点「完成」进入主界面；系统托盘已常驻，可随时启停 Gateway。";
                 ShowPage("PageDone");
+                App.Inst?.EnterHomeMode(this);   // 装完当次会话即有托盘，无需重开本程序
             });
         }
 
         private void BtnQrRetry_Click(object sender, RoutedEventArgs e)
         {
+            try { _qrCts?.Cancel(); } catch { }   // 兜底：确保没有上一轮残留流程在跑
             BtnQrRetry.Visibility = Visibility.Collapsed;
             StartQrFlow();
         }
@@ -1438,17 +1439,20 @@ namespace HerMemory
             _qrCts?.Cancel();
             if (_wxRebind)
             {
-                // 重绑中途取消：恢复 gateway（保持解绑前运行态语义），回绑定页如实回显状态
+                // 重绑中途取消：恢复解绑前的运行态（原来是停的就保持停），回绑定页如实回显状态
                 _wxRebind = false;
-                _ = Task.Run(() => { try { HermesCtl.Run("gateway start", 60); } catch { } });
+                var prev = _wxPrevRunning;
+                _ = Task.Run(() => { if (prev) { try { HermesCtl.Run("gateway start", 60); } catch { } } });
                 Dispatcher.Invoke(() => { ShowPage("PageWeixin"); UpdateWeixinStatus(); });
                 return;
             }
             Dispatcher.Invoke(() =>
             {
                 DoneText.Text = "安装完成，微信暂未接入。" + Environment.NewLine +
-                    "可随时重新接入：主界面「微信绑定」，或重新运行安装向导。";
+                    "可随时重新接入：主界面「微信绑定」，或重新运行安装向导。" + Environment.NewLine +
+                    "点「完成」进入主界面；系统托盘已常驻，可随时启停 Gateway。";
                 ShowPage("PageDone");
+                App.Inst?.EnterHomeMode(this);
             });
         }
 
@@ -1472,7 +1476,12 @@ namespace HerMemory
                 Process.Start(new ProcessStartInfo("explorer.exe", $"\"{dir}\"") { UseShellExecute = true });
         }
 
-        private void BtnFinish_Click(object sender, RoutedEventArgs e) => Close();
+        private void BtnFinish_Click(object sender, RoutedEventArgs e)
+        {
+            // 全新安装完成时已置为日常态（托盘已建）：进主界面而不是关窗口
+            if (HomeMode) GoHome();
+            else Close();
+        }
 
         // ================= 卸载 =================
         private static string VaultDir => Path.Combine(
@@ -1497,7 +1506,6 @@ namespace HerMemory
         private void BtnUninsRun_Click(object sender, RoutedEventArgs e)
         {
             var delVault = UninsVault.IsChecked == true;
-            var delExe = UninsExe.IsChecked == true;
             if (delVault)
             {
                 var r = System.Windows.MessageBox.Show(this,
@@ -1508,10 +1516,9 @@ namespace HerMemory
             BtnUninsRun.IsEnabled = false;
             BtnUninsBack.IsEnabled = false;
             UninsVault.IsEnabled = false;
-            UninsExe.IsEnabled = false;
             UninsBar.Visibility = Visibility.Visible;
             UninsBar.Value = 2;
-            _ = Task.Run(() => DoUninstall(delVault, delExe));
+            _ = Task.Run(() => DoUninstall(delVault));
         }
 
         private void SetUnins(string text, int? pct = null) => Dispatcher.Invoke(() =>
@@ -1520,12 +1527,14 @@ namespace HerMemory
             if (pct.HasValue) UninsBar.Value = pct.Value;
         });
 
-        private void DoUninstall(bool delVault, bool delExe)
+        /// <summary>卸载：清软件本体与配置。vault 默认保留。
+        /// 不删 exe 自身（用户自行删除本程序文件）——卸载功能只负责把 HerMemory 装进去的东西清干净。</summary>
+        private void DoUninstall(bool delVault)
         {
             SetUnins("停止网关……", 5);
             HermesCtl.Run("gateway stop", 60);
 
-            SetUnins("移除登录项与计划任务……", 15);
+            SetUnins("移除登录项与计划任务……", 12);
             try
             {
                 var vbs = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -1544,7 +1553,7 @@ namespace HerMemory
             }
             catch { }
 
-            SetUnins("移除自启项与偏好设置……", 25);
+            SetUnins("移除自启项与偏好设置……", 20);
             try
             {
                 using (var k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run", true))
@@ -1553,20 +1562,22 @@ namespace HerMemory
             }
             catch { }
 
-            SetUnins("移除注入槽位……", 35);
+            // 只删内嵌发行包缓存，不删 HerMemory 目录本身——用户可能把本程序放在该目录下
+            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            var payloadCache = Path.Combine(localAppData, "HerMemory", "payload");
+            SetUnins("移除内嵌发行包缓存……", 26);
+            try
+            {
+                if (Directory.Exists(payloadCache)) Directory.Delete(payloadCache, true);
+            }
+            catch { }
+
+            SetUnins("移除注入槽位……", 32);
             try
             {
                 var slot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".hermes.md");
                 if (File.Exists(slot) && ((new FileInfo(slot).Attributes & FileAttributes.ReparsePoint) != 0
                     || new FileInfo(slot).Length == 0)) File.Delete(slot);
-            }
-            catch { }
-
-            SetUnins("移除内嵌发行包缓存……", 33);
-            try
-            {
-                var cache = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HerMemory");
-                if (Directory.Exists(cache)) Directory.Delete(cache, true);
             }
             catch { }
 
@@ -1587,34 +1598,30 @@ namespace HerMemory
                 try { Directory.Delete(hh, true); } catch { }
             }
 
-            var pct = 80;
             if (delVault)
             {
-                SetUnins("删除 vault……", pct);
+                SetUnins("删除 vault……", 80);
                 try { if (Directory.Exists(VaultDir)) Directory.Delete(VaultDir, true); } catch { }
-                pct = 92;
             }
 
-            if (delExe)
-            {
-                // 自删：进程退出后由 cmd 延迟删除 exe 自身
-                var exe = Environment.ProcessPath;
-                if (exe != null && File.Exists(exe))
-                {
-                    try
-                    {
-                        Process.Start(new ProcessStartInfo("cmd.exe",
-                            $"/c ping -n 3 127.0.0.1 > nul & del /f /q \"{exe}\"")
-                        { CreateNoWindow = true, UseShellExecute = false });
-                    }
-                    catch { }
-                }
-            }
+            // 残留核对：删除可能因文件占用失败（残留 venv/python 进程、资源管理器句柄等）。
+            // 旧实现一律报"已移除全部软件痕迹"——静默失败比失败本身更糟，此处如实列出。
+            var left = new List<string>();
+            if (Directory.Exists(hh)) left.Add(hh);
+            if (Directory.Exists(payloadCache)) left.Add(payloadCache);
+            if (delVault && Directory.Exists(VaultDir)) left.Add(VaultDir);
 
-            SetUnins("卸载完成。", 100);
+            SetUnins(left.Count == 0 ? "卸载完成。" : "卸载已完成，但有残留。", 100);
             Dispatcher.Invoke(() =>
             {
-                UninsStatus.Text = delExe ? "卸载完成——本程序文件也将被移除。" : "卸载完成，已移除全部软件痕迹" + (delVault ? "。" : "；vault 已保留。");
+                // 内核已删：撤掉托盘并退回向导态，否则托盘会继续指向一个不存在的安装，关窗只留幽灵进程
+                App.Inst?.LeaveHomeMode(this);
+                UninsStatus.Text = left.Count == 0
+                    ? "卸载完成，已移除全部软件痕迹" + (delVault ? "（含 vault）。" : "；vault 已保留。")
+                      + Environment.NewLine + "本程序文件请自行删除。"
+                    : "卸载已完成，但以下目录未能完全删除（多为文件被占用）：" + Environment.NewLine
+                      + string.Join(Environment.NewLine, left) + Environment.NewLine
+                      + "关闭占用程序后可手动删除。" + (delVault ? "" : "vault 已保留。");
                 BtnUninsClose.Visibility = Visibility.Visible;
             });
         }
