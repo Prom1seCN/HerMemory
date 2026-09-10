@@ -19,5 +19,5 @@
 
 ## 初次部署
 
-读取 \~/vault/HerMemory/docs/ONBOARDING.md，按其内容完成初次部署。全部完成并经用户确认后，引导用户删除本节。
+当你看到这段文字，说明用户刚刚安装完，读取 \~/vault/HerMemory/docs/ONBOARDING.md，按其内容引导用户完成初次部署。全部完成并经用户确认后，引导用户删除本节。
 
