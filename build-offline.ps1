@@ -54,14 +54,61 @@ $Work = Join-Path $OutDir "work"
 New-Item -ItemType Directory -Force -Path $Assets, $Work | Out-Null
 $sw = [Diagnostics.Stopwatch]::StartNew()
 
-# ---------- 1. Python 3.11 运行时（PBS，npmmirror 直连） ----------
-$pyOut = Join-Path $Assets "python-pbs.tar.gz"
-if (-not (Test-Path $pyOut)) {
-    Fetch "https://registry.npmmirror.com/-/binary/python-build-standalone/20260901/cpython-3.11.16+20260901-x86_64-pc-windows-msvc-install_only.tar.gz" $pyOut
-    Ok "python-pbs.tar.gz"
-} else { Write-Host "[跳过] python-pbs.tar.gz 已存在" }
+# ---------- 1. uv（github latest；单文件 exe）——提前：Python 托管安装需要它 ----------
+$uvExe = Join-Path $Assets "uv.exe"
+if (-not (Test-Path $uvExe)) {
+    $uvZip = Join-Path $Work "uv.zip"
+    Fetch "https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip" $uvZip
+    $uvTmp = Join-Path $Work "uv-tmp"
+    if (Test-Path $uvTmp) { Remove-Item -Recurse -Force $uvTmp }
+    New-Item -ItemType Directory -Force -Path $uvTmp | Out-Null
+    ExtractTar $uvZip $uvTmp
+    $uvFound = Get-ChildItem $uvTmp -Recurse -Filter "uv.exe" | Select-Object -First 1
+    if (-not $uvFound) { throw "uv.zip 里没找到 uv.exe" }
+    Copy-Item $uvFound.FullName $uvExe -Force
+    Ok "uv.exe"
+} else { Write-Host "[跳过] uv.exe 已存在" }
 
-# ---------- 2. Node 22（npmmirror，版本实测钉死——不做任何列表解析） ----------
+# ---------- 2. Python 3.11 运行时（uv 托管安装格式，2026-09-10 重做） ----------
+# 为什么不是裸 PBS tar.gz：上游只用 `uv python find 3.11` 定位解释器，它**不读 PATH**，
+# 只认 uv 自己安装的「托管布局」（含 .gitignore/.lock 元数据 + 精确版本与次版本双目录）。
+# 手工解 PBS 到任意目录 + 塞 PATH 的方案在 VM 实录必然失败（No interpreter found）。
+# 正确做法：打包时用 uv 真装一次，把整个托管根目录打进去；安装时落位并把 UV_PYTHON_INSTALL_DIR 指向它。
+$pyManaged = Join-Path $Assets "uv-python"
+if (-not (Test-Path (Join-Path $pyManaged "cpython-3.11-windows-x86_64-none\python.exe"))) {
+    if (Test-Path $pyManaged) { Remove-Item -Recurse -Force $pyManaged }
+    New-Item -ItemType Directory -Force -Path $pyManaged | Out-Null
+    $prevEapPy = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+    $env:UV_PYTHON_INSTALL_DIR = $pyManaged
+    $env:UV_PYTHON_INSTALL_MIRROR = "https://registry.npmmirror.com/-/binary/python-build-standalone"
+    & $uvExe python install 3.11 2>&1 | ForEach-Object { Write-Host "  $_" }
+    $ErrorActionPreference = $prevEapPy
+    $env:UV_PYTHON_INSTALL_DIR = $null
+    $env:UV_PYTHON_INSTALL_MIRROR = $null
+    if (-not (Test-Path (Join-Path $pyManaged "cpython-3.11-windows-x86_64-none\python.exe"))) {
+        throw "uv 托管 Python 安装失败——检查网络/镜像后重跑"
+    }
+    # uv 在 Windows 上把次版本目录（-3.11-）建成指向精确版本目录（-3.11.16-）的**符号链接**。
+    # zip 不保留 symlink，解压后会退化成 0 字节文件/空目录 → uv 扫不到 3.11。
+    # 对策：实体化——删掉链接，用真实目录副本替换（两个目录内容相同，各 ~75MB，可接受）。
+    $aliasDir = Join-Path $pyManaged "cpython-3.11-windows-x86_64-none"
+    $realDir = Join-Path $pyManaged "cpython-3.11.16-windows-x86_64-none"
+    $aliasItem = Get-Item $aliasDir -Force -ErrorAction SilentlyContinue
+    if ($aliasItem -and ($aliasItem.LinkType -or -not (Test-Path (Join-Path $aliasDir "python.exe")))) {
+        Write-Host "  实体化 symlink：$($aliasItem.LinkType)"
+        Remove-Item $aliasDir -Recurse -Force -ErrorAction SilentlyContinue
+        Copy-Item $realDir $aliasDir -Recurse -Force
+    }
+    # 保留 uv 元数据（.gitignore / .lock 必须有，否则 uv 不认该目录为自己的托管安装）
+    foreach ($meta in @(".gitignore", ".lock")) {
+        $mp = Join-Path $pyManaged $meta
+        if (-not (Test-Path $mp)) { New-Item -ItemType File -Force -Path $mp | Out-Null }
+    }
+    Set-Content (Join-Path $pyManaged ".gitignore") "*" -NoNewline
+    Ok "uv-python（uv 托管布局；symlink 已实体化；含 .gitignore/.lock 元数据）"
+} else { Write-Host "[跳过] uv-python 已存在" }
+
+# ---------- 3. Node 22（npmmirror，版本实测钉死——不做任何列表解析） ----------
 $nodeVer = "22.23.0"   # 2026-09-10 实测 npmmirror HTTP 200（34MB）；须满足上游 engines ^22.22.0（npm ci EBADENGINE 教训），升级时改这里并重验
 $nodeZip = Join-Path $Assets "node-v$nodeVer-win-x64.zip"
 $nodeWork = Join-Path $Work "node-$nodeVer"
@@ -76,21 +123,6 @@ if (-not (Test-Path (Join-Path $nodeWork "node.exe"))) {
     Move-Item $inner.FullName $nodeWork
     Ok "node 自举解压"
 }
-
-# ---------- 3. uv（github latest；单文件 exe） ----------
-$uvExe = Join-Path $Assets "uv.exe"
-if (-not (Test-Path $uvExe)) {
-    $uvZip = Join-Path $Work "uv.zip"
-    Fetch "https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip" $uvZip
-    $uvTmp = Join-Path $Work "uv-tmp"
-    if (Test-Path $uvTmp) { Remove-Item -Recurse -Force $uvTmp }
-    New-Item -ItemType Directory -Force -Path $uvTmp | Out-Null
-    ExtractTar $uvZip $uvTmp
-    $uvFound = Get-ChildItem $uvTmp -Recurse -Filter "uv.exe" | Select-Object -First 1
-    if (-not $uvFound) { throw "uv.zip 里没找到 uv.exe" }
-    Copy-Item $uvFound.FullName $uvExe -Force
-    Ok "uv.exe"
-} else { Write-Host "[跳过] uv.exe 已存在" }
 
 # ---------- 4. PortableGit（github；7z 自解压器，安装期 -o -y 展开） ----------
 $gitOut = Join-Path $Assets "portable-git.7z.exe"
@@ -230,7 +262,10 @@ if (-not $SkipNpmCache) {
 Ok "THIRD-PARTY-NOTICES.txt"
 
 # ---------- 10. manifest（清单 + 哈希）+ 打包 ----------
-$files = Get-ChildItem $Assets -Recurse -File
+# 清理 uv 运行时残留（不影响功能，徒增体积）
+Remove-Item (Join-Path $Assets "uv-python\.temp") -Recurse -Force -ErrorAction SilentlyContinue
+# -Force 必须：uv 元数据是隐藏文件（.gitignore/.lock），漏掉会导致解压后 uv 不认托管目录
+$files = Get-ChildItem $Assets -Recurse -File -Force
 $manifest = [ordered]@{
     tag = $Tag
     generated = (Get-Date).ToUniversalTime().ToString("o")

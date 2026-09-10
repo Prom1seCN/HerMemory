@@ -347,60 +347,54 @@ if (Test-Done "upstream") {
         Log "镜像加速：PyPI→清华 / npm→npmmirror / Playwright→npmmirror / Python 运行时→$pbsSource（GitHub 直连残留项上游自带重试与兜底）"
     }
 
-    # ---------- 2.4 Python 3.11 预置（把 PBS 下载从 uv 关键路径上摘掉） ----------
-    # 沙盒六轮实证：探测全过（mode=off、pbs 探针 OK）不等于 20 分钟后那次 24MB 下载能过——波动网络里探测不承诺任何事。
-    # 对策：把真的 Python 3.11 直接放进 PATH——上游 Install-Python 第一步 `uv python find 3.11` 即命中"search path"，
-    # 完全跳过 uv 托管下载（错误 "No interpreter found ... search path" 反证了该搜索路径的存在）。
-    # 仅镜像场景执行（pbs=npmmirror/ghproxy）；海外直连场景（pbs=default）维持 uv 默认，避免跨洋 CDN 反而拖慢。
+    # ---------- 2.4 Python 3.11 预置（离线：落位 uv 托管安装） ----------
+    # 关键事实（2026-09-10 本机实证）：上游只用 `uv python find 3.11` 定位解释器，
+    # **它不读 PATH**，只认 uv 自己安装的托管布局（含 .gitignore/.lock 元数据、精确版本+次版本双目录）。
+    # 因此离线包内预置的是「uv 真装出来的托管根目录」（uv-python/），落位后把 UV_PYTHON_INSTALL_DIR 指过去——
+    # uv python find 即刻命中，跳过任何下载。旧方案（解 PBS 到任意目录 + 塞 PATH）VM 实录必然失败。
     if ($IsOffline) {
-        # 离线：Python 运行时直接取自内嵌 assets
-        $pyDir = Join-Path $HermesHome "python-3.11"
-        $pyExe = Join-Path $pyDir "python\python.exe"
-        if (Test-Path $pyExe) {
+        $pyInstallDir = Join-Path $HermesHome "uv-python"
+        $pyManaged = Join-Path $pyInstallDir "cpython-3.11-windows-x86_64-none\python.exe"
+        if (Test-Path $pyManaged) {
             Log "Python 预置：已在（离线，跳过）"
         } else {
-            Log "Python 预置：解压内嵌 CPython 3.11 运行时……"
-            New-Item -ItemType Directory -Force -Path $pyDir | Out-Null
-            tar -xzf (Join-Path $OfflineDir "python-pbs.tar.gz") -C $pyDir
-            if (Test-Path $pyExe) { Ok "Python 3.11 已预置（离线，上游将直接命中）" }
-            else { Die "离线 Python 解压异常（缺 python\python.exe）——内嵌资源包不完整，请重新获取 HerMemory 离线版" }
+            Log "Python 预置：落位内嵌 uv 托管 Python 3.11……"
+            $pySrc = Join-Path $OfflineDir "uv-python"
+            if (-not (Test-Path (Join-Path $pySrc "cpython-3.11-windows-x86_64-none\python.exe"))) {
+                Die "离线包内缺 uv-python 托管目录——内嵌资源包不完整，请重新获取 HerMemory 离线版"
+            }
+            if (Test-Path $pyInstallDir) { Remove-Item $pyInstallDir -Recurse -Force -ErrorAction SilentlyContinue }
+            # 整目录复制（含 .gitignore/.lock 等 uv 元数据，缺一不可）
+            Copy-Item $pySrc $pyInstallDir -Recurse -Force
+            if (Test-Path $pyManaged) { Ok "Python 3.11 已预置（uv 托管，上游 uv python find 将直接命中）" }
+            else { Die "离线 Python 落位异常（缺 cpython-3.11-windows-x86_64-none\python.exe）——请重新获取 HerMemory 离线版" }
         }
-        if (Test-Path $pyExe) { $env:Path = (Split-Path $pyExe) + ";$env:Path" }
+        # 指向上游：uv 通过该环境变量定位托管解释器（上游 Install-Python 第一步即 uv python find）
+        $env:UV_PYTHON_INSTALL_DIR = $pyInstallDir
     } elseif ($pbsSource -in @("npmmirror", "ghproxy")) {
-        $pyDir = Join-Path $HermesHome "python-3.11"
-        $pyExe = Join-Path $pyDir "python\python.exe"
-        $pyAsset = "cpython-3.11.16+20260901-x86_64-pc-windows-msvc-install_only.tar.gz"
-        $pyBase1 = "https://registry.npmmirror.com/-/binary/python-build-standalone/20260901/$pyAsset"
-        $pyBase2 = "https://ghproxy.net/https://github.com/astral-sh/python-build-standalone/releases/download/20260901/$pyAsset"
-        if (Test-Path $pyExe) {
-            Log "Python 预置：已在（跳过下载）"
+        # 在线镜像场景：仍用 uv 自己装（配 UV_PYTHON_INSTALL_MIRROR），不再手工解 PBS
+        $pyInstallDir = Join-Path $HermesHome "uv-python"
+        $env:UV_PYTHON_INSTALL_DIR = $pyInstallDir
+        if (Test-Path (Join-Path $pyInstallDir "cpython-3.11-windows-x86_64-none\python.exe")) {
+            Log "Python 预置：已在（跳过）"
         } else {
-            $pySources = if ($pbsSource -eq "npmmirror") { @($pyBase1, $pyBase2) } else { @($pyBase2, $pyBase1) }
-            $pyTmp = Join-Path $env:TEMP "hm-py311.tar.gz"
-            $pyOk = $false
-            foreach ($pySrc in $pySources) {
-                Log "Python 预置：下载 cpython-3.11.16（约 24MB，源：$(([uri]$pySrc).Host)）……"
-                try {
-                    Invoke-WebRequest -Uri $pySrc -OutFile $pyTmp -UseBasicParsing
-                    $pyOk = $true; break
-                } catch {
-                    $whyPy = $_.Exception.Message
-                    if ($_.Exception.InnerException) { $whyPy += " <- $($_.Exception.InnerException.Message)" }
-                    Warn "Python 预置：该源失败（$(([uri]$pySrc).Host)）：$whyPy"
-                    Remove-Item $pyTmp -Force -ErrorAction SilentlyContinue
-                }
+            Log "Python 预置：uv 下载 CPython 3.11（镜像 $pbsSource）……"
+            if (-not $env:UV_PYTHON_INSTALL_MIRROR) {
+                $env:UV_PYTHON_INSTALL_MIRROR = if ($pbsSource -eq "npmmirror") {
+                    "https://registry.npmmirror.com/-/binary/python-build-standalone"
+                } else { $GhProxy + "https://github.com/astral-sh/python-build-standalone/releases/download" }
             }
-            if ($pyOk) {
-                New-Item -ItemType Directory -Force -Path $pyDir | Out-Null
-                tar -xzf $pyTmp -C $pyDir
-                Remove-Item $pyTmp -Force -ErrorAction SilentlyContinue
-                if (Test-Path $pyExe) { Ok "Python 3.11.16 已预置（上游将直接命中，跳过 uv 托管下载）" }
-                else { Warn "Python 预置解压异常——回落 uv 默认流程（镜像已配）" }
+            New-Item -ItemType Directory -Force -Path $pyInstallDir | Out-Null
+            $prevEapPy = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+            $uvPyOut = & (Join-Path $HermesHome "bin\uv.exe") python install 3.11 2>&1
+            $ErrorActionPreference = $prevEapPy
+            if (Test-Path (Join-Path $pyInstallDir "cpython-3.11-windows-x86_64-none\python.exe")) {
+                Ok "Python 3.11 已由 uv 安装（上游将直接命中）"
             } else {
-                Warn "Python 预置双源均失败——回落 uv 默认流程（镜像已配）"
+                Warn "Python 预置失败——回落 uv 默认流程（镜像已配）"
+                Warn ($uvPyOut | Select-Object -Last 3 | Out-String)
             }
         }
-        if (Test-Path $pyExe) { $env:Path = (Split-Path $pyExe) + ";$env:Path" }
     }
 
     # ---------- 2.45 Node.js 22 预置（境内实测：上游 Stage-Node 直连 nodejs.org/dist 且 Invoke-WebRequest 无超时，常无限挂起） ----------
