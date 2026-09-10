@@ -32,8 +32,7 @@ namespace HerMemory
         public MainWindow()
         {
             InitializeComponent();
-            // 标题栏构建戳：任何页面一眼确认跑的是哪个包（根治"用旧包测新修复"类混淆）
-            try { var self = SelfPath; if (self.Length > 0) Title = "HerMemory · 构建 " + File.GetLastWriteTime(self).ToString("MM-dd HH:mm"); } catch { }
+            // 标题栏保持纯名字（用户定：不显示构建时间戳）
             ThemeGlyph.Text = Theme.IsDark ? "☾" : "☀";
             Loaded += async (_, _) =>
             {
@@ -759,8 +758,7 @@ namespace HerMemory
         private async Task RunPrecheckAsync()
         {
             var notes = new List<string>();
-            // 构建戳：exe 文件修改时间即构建时间——沙盒/多包测试一眼确认跑的是哪个包，杜绝"用旧包测新修复"
-            try { BuildStamp.Text = "构建戳：" + File.GetLastWriteTime(Environment.ProcessPath!).ToString("yyyy-MM-dd HH:mm:ss"); } catch { }
+            // 构建戳显示已移除（用户定）；payload 新鲜度仍由 .hm-payload-stamp 机制保证
             // 仓库定位：从 exe 所在目录逐级向上找 install.ps1；找不到则解压内嵌发行包（裸 exe 分发，无需仓库文件随行）
             _repoRoot = FindRepoRoot();
             if (_repoRoot == null)
@@ -779,7 +777,7 @@ namespace HerMemory
             // 离线版预检改为「离线资源包在场」：payload 解压后 assets-offline.zip 应与 install.ps1 同目录。
             bool offlinePack = File.Exists(Path.Combine(PayloadDir, "assets-offline.zip"));
             notes.Add(offlinePack
-                ? "√ 离线资源包已就位（安装全程无需网络）"
+                ? "√ 离线资源包已就位"
                 : "△ 未发现离线资源包——将走在线镜像安装（需网络）");
 
             bool allOk = _repoRoot != null;

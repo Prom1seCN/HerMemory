@@ -192,7 +192,7 @@
             <TextBlock Grid.Row="4" Margin="0,14,0,0" FontSize="11.5" Foreground="#B0BEC5"
                        Text="符号链接需要开发者模式或管理员权限；以管理员身份运行可免去设置。"/>
             <!-- 构建戳：沙盒/多包测试时一眼确认跑的是哪个包（取 exe 文件修改时间） -->
-            <TextBlock x:Name="BuildStamp" Grid.Row="4" Margin="0,34,0,0" FontSize="10.5" Foreground="#CFD8DC"/>
+            <TextBlock Grid.Row="4" Margin="0,34,0,0" FontSize="10.5" Foreground="#CFD8DC"/>
         </Grid>
 
         <!-- ===== 页 2：参数收集 ===== -->
