@@ -255,6 +255,10 @@
                 <TextBlock x:Name="InstallDetail" FontSize="12" Foreground="#90A4AE" TextWrapping="Wrap" MaxHeight="180"/>
                 <!-- 失败原因：红字，位于「重新安装」按钮上方（按钮由代码追加到本面板末尾） -->
                 <TextBlock x:Name="InstallFail" FontSize="12.5" Foreground="#C62828" TextWrapping="Wrap" Margin="0,14,0,0" Visibility="Collapsed"/>
+                <!-- 中止安装：安装链若卡住（未发现的交互点 / 网络停滞），超时上限之前用户也能自己退出 -->
+                <Button x:Name="BtnInstallAbort" Content="中止安装" Style="{StaticResource GhostButton}"
+                        HorizontalAlignment="Left" Margin="0,16,0,0" Padding="16,7,16,7"
+                        Visibility="Collapsed" Click="BtnInstallAbort_Click"/>
             </StackPanel>
             <!-- 轮换提示：固定窗口底部、灰色弱化——与安装器真实输出物理分离，不再混淆 -->
             <TextBlock x:Name="InstallTip" Grid.Row="1" FontSize="11.5" Foreground="#B0BEC5" TextWrapping="Wrap" Margin="0,0,0,2"/>

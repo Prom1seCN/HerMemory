@@ -1,4 +1,5 @@
-﻿using System.Windows;
+﻿using System.IO;
+using System.Windows;
 
 namespace HerMemory
 {
@@ -31,12 +32,83 @@ namespace HerMemory
         private void EnsureTray()
         {
             if (_tray != null) return;
-            _tray = new TrayService();
-            _tray.OpenWizard += () => Dispatcher.Invoke(ShowWizard);
-            _tray.OpenMain += () => Dispatcher.Invoke(ShowMain);
-            _tray.OpenUninstall += () => Dispatcher.Invoke(ShowUninstall);
-            _tray.OpenWeixin += () => Dispatcher.Invoke(ShowWeixinFromTray);
-            _tray.StatusChanged += (state, _) => Dispatcher.Invoke(() => _wizard?.UpdateHomeStatus(state));
+            try
+            {
+                _tray = new TrayService();
+            }
+            catch (Exception ex)
+            {
+                // 托盘建不起来（图标资源缺失 / NotifyIcon 被策略拦）不该让整个程序崩掉：
+                // 主界面仍然可用，只是没有常驻入口。
+                LogCrash(ex, "tray-init");
+                _tray = null;
+                return;
+            }
+            _tray.OpenWizard += () => SafeDispatch(ShowWizard);
+            _tray.OpenMain += () => SafeDispatch(ShowMain);
+            _tray.OpenUninstall += () => SafeDispatch(ShowUninstall);
+            _tray.OpenWeixin += () => SafeDispatch(ShowWeixinFromTray);
+            _tray.StatusChanged += (state, _) => SafeDispatch(() => _wizard?.UpdateHomeStatus(state));
+        }
+
+        /// <summary>跨线程回 UI 的安全派发：程序正在退出时 Dispatcher 会拒绝（抛 TaskCanceled/
+        /// InvalidOperation）——托盘事件与后台轮询晚到一步就会踩到，此处直接丢弃。</summary>
+        private static void SafeDispatch(Action act)
+        {
+            var app = Current;
+            if (app == null || app.Dispatcher.HasShutdownStarted || app.Dispatcher.HasShutdownFinished) return;
+            try { app.Dispatcher.Invoke(act); } catch { }
+        }
+
+        // —— 全局异常兜底 ——
+        // 托盘常驻程序最怕"静默死亡"：UI 事件里一个未处理异常就整进程消失，
+        // 托盘没了、用户毫不知情，而 gateway 还在后台跑。这里记日志 + 一次性提示，尽量让进程活着。
+        private static int _crashWarned;
+
+        private static void InstallCrashHandlers()
+        {
+            Current!.DispatcherUnhandledException += (_, args) =>
+            {
+                LogCrash(args.Exception, "dispatcher");
+                args.Handled = true;   // 不掀掉整个进程
+                if (System.Threading.Interlocked.Exchange(ref _crashWarned, 1) == 0)
+                {
+                    try
+                    {
+                        System.Windows.MessageBox.Show(
+                            "HerMemory 遇到一个内部错误，已记录日志。\n"
+                            + "功能可能受影响，必要时请从托盘退出并重新打开。\n\n"
+                            + "日志：%LOCALAPPDATA%\\hermes\\logs\\hermemory-crash.log",
+                            "HerMemory", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    }
+                    catch { }
+                }
+            };
+            AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+                LogCrash(args.ExceptionObject as Exception, "appdomain");
+            TaskScheduler.UnobservedTaskException += (_, args) =>
+            {
+                LogCrash(args.Exception, "task");
+                args.SetObserved();    // 后台任务里被丢弃的异常不该在 GC 时掀翻进程
+            };
+        }
+
+        /// <summary>崩溃日志：追加到 hermes\logs\hermemory-crash.log，单文件上限约 1MB（超了轮换）。
+        /// 记录本身绝不能再抛异常——那会在异常处理器里二次崩溃。</summary>
+        private static void LogCrash(Exception? ex, string kind)
+        {
+            try
+            {
+                if (ex == null) return;
+                var dir = Path.Combine(HermesCtl.HermesHome, "logs");
+                Directory.CreateDirectory(dir);
+                var f = Path.Combine(dir, "hermemory-crash.log");
+                try { if (File.Exists(f) && new FileInfo(f).Length > 1_000_000) File.Delete(f); } catch { }
+                File.AppendAllText(f,
+                    $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] [{kind}] {ex}{Environment.NewLine}{Environment.NewLine}",
+                    new System.Text.UTF8Encoding(false));
+            }
+            catch { }
         }
 
         /// <summary>安装成功：补建托盘并把窗口置为日常态，使全新安装的当次会话即可常驻托盘，
@@ -60,8 +132,12 @@ namespace HerMemory
         protected override void OnStartup(StartupEventArgs e)
         {
             base.OnStartup(e);
+            InstallCrashHandlers();
             // .NET 8 缺代码页数据：注册后 Encoding.GetEncoding(936) 才可用（安装器输出按 GBK 解码，见 StartInstall）
             System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
+            // 清掉上次失败留下的安装答案文件（含明文 API Key，失败时被刻意保留以支持续装）
+            // 注意必须 global:: 限定：Application.MainWindow 属性会遮蔽 MainWindow 类名
+            global::HerMemory.MainWindow.PurgeStaleAnswerFiles();
             Theme.Apply();
             var elevateRestart = e.Args.Any(a =>
                 string.Equals(a, "--elevated-attempted", StringComparison.OrdinalIgnoreCase));

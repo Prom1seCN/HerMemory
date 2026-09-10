@@ -21,6 +21,11 @@ namespace HerMemory
         private bool _busy;
         private System.Windows.Forms.ToolStripMenuItem? _miStatus;
 
+        /// <summary>创建托盘时的 UI 线程 Dispatcher。WinForms 控件的属性只能在创建它们的线程上写，
+        /// 而托盘的状态更新有两条路径落在**线程池线程**上：PollAsync 的 await 之后（此处无
+        /// SynchronizationContext 可回落）、RunGw 的 Task.Run 内部。故统一经 Ui() marshal。</summary>
+        private readonly System.Windows.Threading.Dispatcher? _ui;
+
         /// <summary>状态变化（state: running/stopped/unknown, raw: 原始输出）。</summary>
         public event Action<string, string>? StatusChanged;
         /// <summary>左键单击托盘（用户要求：打开主界面）。</summary>
@@ -38,6 +43,11 @@ namespace HerMemory
         {
             // 图标加载一次缓存（构造函数运行在 WPF 主线程 STA）
             _icoLogo = MakeIcon();
+            _ui = System.Windows.Threading.Dispatcher.CurrentDispatcher;
+
+            // 开机自启自愈：exe 被移动/重命名后，Run 键里存的旧路径会让自启项静默失效
+            //（登录时 Windows 找不到目标，不报错、也不启动）。启动时改回当前路径即可。
+            try { if (AutostartEnabled() && AutostartStale()) WriteAutostart(); } catch { }
 
             _menu = new System.Windows.Forms.ContextMenuStrip();
 
@@ -109,49 +119,92 @@ namespace HerMemory
             _ = PollAsync(miStatus);
         }
 
+        /// <summary>把 WinForms 控件操作 marshal 回托盘创建线程（WPF UI 线程）。
+        /// 退出期 Dispatcher 可能已拒绝新工作——吞掉异常，绝不让托盘逻辑把进程带崩。</summary>
+        private void Ui(Action act)
+        {
+            try
+            {
+                if (_ui == null || _ui.CheckAccess()) act();
+                else _ui.BeginInvoke(act);
+            }
+            catch { }
+        }
+
         private async Task PollAsync(System.Windows.Forms.ToolStripMenuItem miStatus)
         {
             if (_busy) return;
             _busy = true;
-            var (state, raw) = await Task.Run(() =>
-            {
-                var raw = HermesCtl.RawStatus();
-                var lower = raw.ToLowerInvariant();
-                // 顺序关键："not running" 也包含 "running"——必须先判否定；二态，读取失败按停止
-                if (lower.Contains("not running") || lower.Contains("stopped")) return ("stopped", raw);
-                if (lower.Contains("running")) return ("running", raw);
-                return ("stopped", raw);
-            });
-            _state = state;
-            _busy = false;
-
+            string state;
+            string raw;
             try
             {
-                // 图标恒为 logo（与 exe 图标同源）；状态只走文字
-                _icon.Text = "HerMemory — " + (state == "running" ? "运行中" : "已停止");
-                miStatus.Text = state == "running" ? "状态：运行中" : "状态：已停止";
+                (state, raw) = await Task.Run(() =>
+                {
+                    var raw = HermesCtl.RawStatus();
+                    var lower = raw.ToLowerInvariant();
+                    // 顺序关键："not running" 也包含 "running"——必须先判否定；二态，读取失败按停止
+                    if (lower.Contains("not running") || lower.Contains("stopped")) return ("stopped", raw);
+                    if (lower.Contains("running")) return ("running", raw);
+                    return ("stopped", raw);
+                });
             }
-            catch { }
+            catch
+            {
+                // 轮询失败不该中断轮询：给一个中性状态即可，下一次 tick 会重试
+                (state, raw) = ("stopped", "");
+            }
+            finally
+            {
+                _busy = false;   // 必须 finally：异常时不清标记 = 轮询永久停摆（状态从此不再更新）
+            }
+            _state = state;
+
+            Ui(() =>
+            {
+                try
+                {
+                    // 图标恒为 logo（与 exe 图标同源）；状态只走文字
+                    _icon.Text = "HerMemory — " + (state == "running" ? "运行中" : "已停止");
+                    miStatus.Text = state == "running" ? "状态：运行中" : "状态：已停止";
+                }
+                catch { }
+            });
             StatusChanged?.Invoke(state, raw);
         }
 
         private void RunGw(string cmd, bool silent = true)
         {
-            _poll.Stop(); // 命令执行期间暂停轮询，避免状态抖动
+            Ui(() => { try { _poll.Stop(); } catch { } }); // 命令执行期间暂停轮询，避免状态抖动
             Task.Run(() =>
             {
-                var r = HermesCtl.Run($"gateway {cmd}", 120);
-                if (!silent)
+                try
                 {
-                    var brief = r.Trim();
-                    if (brief.Length > 300) brief = brief[..300];
-                    _icon.ShowBalloonTip(4000, "HerMemory",
-                        string.IsNullOrWhiteSpace(brief) ? "命令已执行。" : brief,
-                        System.Windows.Forms.ToolTipIcon.Info);
+                    var r = HermesCtl.Run($"gateway {cmd}", 120);
+                    if (!silent)
+                    {
+                        var brief = r.Trim();
+                        if (brief.Length > 300) brief = brief[..300];
+                        Ui(() =>
+                        {
+                            try
+                            {
+                                _icon.ShowBalloonTip(4000, "HerMemory",
+                                    string.IsNullOrWhiteSpace(brief) ? "命令已执行。" : brief,
+                                    System.Windows.Forms.ToolTipIcon.Info);
+                            }
+                            catch { }
+                        });
+                    }
                 }
-                _poll.Start();
-                // 立即刷新一次：不必等下一个 10 秒轮询（避免 tooltip/菜单显示旧状态）
-                if (_miStatus != null) _ = PollAsync(_miStatus);
+                catch { }
+                finally
+                {
+                    // 必须 finally：异常时若没重启轮询，托盘状态会永久冻结
+                    Ui(() => { try { _poll.Start(); } catch { } });
+                    // 立即刷新一次：不必等下一个 10 秒轮询（避免 tooltip/菜单显示旧状态）
+                    if (_miStatus != null) _ = PollAsync(_miStatus);
+                }
             });
         }
 
@@ -165,11 +218,30 @@ namespace HerMemory
             return k?.GetValue(RunValue) != null;
         }
 
-        private static void ToggleAutostart()
+        /// <summary>Run 键里存的路径是否已不是当前 exe（exe 被移动/重命名 → 自启项静默失效）。</summary>
+        private static bool AutostartStale()
+        {
+            using var k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(RunKey);
+            var stored = (k?.GetValue(RunValue) as string ?? "").Trim().Trim('"');
+            var cur = (Environment.ProcessPath ?? "").Trim('"');
+            return stored.Length > 0 && cur.Length > 0
+                && !string.Equals(stored, cur, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static void WriteAutostart()
         {
             using var k = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(RunKey);
-            if (AutostartEnabled()) k.DeleteValue(RunValue, false);
-            else k.SetValue(RunValue, $"\"{Environment.ProcessPath}\"");
+            k.SetValue(RunValue, $"\"{Environment.ProcessPath}\"");
+        }
+
+        private static void ToggleAutostart()
+        {
+            if (AutostartEnabled())
+            {
+                using var k = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(RunKey);
+                k.DeleteValue(RunValue, false);
+            }
+            else WriteAutostart();
         }
 
         // —— 图标：与 exe 图标完全同源（logo 双菱·分距200），从嵌入资源加载 32/16 双尺寸 PNG ——
@@ -210,10 +282,13 @@ namespace HerMemory
 
         public void Dispose()
         {
-            _poll.Stop();
-            _icon.Visible = false;
-            _icon.Dispose();
-            _menu.Dispose();
+            // 逐项 try：任何一项失败都不能阻断其余清理（否则托盘图标会残留在通知区）
+            try { _poll.Stop(); } catch { }
+            try { _poll.Dispose(); } catch { }
+            try { _icon.Visible = false; } catch { }
+            try { _icon.Dispose(); } catch { }
+            try { _menu.Dispose(); } catch { }
+            try { _icoLogo.Dispose(); } catch { }
             GC.SuppressFinalize(this);
         }
     }

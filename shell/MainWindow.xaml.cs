@@ -128,22 +128,30 @@ namespace HerMemory
             var key = new string(CfgKey.Text.Where(c => c >= 0x21 && c <= 0x7E).ToArray());
             if (url.Length == 0 || key.Length == 0) { CfgHint.Text = "请填写 API 地址与 API Key。"; return; }
             _cfgSaving = true;
-            CfgHint.Text = "正在保存……";
-            // 运行中同样允许保存：hermes config set 写的是配置文件，不影响正在跑的进程；
-            // 文案已承诺"可保存"（UpdateCfgRegion），此处不得拒绝——否则出现"能编辑但保存不了"的死结。
-            var state = await Task.Run(HermesCtl.State);
-            var ok2 = await Task.Run(() => HermesCtl.SetModelCfg(url, key));
-            var model = CleanAscii(CfgModelCombo.SelectedItem as string ?? "");
-            if (ok2 && model.Length > 0)
-                await Task.Run(() => HermesCtl.Run($"config set model.default \"{model}\"", 30));
-            _cfgSaving = false;
-            CfgHint.Foreground = Brush(ok2 ? "#2E7D32" : "#C62828");
-            if (!ok2) { CfgHint.Text = "保存失败，请重试。"; return; }
-            var suffix = model.Length > 0 ? $"（默认模型：{model}）" : "";
-            CfgHint.Text = state == "running"
-                ? $"已保存{suffix}；Gateway 正在运行，需停止后重新启动才生效。"
-                : $"已保存{suffix}，启动 Gateway 后生效。";
-            _cfgState = state;
+            try
+            {
+                CfgHint.Text = "正在保存……";
+                // 运行中同样允许保存：hermes config set 写的是配置文件，不影响正在跑的进程；
+                // 文案已承诺"可保存"（UpdateCfgRegion），此处不得拒绝——否则出现"能编辑但保存不了"的死结。
+                var state = await Task.Run(HermesCtl.State);
+                var ok2 = await Task.Run(() => HermesCtl.SetModelCfg(url, key));
+                var model = CleanAscii(CfgModelCombo.SelectedItem as string ?? "");
+                if (ok2 && model.Length > 0)
+                    await Task.Run(() => HermesCtl.Run($"config set model.default \"{model}\"", 30));
+                CfgHint.Foreground = Brush(ok2 ? "#2E7D32" : "#C62828");
+                if (!ok2) { CfgHint.Text = "保存失败，请重试。"; return; }
+                var suffix = model.Length > 0 ? $"（默认模型：{model}）" : "";
+                CfgHint.Text = state == "running"
+                    ? $"已保存{suffix}；Gateway 正在运行，需停止后重新启动才生效。"
+                    : $"已保存{suffix}，启动 Gateway 后生效。";
+                _cfgState = state;
+            }
+            catch (Exception ex)
+            {
+                CfgHint.Foreground = Brush("#C62828");
+                CfgHint.Text = "保存失败：" + ex.Message;
+            }
+            finally { _cfgSaving = false; }   // 必须 finally：异常时不清标记 = 保存按钮永久失效
         }
 
         /// <summary>API 设置页 · 地址检测：与向导同一实现（ProbeUrl，探 {url}/models；无 Key 时 401 也算地址可达）。</summary>
@@ -255,20 +263,24 @@ namespace HerMemory
         {
             if (_homeBusy) return;
             _homeBusy = true;
-            var cmd = sender == HomeStart ? "start" : "stop";
-            HomeStatus.Text = cmd == "stop" ? "正在停止……" : "正在启动……";
-            HomeStatus.Foreground = Brush("#78909C");
-            var pre = _lastState;
-            await Task.Run(() => HermesCtl.Run($"gateway {cmd}", 120));
-            var st = await Task.Run(HermesCtl.State);
-            for (int i = 0; i < 3 && st == pre; i++)   // 状态未翻转则稍候重读（进程收尾有延迟）
+            try
             {
-                await Task.Delay(1500);
-                st = await Task.Run(HermesCtl.State);
+                var cmd = sender == HomeStart ? "start" : "stop";
+                HomeStatus.Text = cmd == "stop" ? "正在停止……" : "正在启动……";
+                HomeStatus.Foreground = Brush("#78909C");
+                var pre = _lastState;
+                await Task.Run(() => HermesCtl.Run($"gateway {cmd}", 120));
+                var st = await Task.Run(HermesCtl.State);
+                for (int i = 0; i < 3 && st == pre; i++)   // 状态未翻转则稍候重读（进程收尾有延迟）
+                {
+                    await Task.Delay(1500);
+                    st = await Task.Run(HermesCtl.State);
+                }
+                _lastState = st;
+                UpdateHomeStatus(st);
             }
-            _lastState = st;
-            UpdateHomeStatus(st);
-            _homeBusy = false;
+            catch (Exception ex) { ReportUiError("启停网关", ex); }
+            finally { _homeBusy = false; }   // 必须 finally：异常时不清标记 = 这两个按钮永久失效
         }
 
         /// <summary>刷新：立即重取 Gateway/WebDAV/档位/配置区状态（与 10s 托盘轮询同一入口）。</summary>
@@ -276,12 +288,37 @@ namespace HerMemory
         {
             if (_homeBusy) return;
             _homeBusy = true;
-            HomeStatus.Text = "正在刷新……";
-            HomeStatus.Foreground = Brush("#78909C");
-            var st = await Task.Run(HermesCtl.State);
-            _lastState = st;
-            UpdateHomeStatus(st);
-            _homeBusy = false;
+            try
+            {
+                HomeStatus.Text = "正在刷新……";
+                HomeStatus.Foreground = Brush("#78909C");
+                var st = await Task.Run(HermesCtl.State);
+                _lastState = st;
+                UpdateHomeStatus(st);
+            }
+            catch (Exception ex) { ReportUiError("刷新状态", ex); }
+            finally { _homeBusy = false; }
+        }
+
+        /// <summary>async void 事件处理器里的异常无人接管 → 会直接掀掉进程。
+        /// 统一收集到这里：状态栏如实回显 + 写崩溃日志（全局 handler 也兜一层，但这里能给出上下文）。</summary>
+        private void ReportUiError(string what, Exception ex)
+        {
+            try
+            {
+                HomeStatus.Text = $"{what}失败：{ex.Message}";
+                HomeStatus.Foreground = Brush("#C62828");
+            }
+            catch { }
+            try
+            {
+                var dir = Path.Combine(HermesHome, "logs");
+                Directory.CreateDirectory(dir);
+                File.AppendAllText(Path.Combine(dir, "hermemory-crash.log"),
+                    $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] [ui:{what}] {ex}{Environment.NewLine}{Environment.NewLine}",
+                    new UTF8Encoding(false));
+            }
+            catch { }
         }
 
         // ================= 一键导出（原生实现，包结构与 export.sh 一致） =================
@@ -471,6 +508,20 @@ namespace HerMemory
         // ================= 关闭行为：注册表勾选（托盘菜单可改）= 直接最小化；否则每次询问 =================
         protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
         {
+            // 安装进行中退出：install.ps1 会变成孤儿在后台继续跑（UI 收不到任何输出、写入管道也会断），
+            // 结果是一个用户完全看不见的半成品安装。明确告知并要求确认，确认后杀掉子进程。
+            if (!ReallyExit && InstallInProgress)
+            {
+                var r = System.Windows.MessageBox.Show(
+                    "安装正在进行。退出将中断安装（已完成步骤在下次安装时自动跳过）。确定退出？",
+                    "HerMemory", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
+                if (r != MessageBoxResult.Yes) { e.Cancel = true; return; }
+                AbortInstallProcess();
+                ReallyExit = true;
+                base.OnClosing(e);
+                return;
+            }
+
             if (ReallyExit || !HomeMode) { base.OnClosing(e); return; }
 
             if (HermesCtl.CloseMinimizeEnabled()) { e.Cancel = true; HideToTray(); return; }
@@ -485,6 +536,31 @@ namespace HerMemory
                 HideToTray();
             }
             else { ReallyExit = true; Close(); }
+        }
+
+        /// <summary>安装子进程是否仍在跑（退出保护用）。</summary>
+        private bool InstallInProgress
+        {
+            get { try { return _installProc != null && !_installProc.HasExited; } catch { return false; } }
+        }
+
+        /// <summary>窗口真正关闭时的收尾：停掉提示轮播定时器、释放二维码 CTS。
+        /// 只"最小化到托盘"不触发（窗口并未关闭），故不影响仍在跑的流程。</summary>
+        protected override void OnClosed(EventArgs e)
+        {
+            try { _tipTimer?.Stop(); } catch { }
+            try { _qrCts?.Cancel(); } catch { }
+            try { _qrCts?.Dispose(); } catch { }
+            _qrCts = null;
+            base.OnClosed(e);
+        }
+
+        /// <summary>中止安装：取消超时令牌 + 杀掉子进程（不杀的话它会孤儿式跑完，用户看不见）。</summary>
+        private void AbortInstallProcess()
+        {
+            _installAborted = true;
+            try { _installCts?.Cancel(); } catch { }
+            try { if (_installProc != null && !_installProc.HasExited) _installProc.Kill(true); } catch { }
         }
 
         // ================= 子页导航（主界面入口按钮） =================
@@ -946,10 +1022,19 @@ namespace HerMemory
             catch { return false; }
         }
 
+        /// <summary>切换页面：只认有名字的直接子 Grid（页面），未命名的容器不参与。
+        /// 页面名写错时不能静默留一片空白——记日志便于以后定位。</summary>
         private void ShowPage(string name)
         {
-            foreach (var child in ((Grid)Content).Children)
-                if (child is Grid g) g.Visibility = g.Name == name ? Visibility.Visible : Visibility.Collapsed;
+            var matched = false;
+            foreach (var child in ((System.Windows.Controls.Panel)Content).Children)
+            {
+                if (child is not Grid g || g.Name.Length == 0) continue;
+                var on = g.Name == name;
+                g.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+                if (on) matched = true;
+            }
+            if (!matched) ReportUiError("切换页面", new InvalidOperationException("未找到页面：" + name));
         }
 
         // ================= 页 2：参数 =================
@@ -1075,33 +1160,50 @@ namespace HerMemory
         }
 
         /// <summary>探活 {url}/models：任何 HTTP 应答即可达（level 2 绿 / 1 橙 / 0 红）；curl 000 时按退出码给出失败原因。</summary>
+        /// <summary>统一的 curl 调用（探活与拉模型共用）。返回 (http_code, 退出码)，应答体落在 outFile。
+        /// **超时必须杀进程**：否则留下孤儿 curl 并让它一直占着 outFile——紧接着读该文件会抛
+        /// 「文件被占用」，而调用方是 async void 事件处理器，异常无人接管 = 整个程序崩掉。</summary>
+        private static (string code, int exit) CurlToFile(string url, string extra, string outFile, string key, int maxTimeSec, int waitMs)
+        {
+            try
+            {
+                var auth = key.Length > 0 ? $" -H \"Authorization: Bearer {key}\"" : "";
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "curl.exe",
+                    Arguments = $"-sL {extra} --max-time {maxTimeSec} -o \"{outFile}\" -w \"%{{http_code}}\" \"{url}/models\"{auth}",
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    RedirectStandardInput = true,
+                    CreateNoWindow = true,
+                };
+                using var p = Process.Start(psi)!;
+                try { p.StandardInput.Close(); } catch { }
+                var so = p.StandardOutput.ReadToEndAsync();
+                var se = p.StandardError.ReadToEndAsync();
+                if (!p.WaitForExit(waitMs))
+                {
+                    try { p.Kill(true); } catch { }
+                    try { Task.WaitAll(new Task[] { so, se }, 2000); } catch { }
+                    return ("000", 28);   // 28 = curl 的连接超时码，走同一条"超时"文案
+                }
+                try { Task.WaitAll(new Task[] { so, se }, 3000); } catch { }
+                var code = so.IsCompletedSuccessfully ? (so.Result ?? "").Trim() : "";
+                return (code, p.ExitCode);
+            }
+            catch { return ("", -1); }
+        }
+
+        /// <summary>探活 {url}/models：任何 HTTP 应答即可达（level 2 绿 / 1 橙 / 0 红）；curl 000 时按退出码给出失败原因。</summary>
         private static (int level, string msg) ProbeUrl(string url, string key)
         {
             var tmp = Path.Combine(Path.GetTempPath(), $"hm-probe-{Guid.NewGuid():N}.json");
-            (string code, int exit) Run(string extra)
-            {
-                try
-                {
-                    var auth = key.Length > 0 ? $" -H \"Authorization: Bearer {key}\"" : "";
-                    var psi = new ProcessStartInfo
-                    {
-                        FileName = "curl.exe",
-                        Arguments = $"-sL {extra} --max-time 10 -o \"{tmp}\" -w \"%{{http_code}}\" \"{url}/models\"{auth}",
-                        UseShellExecute = false,
-                        RedirectStandardOutput = true,
-                        CreateNoWindow = true,
-                    };
-                    using var p = Process.Start(psi)!;
-                    var code = p.StandardOutput.ReadToEnd().Trim();
-                    p.WaitForExit(20000);
-                    return (code, p.ExitCode);
-                }
-                catch { return ("", -1); }
-            }
             try
             {
-                var (code, exit) = Run("--noproxy \"*\"");
-                if (code == "000" || code.Length == 0) (code, exit) = Run("");
+                // 直连优先（绕过代理环境变量）；不通再回退系统代理
+                var (code, exit) = CurlToFile(url, "--noproxy \"*\"", tmp, key, 10, 20000);
+                if (code == "000" || code.Length == 0) (code, exit) = CurlToFile(url, "", tmp, key, 10, 20000);
                 if (code.Length > 0 && code != "000")
                 {
                     if (code == "200") return (2, "地址有效（HTTP 200）。");
@@ -1129,6 +1231,38 @@ namespace HerMemory
 
         private readonly List<string> _installTail = new();   // 安装输出环形尾部（≤400 行，失败红字取材）
         private string? _mirrorInfo;                          // ##HM-MIRROR## 标记：本次安装链路模式（失败红字头部展示，远程定位用）
+        private CancellationTokenSource? _installCts;         // 安装整体超时 + 「中止安装」共用
+        private bool _installAborted;                          // 用户主动中止（超时与中止要分开报）
+        private Process? _installProc;                         // 安装子进程（退出保护 / 中止时杀）
+
+        /// <summary>安装整体硬超时上限。install.ps1 内部只对 gateway 段设了超时，
+        /// **整条安装链**仍可能因未发现的交互点或网络停滞无限挂起——向导此前没有任何中止入口，
+        /// 用户只能杀进程。离线解压 + 首次 venv/npm 的宽裕上界取 30 分钟。</summary>
+        private static readonly TimeSpan InstallTimeout = TimeSpan.FromMinutes(30);
+
+        /// <summary>清理 %TEMP% 里遗留的安装答案文件。答案文件含**明文 API Key**，失败时被刻意保留
+        /// 以支持续装，于是反复重试会在临时目录里累积多份明文密钥；只保留当前这一份。</summary>
+        public static void PurgeStaleAnswerFiles(string? keep = null)
+        {
+            try
+            {
+                foreach (var f in Directory.GetFiles(Path.GetTempPath(), "hermemory-answers-*.json"))
+                {
+                    if (keep != null && string.Equals(f, keep, StringComparison.OrdinalIgnoreCase)) continue;
+                    try { File.Delete(f); } catch { }
+                }
+            }
+            catch { }
+        }
+
+        /// <summary>中止安装：取消整体超时令牌，等 WaitForExitAsync 那侧杀子进程并走统一失败路径。</summary>
+        private void BtnInstallAbort_Click(object sender, RoutedEventArgs e)
+        {
+            _installAborted = true;
+            BtnInstallAbort.IsEnabled = false;
+            BtnInstallAbort.Content = "正在中止……";
+            try { _installCts?.Cancel(); } catch { }
+        }
 
         private void StartInstall(string tier, string url, string key, string model, int customMem = 0, int customUser = 0)
         {
@@ -1140,6 +1274,13 @@ namespace HerMemory
             InstallFail.Visibility = Visibility.Collapsed;
             lock (_installTail) _installTail.Clear();
             _mirrorInfo = null;
+            _installAborted = false;
+            BtnInstallAbort.Content = "中止安装";
+            BtnInstallAbort.IsEnabled = true;
+            BtnInstallAbort.Visibility = Visibility.Visible;
+            try { _installCts?.Dispose(); } catch { }
+            _installCts = new CancellationTokenSource(InstallTimeout);
+            var installCt = _installCts.Token;
             StartTips();
 
             void Record(string? l)
@@ -1154,6 +1295,8 @@ namespace HerMemory
                 try
                 {
                     // 1. 答案文件（key 明文短暂落盘，成功后即删）
+                    // 先清掉上一次失败留下的残留（含明文 key），避免反复重试在 %TEMP% 里堆积
+                    PurgeStaleAnswerFiles();
                     _answersPath = Path.Combine(Path.GetTempPath(), $"hermemory-answers-{Guid.NewGuid():N}.json");
                     var answers = new Dictionary<string, string>
                     {
@@ -1198,6 +1341,7 @@ namespace HerMemory
                     int exit;
                     using (var p = Process.Start(psi)!)
                     {
+                        _installProc = p;
                         // 立即关闭 stdin 写端：子进程侧立刻 EOF，任何 prompt 都不会阻塞（配合上面的重定向）
                         try { p.StandardInput.Close(); } catch { }
                         void HandleLine(string raw)
@@ -1234,9 +1378,22 @@ namespace HerMemory
                         var errTask = Task.Run(() => Pump(p.StandardError.BaseStream));
                         await Task.Run(() => Pump(p.StandardOutput.BaseStream));
                         await errTask;
-                        await p.WaitForExitAsync();
-                        exit = p.ExitCode;
+                        // 整体硬超时 / 用户点「中止安装」：两条路都走 OperationCanceledException，
+                        // 用 _installAborted 区分上报文案。到点必须先**杀子进程**，
+                        // 否则 install.ps1 会变成孤儿在后台继续跑（用户看不到任何界面）。
+                        try
+                        {
+                            await p.WaitForExitAsync(installCt);
+                            exit = p.ExitCode;
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            try { p.Kill(true); } catch { }
+                            exit = _installAborted ? -3 : -2;
+                        }
                     }
+
+                    Dispatcher.Invoke(() => BtnInstallAbort.Visibility = Visibility.Collapsed);
 
                     if (exit != 0)
                     {
@@ -1246,11 +1403,14 @@ namespace HerMemory
                             tailText = string.Join(Environment.NewLine,
                                 _installTail.Where(l => !string.IsNullOrWhiteSpace(l) && !l.StartsWith("##HM-PROGRESS##") && !l.StartsWith("##HM-MIRROR##"))
                                             .Select(l => l.Trim()).TakeLast(16));
+                        var why = exit == -3 ? "安装已中止。"
+                            : exit == -2 ? $"安装超时（超过 {InstallTimeout.TotalMinutes:0} 分钟）已终止。"
+                            : $"失败原因（退出码 {exit}，输出末尾 16 行）：";
                         Dispatcher.Invoke(() =>
                         {
                             InstallTitle.Text = "安装未成功";
-                            InstallFail.Text = $"失败原因（退出码 {exit}，输出末尾 16 行）："
-                                + (_mirrorInfo != null ? Environment.NewLine + "[链路] " + _mirrorInfo : "")
+                            InstallFail.Text = why
+                                + (_mirrorInfo != null && exit != -3 && exit != -2 ? Environment.NewLine + "[链路] " + _mirrorInfo : "")
                                 + Environment.NewLine + tailText
                                 + Environment.NewLine + Environment.NewLine
                                 + "已完成步骤将自动跳过；排除问题后点击「重新安装」继续。";
@@ -1272,11 +1432,19 @@ namespace HerMemory
                 {
                     Dispatcher.Invoke(() =>
                     {
+                        StopTips();
+                        BtnInstallAbort.Visibility = Visibility.Collapsed;
                         InstallTitle.Text = "安装出错";
                         InstallFail.Text = "失败原因：" + ex;
                         InstallFail.Visibility = Visibility.Visible;
                         AddRetryButton();
                     });
+                }
+                finally
+                {
+                    _installProc = null;
+                    try { _installCts?.Dispose(); } catch { }
+                    _installCts = null;
                 }
             });
         }
@@ -1330,7 +1498,15 @@ namespace HerMemory
         // 两个浏览器标签）。登记在前则第二次点击必定取消第一轮的 token。
         private void StartQrFlow()
         {
-            try { _qrCts?.Cancel(); } catch { }
+            // 旧 CTS 取消后**必须 Dispose**：它内部带 9 分钟定时器，反复点「重新扫码」
+            // 会让未释放的定时器累积（每个都攥着一份 WaitHandle 直到到期）。
+            var prev = _qrCts;
+            _qrCts = null;
+            if (prev != null)
+            {
+                try { prev.Cancel(); } catch { }
+                try { prev.Dispose(); } catch { }
+            }
             var cts = new CancellationTokenSource(TimeSpan.FromMinutes(9));   // 9 分钟上限 = 上游 qr_login 内部 8 分钟 + 收尾余量
             _qrCts = cts;
             var ct = cts.Token;
@@ -1499,13 +1675,12 @@ namespace HerMemory
                 Dispatcher.Invoke(() => { ShowPage("PageWeixin"); UpdateWeixinStatus(); });
                 return;
             }
-            // gateway 服务（计划任务）缺则补装；失败不阻塞完成
+            // gateway 服务（计划任务）缺则补装；失败不阻塞完成。
+            // 判重与 install.ps1 第 11 段同一口径：**精确任务名 + 启动脚本存在**。
+            // 旧实现是 `schtasks /Query /FO LIST` + `Contains("hermes")`——子串匹配会命中无关任务，
+            // 且断链任务（启动脚本已被删）会被误判为"已装"而跳过错失重装。
             SetQr("检查 gateway 服务……");
-            bool taskExists = await Task.Run(() =>
-            {
-                var r = RunCapture("schtasks", "/Query /FO LIST");
-                return r != null && r.Contains("hermes", StringComparison.OrdinalIgnoreCase);
-            });
+            bool taskExists = await Task.Run(HermesCtl.GatewayTaskUsable);
             if (!taskExists)
             {
                 SetQr("正在安装 gateway 服务……");
@@ -1637,18 +1812,31 @@ namespace HerMemory
             SetUnins("移除登录项与计划任务……", 12);
             try
             {
-                var vbs = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                    "Microsoft", "Windows", "Start Menu", "Programs", "Startup", "Hermes_Gateway.vbs");
-                if (File.Exists(vbs)) File.Delete(vbs);
+                // Startup 兜底项：默认 profile 名即 Hermes_Gateway.vbs
+                var startupDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                    "Microsoft", "Windows", "Start Menu", "Programs", "Startup");
+                foreach (var nm in new[] { HermesCtl.GatewayTaskName + ".vbs", "Hermes_Gateway.vbs", "hermes-gateway.vbs" })
+                {
+                    var vbs = Path.Combine(startupDir, nm);
+                    try { if (File.Exists(vbs)) File.Delete(vbs); } catch { }
+                }
             }
             catch { }
             try
             {
-                var q = HermesCtl.RunCaptureRaw("schtasks", "/Query /FO LIST", 30) ?? "";
+                // **按精确任务名删除，不解析 `schtasks /Query` 的输出。**
+                // 旧实现用正则 `TaskName:\s*(\S*hermes\S*)` 匹配 `schtasks /Query /FO LIST` 的字段名，
+                // 而 schtasks 的输出随系统语言本地化——中文 Windows 打印的是「任务名:」而不是
+                // 「TaskName:」，正则永不匹配 → **计划任务永远删不掉**（用户机器上那个残留的
+                // Hermes_Gateway 任务极可能就是这么留下的）。另外子串匹配 "hermes" 还可能误删无关任务。
+                HermesCtl.DeleteGatewayTask();
+                // 命名 profile 的历史任务（Hermes_Gateway_<X>）也一并清掉：只按前缀枚举，不解析字段名
+                var q = HermesCtl.RunCaptureRaw("schtasks", "/Query /FO CSV /NH", 30) ?? "";
                 foreach (System.Text.RegularExpressions.Match m in
-                    System.Text.RegularExpressions.Regex.Matches(q, @"TaskName:\s*(\S*hermes\S*)", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                    System.Text.RegularExpressions.Regex.Matches(q, "\"(Hermes_Gateway_[^\"]+)\"",
+                        System.Text.RegularExpressions.RegexOptions.IgnoreCase))
                 {
-                    HermesCtl.RunCaptureRaw("schtasks", $"/Delete /TN \"{m.Groups[1].Value}\" /F", 30);
+                    HermesCtl.RunExit("schtasks", $"/Delete /TN \"{m.Groups[1].Value}\" /F", 30);
                 }
             }
             catch { }
@@ -1666,11 +1854,7 @@ namespace HerMemory
             var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
             var payloadCache = Path.Combine(localAppData, "HerMemory", "payload");
             SetUnins("移除内嵌发行包缓存……", 26);
-            try
-            {
-                if (Directory.Exists(payloadCache)) Directory.Delete(payloadCache, true);
-            }
-            catch { }
+            DeleteTreeSafe(payloadCache);
 
             SetUnins("移除注入槽位……", 32);
             try
@@ -1684,24 +1868,20 @@ namespace HerMemory
             var hh = HermesCtl.HermesHome;
             if (Directory.Exists(hh))
             {
-                var tops = Directory.GetFileSystemEntries(hh);
+                var tops = new string[0];
+                try { tops = Directory.GetFileSystemEntries(hh); } catch { }
                 for (int i = 0; i < tops.Length; i++)
                 {
-                    SetUnins("正在移除内核与配置……", 35 + (int)(45.0 * (i + 1) / tops.Length));
-                    try
-                    {
-                        if (Directory.Exists(tops[i])) Directory.Delete(tops[i], true);
-                        else File.Delete(tops[i]);
-                    }
-                    catch { }
+                    SetUnins("正在移除内核与配置……", 35 + (int)(45.0 * (i + 1) / Math.Max(1, tops.Length)));
+                    DeleteTreeSafe(tops[i]);
                 }
-                try { Directory.Delete(hh, true); } catch { }
+                try { Directory.Delete(hh, false); } catch { }   // 非递归：还有残留就留着，交给下面的核对如实报出
             }
 
             if (delVault)
             {
                 SetUnins("删除 vault……", 80);
-                try { if (Directory.Exists(VaultDir)) Directory.Delete(VaultDir, true); } catch { }
+                DeleteTreeSafe(VaultDir);
             }
 
             // 残留核对：删除可能因文件占用失败（残留 venv/python 进程、资源管理器句柄等）。
@@ -1728,6 +1908,31 @@ namespace HerMemory
 
         private void BtnUninsDone_Click(object sender, RoutedEventArgs e) => App.RequestExit();
 
+        /// <summary>递归删除，但**绝不跟随重解析点**（junction / 符号链接只摘链接本身）。
+        /// 卸载路径上 `memories` 是指向 vault 记忆目录的 junction——一旦被跟随递归进去，
+        /// 就等于把用户的记忆整个删掉，与「vault 默认保留」的承诺直接冲突。
+        /// 符号链接指向别处同理（SOUL.md → vault）。</summary>
+        private static void DeleteTreeSafe(string path)
+        {
+            FileAttributes attrs;
+            try { attrs = File.GetAttributes(path); } catch { return; }
+            if ((attrs & FileAttributes.ReparsePoint) != 0)
+            {
+                try
+                {
+                    if ((attrs & FileAttributes.Directory) != 0) Directory.Delete(path, false);  // 只摘链接
+                    else File.Delete(path);                                                      // 文件符号链接：只摘链接
+                }
+                catch { }
+                return;
+            }
+            if ((attrs & FileAttributes.Directory) == 0) { try { File.Delete(path); } catch { } return; }
+            string[] entries = new string[0];
+            try { entries = Directory.GetFileSystemEntries(path); } catch { }
+            foreach (var e in entries) DeleteTreeSafe(e);
+            try { Directory.Delete(path, false); } catch { }
+        }
+
         public void ShowUninstall()
         {
             ShowPage("PageUninstall");
@@ -1752,13 +1957,25 @@ namespace HerMemory
                     UseShellExecute = false,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
+                    RedirectStandardInput = true,
                     CreateNoWindow = true,
                 };
                 using var p = Process.Start(psi)!;
-                var so = p.StandardOutput.ReadToEnd();
-                var se = p.StandardError.ReadToEnd();
-                p.WaitForExit(timeoutSec * 1000);
-                return so + se;
+                try { p.StandardInput.Close(); } catch { }
+                // **必须并发读两路**：顺序 ReadToEnd(stdout) → ReadToEnd(stderr) 是经典管道死锁——
+                // 子进程若先把 stderr 写满管道缓冲（~4KB）就会阻塞在写，而我们在等 stdout 结束，互等到死。
+                // （schtasks 输出可超 4KB，且/Query 在受限账户下会往 stderr 吐东西）
+                var so = p.StandardOutput.ReadToEndAsync();
+                var se = p.StandardError.ReadToEndAsync();
+                if (!p.WaitForExit(timeoutSec * 1000))
+                {
+                    try { p.Kill(true); } catch { }     // 超时必须杀，否则留下孤儿进程并继续占着管道
+                }
+                try { Task.WaitAll(new Task[] { so, se }, 5000); } catch { }
+                var sb = new StringBuilder();
+                if (so.IsCompletedSuccessfully) sb.Append(so.Result);
+                if (se.IsCompletedSuccessfully) sb.Append(se.Result);
+                return sb.ToString();
             }
             catch { return null; }
         }
@@ -1766,26 +1983,18 @@ namespace HerMemory
         private static (string code, string body) CurlModels(string url, string key)
         {
             var tmp = Path.Combine(Path.GetTempPath(), $"hm-models-{Guid.NewGuid():N}.json");
-            string Run(string extra)
+            try
             {
-                var psi = new ProcessStartInfo
-                {
-                    FileName = "curl.exe",
-                    Arguments = $"-sL {extra} --max-time 20 -o \"{tmp}\" -w \"%{{http_code}}\" \"{url}/models\" -H \"Authorization: Bearer {key}\"",
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    CreateNoWindow = true,
-                };
-                using var p = Process.Start(psi)!;
-                var code = p.StandardOutput.ReadToEnd().Trim();
-                p.WaitForExit(30000);
-                return code;
+                // 直连优先，不通再回退系统代理（与 ProbeUrl 同通道）
+                var (code, _) = CurlToFile(url, "--noproxy \"*\"", tmp, key, 20, 30000);
+                if (code == "000") (code, _) = CurlToFile(url, "", tmp, key, 20, 30000);
+                var body = "";
+                // 文件可能仍被残留进程（或杀软扫描）占用——这里绝不能抛：
+                // 调用方是 async void 事件处理器，异常无人接管 = 整个程序崩掉
+                try { if (File.Exists(tmp)) body = File.ReadAllText(tmp); } catch { }
+                return (code, body);
             }
-            var code = Run("--noproxy \"*\"");
-            if (code == "000") code = Run("");
-            var body = File.Exists(tmp) ? File.ReadAllText(tmp) : "";
-            try { File.Delete(tmp); } catch { }
-            return (code, body);
+            finally { try { File.Delete(tmp); } catch { } }
         }
     }
 }

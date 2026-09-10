@@ -28,12 +28,71 @@ namespace HerMemory
                     {
                         try { p.Kill(true); } catch { }
                     }
+                    // **绝不能在这里直接取 .Result**：若上面 Kill 失败（进程卡在不可中断状态），
+                    // 读取任务永不完成，访问 .Result 会无限阻塞——那个超时就形同虚设，
+                    // 且本方法持有 _sync 全局锁，会把整个进程的所有 hermes 调用一起拖死。
+                    // 故等一小会儿后只取**已完成**的读取任务，未完成的丢弃（返回部分输出好过挂死）。
                     try { Task.WaitAll(new Task[] { so, se }, 5000); } catch { }
-                    return (so.Result ?? "") + (se.Result ?? "");
+                    var sb = new System.Text.StringBuilder();
+                    if (so.IsCompletedSuccessfully) sb.Append(so.Result);
+                    if (se.IsCompletedSuccessfully) sb.Append(se.Result);
+                    return sb.ToString();
                 }
                 catch { return ""; }
             }
         }
+
+        /// <summary>执行原生命令并返回**退出码**（成败只能靠退出码判断时用，如 `schtasks /Query /TN`——
+        /// 其失败信息随系统语言变化，解析输出不可靠）。取不到退出码一律返回 -1。</summary>
+        public static int RunExit(string exe, string args, int timeoutSec)
+        {
+            lock (_sync)
+            {
+                try
+                {
+                    var psi = new ProcessStartInfo
+                    {
+                        FileName = exe,
+                        Arguments = args,
+                        UseShellExecute = false,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        RedirectStandardInput = true,
+                        CreateNoWindow = true,
+                    };
+                    using var p = Process.Start(psi)!;
+                    try { p.StandardInput.Close(); } catch { }
+                    var so = p.StandardOutput.ReadToEndAsync();
+                    var se = p.StandardError.ReadToEndAsync();
+                    if (!p.WaitForExit(timeoutSec * 1000)) { try { p.Kill(true); } catch { } return -1; }
+                    try { Task.WaitAll(new Task[] { so, se }, 3000); } catch { }
+                    return p.ExitCode;
+                }
+                catch { return -1; }
+            }
+        }
+
+        // —— gateway 计划任务的精确标识（与 install.ps1 第 11 段同一口径）——
+        // 上游 get_task_name()：默认 profile 即此名，命名 profile 为 Hermes_Gateway_<X>；我方只装默认 profile。
+        public const string GatewayTaskName = "Hermes_Gateway";
+
+        /// <summary>上游 _write_task_script() 落在 <HERMES_HOME>\gateway-service\<task>.vbs ——
+        /// 这才是 Scheduled Task 的 Action 实际执行的文件（.cmd 只是兼容产物）。</summary>
+        public static string GatewayLauncherVbs =>
+            Path.Combine(HermesHome, "gateway-service", GatewayTaskName + ".vbs");
+
+        /// <summary>gateway 计划任务是否**真正可用**：任务在 + 其启动脚本在。
+        /// 只看任务名会被断链任务（脚本已被删）骗到——那种情况必须重装而不是跳过。
+        /// 判存走退出码，不解析 schtasks 的本地化输出。</summary>
+        public static bool GatewayTaskUsable()
+        {
+            if (!File.Exists(GatewayLauncherVbs)) return false;
+            return RunExit("schtasks", $"/Query /TN \"{GatewayTaskName}\"", 30) == 0;
+        }
+
+        /// <summary>删除 gateway 计划任务（按精确名删，不解析输出——中文 Windows 的字段名是「任务名:」）。</summary>
+        public static void DeleteGatewayTask() =>
+            RunExit("schtasks", $"/Delete /TN \"{GatewayTaskName}\" /F", 30);
 
         public static string HermesHome => Environment.GetEnvironmentVariable("HERMES_HOME")
             ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "hermes");
@@ -177,9 +236,54 @@ namespace HerMemory
         }
 
         // —— 同步服务（WebDAV）：只展示，不启停（启停由用户与 AI 对话完成） ——
+        // 旧实现 `Process.GetProcessesByName("rclone").Length > 0` 会命中**任意** rclone
+        //（用户拿 rclone 挂网盘/搬数据时被误报为"同步服务运行中"）。
+        // 新实现按产品约定端口判可达——docs/ONBOARDING.md 规定同步服务为
+        // `rclone serve webdav <vault> --addr 0.0.0.0:5005`，故 127.0.0.1:5005 可连即视为运行中。
+        // 非默认端口部署可用环境变量 HERMEMORY_WEBDAV_PORT 覆盖。
+        private const int DefaultWebDavPort = 5005;
+
         public static bool WebDavRunning()
         {
-            try { return Process.GetProcessesByName("rclone").Length > 0; }
+            var port = DefaultWebDavPort;
+            var ov = Environment.GetEnvironmentVariable("HERMEMORY_WEBDAV_PORT");
+            if (int.TryParse(ov, out var p) && p > 0 && p < 65536) port = p;
+
+            if (TcpReachable(port)) return true;
+
+            // 兜底：rclone 进程确实来自本产品目录（未来若由安装器托管 rclone，这里仍能判到；
+            // 系统别处装的 rclone 不认，避免误报）
+            try
+            {
+                foreach (var pr in Process.GetProcessesByName("rclone"))
+                {
+                    using (pr)
+                    {
+                        try
+                        {
+                            var f = pr.MainModule?.FileName ?? "";
+                            if (f.Length > 0 && f.StartsWith(HermesHome, StringComparison.OrdinalIgnoreCase))
+                                return true;
+                        }
+                        catch { }   // MainModule 对高权限/异位数进程会抛
+                    }
+                }
+            }
+            catch { }
+            return false;
+        }
+
+        /// <summary>本机回环端口是否可连（400ms 上限；无监听时 Windows 立即回 RST，不会等满）。</summary>
+        private static bool TcpReachable(int port)
+        {
+            try
+            {
+                using var c = new System.Net.Sockets.TcpClient();
+                var ar = c.BeginConnect("127.0.0.1", port, null, null);
+                if (!ar.AsyncWaitHandle.WaitOne(400)) return false;
+                c.EndConnect(ar);
+                return true;
+            }
             catch { return false; }
         }
 
