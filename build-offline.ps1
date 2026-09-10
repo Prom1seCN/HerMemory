@@ -177,8 +177,19 @@ if (-not (Test-Path $repoZip)) {
         Write-Host "[重试] 该源失败（exit $LASTEXITCODE），换下一个源……"
     }
     if (-not $cloned) { throw "git clone 失败（含 ghproxy 镜像重试）。可等 3-5 分钟让 GitHub 限流冷却后重跑" }
-    git -C $repoDir bundle create (Join-Path $Assets "hermes-agent.bundle") --all
+    # --depth 1 --branch <tag> 是「分离 HEAD + 仅一个 tag 引用」的浅克隆：仓库里**没有任何分支**。
+    # 上游 install.ps1 的 update 分支有一行无条件 `git fetch origin $Branch`（$Branch 默认 main），
+    # 而离线安装把 origin 指向本 bundle——bundle 若没有 refs/heads/main 就直接 exit 128
+    # 「couldn't find remote ref main」。因此显式造一个 main 指向 pin 提交再打包：
+    # fetch origin main 命中（拿到的是 pin 的树），随后上游按 -Tag 优先级 checkout --detach 到 tag，
+    # 落点仍是 pin，不会漂到 main 的移动尖端。
+    & git -C $repoDir branch -f main HEAD 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "git branch -f main HEAD 失败（bundle 将缺少 refs/heads/main，离线 fetch 会 128）" }
+    & git -C $repoDir bundle create (Join-Path $Assets "hermes-agent.bundle") --all 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "git bundle 失败" }
+    $bundleHeads = & git -C $repoDir bundle list-heads (Join-Path $Assets "hermes-agent.bundle") 2>&1
+    if (-not ($bundleHeads -match "refs/heads/main")) { throw "bundle 缺 refs/heads/main（上游 fetch origin main 必 128）——检查上面的 branch -f main HEAD" }
+    Ok "bundle 引用校验通过（含 refs/heads/main + refs/tags/$Tag）"
     tar -acf $repoZip -C $repoDir .
     Ok "hermes-agent.zip + bundle"
 } else { Write-Host "[跳过] hermes-agent.zip 已存在" }

@@ -18,6 +18,10 @@ namespace HerMemory
                 try
                 {
                     using var p = Process.Start(psi)!;
+                    // CreateNoWindow 下子进程会拿到"无窗口但真实存在"的控制台，stdin 是有效输入缓冲区——
+                    // 上游任何 input() 都会永久阻塞（2026-09-10 gateway install 死锁实录）。
+                    // 关闭 stdin 写端 → 子进程立刻 EOF → prompt 走其默认值，不再挂死。
+                    try { p.StandardInput.Close(); } catch { }
                     var so = p.StandardOutput.ReadToEndAsync();
                     var se = p.StandardError.ReadToEndAsync();
                     if (!p.WaitForExit(timeoutSec * 1000))
@@ -58,9 +62,14 @@ namespace HerMemory
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
+                RedirectStandardInput = true,
                 CreateNoWindow = true,
             };
             psi.EnvironmentVariables["NO_COLOR"] = "1";
+            // 非交互标记：上游 is_noninteractive()（hermes_cli/setup.py）只认这个变量，**不检查 stdin**。
+            // 不设它时 `gateway install` 等子命令会走 input() 等输入——GUI 进程无控制台 → 永久阻塞。
+            // 置 1 后 prompt_yes_no 直接返回其默认值，子命令正常执行完。hermes 全部调用统一带上。
+            psi.EnvironmentVariables["HERMES_NONINTERACTIVE"] = "1";
             return psi;
         }
 
@@ -88,6 +97,7 @@ namespace HerMemory
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
+                RedirectStandardInput = true,
                 CreateNoWindow = true,
             };
             var s = RunPsi(psi, timeoutSec);

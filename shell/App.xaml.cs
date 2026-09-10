@@ -14,6 +14,16 @@ namespace HerMemory
             Current?.Shutdown();
         }
 
+        /// <summary>自提权重启前调用：释放单实例互斥量。
+        /// 否则提权实例启动时抢同一把锁会失败（first=false），弹"已在运行"后立即退出，
+        /// 表现为"点了确定但窗口再也没起来"。</summary>
+        public static void ReleaseSingleInstance()
+        {
+            try { _single?.ReleaseMutex(); } catch { }
+            try { _single?.Dispose(); } catch { }
+            _single = null;
+        }
+
         /// <summary>供窗口侧访问 App 实例（安装完成建托盘、卸载完成撤托盘）。</summary>
         public static App? Inst => Current as App;
 
@@ -53,13 +63,26 @@ namespace HerMemory
             // .NET 8 缺代码页数据：注册后 Encoding.GetEncoding(936) 才可用（安装器输出按 GBK 解码，见 StartInstall）
             System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
             Theme.Apply();
+            var elevateRestart = e.Args.Any(a =>
+                string.Equals(a, "--elevated-attempted", StringComparison.OrdinalIgnoreCase));
             _single = new Mutex(true, "HerMemory-SingleInstance", out var first);
             if (!first)
             {
-                System.Windows.MessageBox.Show("HerMemory 已在运行，见系统托盘。", "HerMemory",
-                    MessageBoxButton.OK, MessageBoxImage.Information);
-                Shutdown();
-                return;
+                // 自提权重启场景：本实例由「提权前的自己」派发，后者正在退出（会 ReleaseMutex）。
+                // 给几秒等它让出锁——否则会被判"已在运行"直接退出，表现为点了 UAC 后再没窗口起来。
+                bool took = false;
+                if (elevateRestart)
+                {
+                    try { took = _single.WaitOne(TimeSpan.FromSeconds(8)); }
+                    catch (AbandonedMutexException) { took = true; }   // 旧实例进程已终止，锁归本进程
+                }
+                if (!took)
+                {
+                    System.Windows.MessageBox.Show("HerMemory 已在运行，见系统托盘。", "HerMemory",
+                        MessageBoxButton.OK, MessageBoxImage.Information);
+                    Shutdown();
+                    return;
+                }
             }
 
             if (HermesCtl.Installed)

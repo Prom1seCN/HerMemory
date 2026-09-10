@@ -41,7 +41,7 @@ namespace HerMemory
 
             _menu = new System.Windows.Forms.ContextMenuStrip();
 
-            var miStatus = new System.Windows.Forms.ToolStripMenuItem("状态：检测中…") { Enabled = false };
+            var miStatus = new System.Windows.Forms.ToolStripMenuItem("状态：检测中……") { Enabled = false };
             _miStatus = miStatus;
             var miStart = new System.Windows.Forms.ToolStripMenuItem("启动", null, (_, _) => RunGw("start"));
             var miStop = new System.Windows.Forms.ToolStripMenuItem("停止", null, (_, _) => RunGw("stop"));

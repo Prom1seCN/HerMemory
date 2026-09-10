@@ -20,3 +20,7 @@ shell/publish-dark/
 
 # 离线资源收集（build-offline.ps1 产出，GB 级不进库）
 build/
+
+# install.ps1 在仓库根直跑时解出的离线资源目录与新鲜度戳（仅本地，不进库）
+/assets-offline/
+/assets-offline.stamp

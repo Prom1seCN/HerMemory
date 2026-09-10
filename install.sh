@@ -38,15 +38,15 @@ STATE_FILE="$HERMES_HOME/.hermemory-install-state"
 mkdir -p "$HERMES_HOME"; touch "$STATE_FILE"
 done_step() { grep -qx "$1" "$STATE_FILE" 2>/dev/null; }
 mark_done() { done_step "$1" || echo "$1" >> "$STATE_FILE"; }
-log "安装状态文件：$STATE_FILE（已完成的步骤在重新安装时自动跳过）"
+log "安装状态文件：$STATE_FILE"
 
 # ---------- 0. 环境检查 ----------
-[[ "$(uname -s)" == "Linux" ]] || die "仅支持 Linux（headless）。PC 端装机路径见 docs/INSTALL.md（待实测）。"
+[[ "$(uname -s)" == "Linux" ]] || die "仅支持 Linux（headless）。PC 端部署见 docs/INSTALL.md。"
 [[ $EUID -ne 0 ]] || die "不要用 root 跑安装器；用普通用户 + sudo。"
 command -v git  >/dev/null || die "缺 git：先 apt install git"
 command -v curl >/dev/null || die "缺 curl：先 apt install curl"
 
-log "可在 docs/INSTALL.md 查看安装说明"
+log "安装说明见 docs/INSTALL.md"
 
 # ---------- 1. vault 位置（定名，不询问——路径被提示词与文档广泛引用，固定避免漂移） ----------
 VAULT_DIR="$HOME/vault"
@@ -54,10 +54,10 @@ VAULT_DIR="$HOME/vault"
 # ---------- 2. 安装上游 Hermes（pin tag，官方脚本） ----------
 # 本体获取四层：同目录本体包 → 服务器直链 → GitHub clone
 if [ -x "$HOME/.local/bin/hermes" ]; then
-    log "上游已安装：hermes CLI 就绪（跳过获取与 setup）"
+    log "上游已安装：hermes CLI 就绪，跳过获取与 setup"
     mark_done upstream
 elif done_step upstream; then
-    log "上游内核：已完成（自动跳过）"
+    log "上游内核：已完成，自动跳过"
 else
     if [ ! -f "$UPSTREAM_DIR/setup-hermes.sh" ]; then
         BUNDLE_ZIP=""
@@ -81,7 +81,7 @@ else
             local_tag=""
             [ -f "$UPSTREAM_DIR/HERMES_BUNDLE_TAG" ] && local_tag="$(cat "$UPSTREAM_DIR/HERMES_BUNDLE_TAG")"
             if [ -n "$local_tag" ] && [ "$local_tag" != "$PINNED_HERMES_TAG" ]; then
-                die "本体包版本（$local_tag）与发行版 pin（$PINNED_HERMES_TAG）不一致——请换用匹配版本的本体包"
+                die "本体包版本（$local_tag）与发行版 pin（$PINNED_HERMES_TAG）不一致。请换用匹配版本的本体包。"
             fi
             ok "上游 Hermes 本体已就位（本体包，$PINNED_HERMES_TAG）"
         else
@@ -99,9 +99,9 @@ else
     [ -n "$PIP_INDEX_URL" ]            || export PIP_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple"
     [ -n "$npm_config_registry" ]      || export npm_config_registry="https://registry.npmmirror.com"
     [ -n "$PLAYWRIGHT_DOWNLOAD_HOST" ] || export PLAYWRIGHT_DOWNLOAD_HOST="https://cdn.npmmirror.com/binaries/playwright"
-    log "镜像加速：PyPI→清华 / npm→npmmirror / Playwright→npmmirror（已自设则从用户设定）"
+    log "在线镜像：PyPI / npm / Playwright 走国内源（用户已自设则沿用）"
 
-    log "运行官方 setup-hermes.sh（uv + venv + hermes CLI，首次 1-5 分钟）..."
+    log "运行官方 setup-hermes.sh（uv + venv + hermes CLI）……"
     # stdin 喂两个 n：① 跳过 ripgrep 可选安装 ② 跳过 key 配置向导（零商业：key 沿用官方流程，用户稍后自配）
     printf 'n\nn\n' | (cd "$UPSTREAM_DIR" && bash setup-hermes.sh) || die "上游 setup 失败，见上方输出"
     export PATH="$HOME/.local/bin:$PATH"
@@ -126,7 +126,7 @@ ok "同步根结构：$VAULT_DIR/{用户文档, HerMemory/memory/}"
 for f in MEMORY.md USER.md SOUL.md AGENTS.md AUTOMATION.md; do
     dst="$VAULT_DIR/HerMemory/memory/$f"
     if [ -f "$dst" ]; then
-        log "已存在，跳过：$dst（不覆盖既有记忆）"
+        log "已存在，跳过：$dst（不覆盖既有文件）"
     else
         cp "$SRC/memory/$f" "$dst"
         ok "铺设出厂文件：HerMemory/memory/$f"
@@ -136,7 +136,7 @@ done
 # ---------- 4.5 使用文档进同步范围（AI 可读、多端可读） ----------
 mkdir -p "$VAULT_DIR/HerMemory/docs"
 cp -R "$SRC/docs/." "$VAULT_DIR/HerMemory/docs/"
-ok "使用文档已铺：HerMemory/docs/"
+ok "使用文档已就位：HerMemory/docs/"
 
 # ---------- 5. 软链四件（官方注入槽位，零代码） ----------
 #   SOUL.md  → $HERMES_HOME/SOUL.md            （身份槽 slot#1）
@@ -146,16 +146,16 @@ link_one() { # link_one <同步侧文件> <agent侧路径>
     local src="$1" dst="$2"
     mkdir -p "$(dirname "$dst")"
     if [ -L "$dst" ] && [ "$(readlink "$dst")" = "$src" ]; then
-        log "软链已就位：$dst"
+        log "符号链接已就位：$dst"
     elif [ -e "$dst" ] && [ ! -L "$dst" ]; then
         local bak="$dst.pre-hermemory.$(date +%s)"
         mv "$dst" "$bak"
-        warn "检测到已有文件 $dst，已备份为 $bak 后建立软链"
+        warn "已有文件 $dst，已备份为 $bak，随后建立链接"
         ln -s "$src" "$dst"
     else
         ln -sfn "$src" "$dst"
     fi
-    ok "软链：$dst → $src"
+    ok "符号链接：$dst -> $src"
 }
 link_one "$VAULT_DIR/HerMemory/memory/SOUL.md"   "$HERMES_HOME/SOUL.md"
 # AGENTS.md 的注入槽位是"会话工作目录链"（git 根→cwd），不是 HERMES_HOME。
@@ -171,24 +171,24 @@ mem_dir="$HERMES_HOME/memories"
 mem_target="$VAULT_DIR/HerMemory/memory"
 mkdir -p "$mem_target"
 if [ -L "$mem_dir" ] && [ "$(readlink "$mem_dir")" = "$mem_target" ]; then
-    log "memories 软链已就位：$mem_dir"
+    log "memories 符号链接已就位：$mem_dir"
 else
     if [ -e "$mem_dir" ] && [ ! -L "$mem_dir" ]; then
         bak="$mem_dir.pre-hermemory.$(date +%s)"
         mv "$mem_dir" "$bak"
-        warn "检测到已有目录 $mem_dir，已备份为 $bak 后建立软链（既有记忆已迁移）"
+        warn "已有目录 $mem_dir，已备份为 $bak，随后建立链接（既有记忆已迁移）"
     elif [ -L "$mem_dir" ]; then
         rm "$mem_dir"
     fi
     ln -s "$mem_target" "$mem_dir"
-    ok "memories 已以目录软链挂到 vault：AI 写记忆 = 同步端立刻可见"
+    ok "memories 已以符号链接挂载至 vault：$mem_dir -> $mem_target"
 fi
 
 # ---------- 6. 品牌皮肤 ----------
 mkdir -p "$HERMES_HOME/skins"
 cp "$SRC/skins/hermemory.yaml" "$HERMES_HOME/skins/hermemory.yaml"
-hermes config set display.skin hermemory >/dev/null 2>&1 && ok "皮肤已激活：HerMemory（/skin 可随时切换；改 yaml 约一秒热重绘）" \
-    || warn "display.skin 写入失败（不致命），可运行时 /skin hermemory 手动切换"
+hermes config set display.skin hermemory >/dev/null 2>&1 && ok "皮肤已激活：HerMemory（/skin 可切换）" \
+    || warn "display.skin 写入失败（非致命）。可运行时执行 /skin hermemory 手动切换。"
 
 # ---------- 7. 时区 Asia/Shanghai（时钟错则时间感知全错） ----------
 if command -v timedatectl >/dev/null; then
@@ -207,28 +207,28 @@ fi
 
 # ---------- 8. 时间注入开关（官方原生，默认关）+ 界面显示偏好 ----------
 hermes config set gateway.message_timestamps.enabled true >/dev/null 2>&1 \
-    && ok "时间注入已开启：每条用户消息头部自动拼服务器真实时间" \
+    && ok "时间注入已开启：每条用户消息头部自动附加服务器时间" \
     || die "gateway.message_timestamps.enabled 写入失败"
 hermes config set display.language zh >/dev/null 2>&1 \
     && ok "界面语言：中文" \
-    || warn "display.language 写入失败（不致命）"
+    || warn "display.language 写入失败（非致命）"
 hermes config set display.timestamps true >/dev/null 2>&1 \
     && ok "对话时间标签 [HH:MM]：已开启" \
-    || warn "display.timestamps 写入失败（不致命）"
+    || warn "display.timestamps 写入失败（非致命）"
 
 # ---------- 9. 记忆档位（新手引导1：多档可选） ----------
 if done_step memory-tier; then
     log "记忆档位：已完成（自动跳过）"
 else
-log "MEMORY/USER容量设置"
+log "MEMORY / USER 容量设置"
 echo ""
 
-echo "提升容量会增强AI记忆力，但可能降低专注度，建议选择1-2档"
+echo "  容量提升增强记忆能力，同时降低专注度。建议选择 1-2 档。"
 echo ""
 
-echo "  1.紧凑：2200/1375 [默认]"
-echo "  2.标准：5000/3000"
-echo "  3.详细：10000/5000"
+echo "  1. 紧凑：2200 / 1375（默认）"
+echo "  2. 标准：5000 / 3000"
+echo "  3. 详细：10000 / 5000"
 echo ""
 
 read -rp "请选择记忆档位（1/2/3）: " MEM_CHOICE
@@ -240,30 +240,24 @@ case "$MEM_CHOICE" in
 esac
 hermes config set memory.memory_char_limit "$MEM_LIMIT"  >/dev/null
 hermes config set memory.user_char_limit   "$USER_LIMIT" >/dev/null
-ok "记忆档位：MEMORY $MEM_LIMIT / USER $USER_LIMIT 字符（随时改档：bash memory-size.sh）"
+ok "记忆档位：MEMORY $MEM_LIMIT / USER $USER_LIMIT 字符（调整：memory-size.sh）"
 mark_done memory-tier
 fi
 
 # ---------- 9.5/9.6 配置 AI（用户流程 2：地址先验证，Key 后验证；Key 阶段输 1 可返回地址；完成后 AI 上线） ----------
 if done_step config-ai; then
-    log "配置 AI：已完成（自动跳过）"
+    log "配置 AI：已完成，自动跳过"
 else
 echo ""
-echo "HerMemory本身永久免费"
-echo "但AI每次回答都会消耗服务商的算力"
+echo "HerMemory 永久免费。AI 每次回答消耗服务商算力，需自备接口凭据。"
 echo ""
-
-echo "需要你获取："
+echo "  需要准备两项"
 echo ""
-
-echo "1.Base URL"
-echo "通常以https开头，v1结尾"
-echo "控制台里可能叫：API地址 / OpenAI兼容地址"
+echo "  1. Base URL"
+echo "     以 https 开头、/v1 结尾。控制台中可能标注为：API 地址 / OpenAI 兼容地址。"
 echo ""
-
-echo "2.APIkey"
-echo "一长串字符，常以sk-开头，也可能没有规律"
-echo "控制台里可能叫：API key / API密钥"
+echo "  2. API Key"
+echo "     一长串字符，通常以 sk- 开头。控制台中可能标注为：API key / API 密钥。"
 echo ""
 
 
@@ -282,11 +276,11 @@ while true; do
             URL_CODE=$(curl -s --noproxy '*' --max-time 20 -o /tmp/hm_url_test.json -w "%{http_code}" "$PROV_BASE/models" || true)
             [ "$URL_CODE" = "000" ] && URL_CODE=$(curl -s --max-time 20 -o /tmp/hm_url_test.json -w "%{http_code}" "$PROV_BASE/models" || true)
             if [ "$URL_CODE" = "000" ]; then
-                warn "[连接超时] 无法连接至该 API 地址。请确认：① 地址为服务商提供的接口地址（通常以 /v1 结尾）；② 本机当前可以访问互联网；③ 若开启了代理软件，尝试关闭代理或更换节点后重试"
+                warn "[连接超时] 无法连接该地址。请检查：地址是否为服务商的 OpenAI 兼容接口（通常以 /v1 结尾）；本机能否访问互联网；若已开启代理，可关闭或更换节点后重试"
                 continue
             fi
             if [ "$URL_CODE" = "404" ]; then
-                warn "[404] 该接口路径不存在。请核对是否使用了服务商标注的 OpenAI 兼容接口地址"
+                warn "[404] 接口路径不存在。请核对是否为服务商标注的 OpenAI 兼容地址"
                 continue
             fi
             ok "API 地址可达（HTTP $URL_CODE）"
@@ -301,7 +295,7 @@ while true; do
     echo ""
     API_KEY=$(printf '%s' "$API_KEY" | LC_ALL=C tr -d '\000-\040\177-\377')
     if [ "$API_KEY" = "1" ]; then AT_URL=1; continue; fi
-    [ -n "$API_KEY" ] || { warn "key 不能为空——重新输入"; continue; }
+    [ -n "$API_KEY" ] || { warn "API Key 不能为空，请重新输入"; continue; }
 
     log "正在验证 API Key……"
     HTTP_CODE=$(curl -s --noproxy '*' --max-time 20 -o /tmp/hm_models.json -w "%{http_code}" "$PROV_BASE/models" -H "Authorization: Bearer $API_KEY" || true)
@@ -311,10 +305,10 @@ while true; do
             warn "[$HTTP_CODE] 认证未通过（服务返回：$(head -c 150 /tmp/hm_models.json 2>/dev/null)）。请确认 API Key 复制完整（注意首尾空格与截断），且该 Key 在服务商控制台处于启用状态"
             continue ;;
         000)
-            warn "[连接超时] 网络异常——重新输入，或输 1 返回上一步" ;;
+            warn "[连接超时] 网络异常。重新输入，或输 1 返回上一步" ;;
     esac
     if [ "$HTTP_CODE" != "200" ]; then
-        warn "[$HTTP_CODE] 服务商暂时故障或限流——稍等几秒重试；持续出现请检查服务商状态页"
+        warn "[$HTTP_CODE] 服务商暂时故障或限流。稍等几秒重试；持续出现请检查服务商状态页"
         continue
     fi
     if ! grep -q '"data"' /tmp/hm_models.json 2>/dev/null; then
@@ -338,7 +332,7 @@ while true; do
         PROV_MODEL="${MODEL_LIST[$((MODEL_PICK-1))]}"
         break
     fi
-    warn "序号无效——重新选择"
+    warn "序号无效，重新选择"
 done
 
 # 上游机制（_model_flow_custom）：key 存 .env 的 HERMES_CUSTOM_<主机>_API_KEY；
@@ -373,20 +367,20 @@ if grep -q "WEIXIN_ACCOUNT_ID" "$HERMES_HOME/.env" 2>/dev/null; then
     WX_CONFIGURED=1
     ok "微信通道：已配置（跳过扫码）"
 else
-    log "微信接入（推荐现在完成——完成后 AI 直接出现在你的微信里）"
-    echo "即将打开英文配置向导，请对照下面的中文答题卡操作："
+    log "微信接入"
+    echo "上游将启动英文配置向导。对照下表作答："
     echo ""
-    echo "  向导问题（英文原文）                              → 你该输入"
-    echo "  ─────────────────────────────────────────────"
-    echo "  Select platform（选择平台）                        → Weixin / WeChat 对应的数字"
-    echo "  向导给出二维码链接                                 → 复制链接到浏览器打开，页面出现"
-    echo "                                                       二维码后用微信扫码并确认"
-    echo "  How should direct messages be authorized?         → 输入 3（不要选默认的 1）"
-    echo "  Allowed Weixin user IDs                           → 直接回车（已预填你的微信 ID）"
-    echo "  How should group chats be handled?                → 输入 1（禁用群聊，推荐）"
-    echo "  其余提示                                           → 直接回车保持默认"
+    echo "  向导提问                                          应答"
+    echo "  ────────────────────────────────────────────────────────"
+    echo "  Select platform                                   Weixin / WeChat 对应序号"
+    echo "  输出二维码链接                                     复制到浏览器打开，"
+    echo "                                                    微信扫码并确认"
+    echo "  How should direct messages be authorized?         输入 3"
+    echo "  Allowed Weixin user IDs                           回车（已预填）"
+    echo "  How should group chats be handled?                输入 1"
+    echo "  其余提问                                           回车取默认"
     echo ""
-    echo "  完成后向导自动结束；不想现在配置可按 Ctrl+C 跳过"
+    echo "  向导完成后自动关闭。暂不接入可关闭向导窗口。"
     while true; do
         read -rp "现在扫码连接微信？[y/n]: " WX_NOW
         WX_NOW="${WX_NOW:-Y}"
@@ -397,7 +391,7 @@ else
             ok "微信通道已配置"
             break
         fi
-        warn "微信尚未配置成功（二维码可能已超时）"
+        warn "微信未配置成功（二维码可能已超时）"
         read -rp "重新打开向导扫码？[y/n]: " WX_RETRY
         [[ "$WX_RETRY" =~ ^[Nn] ]] && break
     done
@@ -418,15 +412,27 @@ print(json.load(open(files[-1])).get('user_id', '') if files else '')" 2>/dev/nu
             else
                 echo "WEIXIN_ALLOWED_USERS=$WX_USER_ID" >> "$HERMES_HOME/.env"
             fi
-            ok "消息授权：仅允许你的微信 ID（首条消息直达）"
+            ok "消息授权：仅允许本人微信 ID"
         fi
     fi
 fi
 
 # ---------- 11. gateway 服务（消息通道 + cron） ----------
-log "安装 gateway 服务（消息通道 + 定时任务）……"
-if hermes gateway install >/dev/null 2>&1; then
-    ok "gateway 服务已安装（消息 + 定时任务）"
+log "安装 gateway 服务……"
+# 上游 CLI 以 sys.stdin.isatty() 判定交互性
+#（hermes_cli/gateway.py：non_interactive = not sys.stdin.isatty()）：从终端运行时为交互态，
+# 会问 "Start the gateway now / on login?"。旧实现把 stdout 丢进 /dev/null——提示不可见、
+# 终端看似冻住（2026-09-10 与 Windows 侧同一类 bug，触发条件不同）。
+# 注意：此分支 **不读** HERMES_NONINTERACTIVE，设它无效。修法二合一：
+#   ① 显式传 --start-now / --start-on-login 定调，不依赖任何自动判定；
+#   ② stdin 接 /dev/null 使 isatty() 为假 → non_interactive=True，连带压掉 systemd_install
+#      内部的 legacy-unit 提问（gateway.py:4498）。
+# 输出落日志文件（而非 /dev/null）：失败时回显尾部，便于定位——不再静默。
+GW_LOG="${TMPDIR:-/tmp}/hm-gateway-install.log"
+GW_TIMEOUT=""
+if command -v timeout >/dev/null 2>&1; then GW_TIMEOUT="timeout 240"; fi
+if $GW_TIMEOUT hermes gateway install --start-now --start-on-login < /dev/null > "$GW_LOG" 2>&1; then
+    ok "gateway 服务已安装"
     # AGENTS.md 走 cwd 目录链：服务必须以 $HOME 为 WorkingDirectory
     # unit 文件在用户自己的 ~/.config 下——直接改写即可，用 sudo 反而会在无免密环境静默失败
     for unit in "$HOME/.config/systemd/user/"*hermes*.service; do
@@ -434,16 +440,19 @@ if hermes gateway install >/dev/null 2>&1; then
         if grep -q "^WorkingDirectory=" "$unit"; then
             sed -i "s|^WorkingDirectory=.*|WorkingDirectory=$HOME|" "$unit" \
                 && ok "服务 WorkingDirectory 固定为 \$HOME（AGENTS.md 目录链单点）：$unit" \
-                || warn "改写 WorkingDirectory 失败：$unit —— AGENTS.md 可能不生效，请手动加一行 WorkingDirectory=$HOME"
+                || warn "改写 WorkingDirectory 失败：$unit。AGENTS.md 可能不生效，请手动添加一行 WorkingDirectory=$HOME"
         else
             echo "WorkingDirectory=$HOME" >> "$unit" \
                 && ok "服务 WorkingDirectory 固定为 \$HOME（AGENTS.md 目录链单点）：$unit" \
-                || warn "写入 WorkingDirectory 失败：$unit —— AGENTS.md 可能不生效，请手动加一行 WorkingDirectory=$HOME"
+                || warn "写入 WorkingDirectory 失败：$unit。AGENTS.md 可能不生效，请手动添加一行 WorkingDirectory=$HOME"
         fi
         systemctl --user daemon-reload 2>/dev/null || true
     done
 else
     warn "gateway 服务未安装成功，消息通道与定时任务暂不可用"
+    if [ -s "$GW_LOG" ]; then
+        tail -n 5 "$GW_LOG" | while IFS= read -r _l; do warn "  $_l"; done
+    fi
     warn "可前台运行 hermes gateway run 查看日志定位问题；排除后重跑安装器"
 fi
 
@@ -451,23 +460,19 @@ fi
 # 设计（用户流程 2）：key 配置完成后 AI 上线，脚本下线。
 # WebDAV / 微信接入 / 同步引导 / 能力演示全部由 AI 完成（#13）——AI 读 AGENTS.md 指针（内容在 docs）。
 
-# ---------- 13. 完成提示（两处如实告知，不隐瞒） ----------
+# ---------- 13. 完成提示 ----------
 echo ""
-log "HerMemory $HERMEMORY_VERSION 安装完成。两件事必须知道（详解见 docs/GUIDE.md）："
-echo "  ① AGENTS.md 可自由编辑，但上游 Hermes 对它做威胁扫描——含触发词的内容"
-echo "     会被整体拦截（规则静默失效）。规则不生效时先想到这一条。"
-echo "     （MEMORY.md / USER.md 逐条扫描：命中条目在对话中显示为 [BLOCKED]，文件本身保留。）"
-echo "  ② 自动化默认全关：写日记/总结由你说一声才写；周小结、定时任务等口述即建"
-echo "     （agent 自建 cron 并登记进 AUTOMATION.md）。"
+log "HerMemory $HERMEMORY_VERSION 安装完成。使用说明见 docs/GUIDE.md。"
 echo ""
-log "接下来："
+echo "  注意事项"
+echo "  1. AGENTS.md 可自由编辑。上游 Hermes 对其执行威胁扫描，含触发词的内容会被整体拦截。"
+echo "     MEMORY.md 与 USER.md 逐条扫描，命中条目在对话中显示为 [BLOCKED]，文件本身保留。"
+echo "  2. 自动化默认关闭。日记与总结需明确指令后写入；定时任务由对话建立并登记至 AUTOMATION.md。"
+echo ""
 if [ "$WX_CONFIGURED" = "1" ]; then
-    log "你的 HerMemory 已在微信里——打开微信，给它发第一句话，它会向你自我介绍并引导完成剩余部署。"
+    log "微信已接入。打开微信发送消息即可开始。"
 else
-    echo "  1. hermes              —— 启动 AI：首次对话它主动采档案（怎么称呼/主要用途/说话方式），"
-    echo "                            然后按 docs/ONBOARDING.md 引导你配置同步与微信接入"
-    log "启动 AI 后直接对话即可——它会按 AGENTS.md 的「初次部署」自动引导你完成剩余配置。"
+    log "启动方式：命令行输入 hermes，按 docs/ONBOARDING.md 的指引完成剩余配置。"
 fi
-echo "  2. 改 $VAULT_DIR/HerMemory/memory/ 下任何文件 → 开新对话即生效"
-echo ""
-log "文档：docs/INSTALL.md（部署）｜docs/GUIDE.md（使用）｜docs/ONBOARDING.md（AI 的部署手册）"
+log "文档修改：编辑 $VAULT_DIR/HerMemory/memory/ 内文件，开启新对话后生效。"
+log "文档：docs/INSTALL.md 部署｜docs/GUIDE.md 使用｜docs/ONBOARDING.md 部署手册"
