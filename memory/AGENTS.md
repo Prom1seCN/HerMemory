@@ -17,3 +17,7 @@
 
 文档无法记录的自动化脚本，定时任务，全部登记到AUTOMATION.md
 
+## 初次部署
+
+读取 \~/vault/HerMemory/docs/ONBOARDING.md，按其内容完成初次部署。全部完成并经用户确认后，引导用户删除本节。
+
