@@ -79,13 +79,36 @@ if (-not (Test-Path $OfflineZip) -and $PSScriptRoot -match '^(.*)\\[^\\]+$') {
     if (Test-Path $repoOffline) { $OfflineZip = $repoOffline }
 }
 if ((Test-Path $OfflineZip) -and -not (Test-Path (Join-Path $OfflineDir "manifest.json"))) {
-    Log "解压内嵌离线资源包（一次性，数百 MB，视磁盘速度需一两分钟）……"
-    New-Item -ItemType Directory -Force -Path $OfflineDir | Out-Null
-    tar -xf $OfflineZip -C $OfflineDir
+    Log "解压内嵌离线资源包（一次性，约 1GB，视磁盘速度需一两分钟）……"
+    $drive = Get-PSDrive -Name ($OfflineDir.Substring(0, 1)) -ErrorAction SilentlyContinue
+    if ($drive -and $drive.Free -lt 3GB) { Warn "磁盘剩余空间不足 3GB——解压可能失败（当前剩余 $([Math]::Round($drive.Free/1GB,1))GB）" }
+    try {
+        New-Item -ItemType Directory -Force -Path $OfflineDir | Out-Null
+        $prev = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+        tar -xf $OfflineZip -C $OfflineDir 2>&1 | Out-Null
+        $tarExit = $LASTEXITCODE
+        $ErrorActionPreference = $prev
+        if ($tarExit -ne 0) { throw "tar 退出码 $tarExit" }
+    } catch {
+        Warn "tar 解压失败（$($_.Exception.Message)）——尝试 Expand-Archive 兜底……"
+        try {
+            New-Item -ItemType Directory -Force -Path $OfflineDir | Out-Null
+            Expand-Archive -Path $OfflineZip -DestinationPath $OfflineDir -Force -ErrorAction Stop
+        } catch {
+            Die "离线资源包解压失败（tar 与 Expand-Archive 均失败）：$($_.Exception.Message)——请检查磁盘剩余空间后点击「重新安装」"
+        }
+    }
     if (Test-Path (Join-Path $OfflineDir "manifest.json")) { Ok "离线资源包就绪" }
-    else { Warn "离线资源包解压异常——回落在线安装流程" }
+    else { Warn "离线资源包解压异常（manifest 缺失）——回落在线安装流程" }
 }
 $IsOffline = Test-Path (Join-Path $OfflineDir "manifest.json")
+# 离线性断言：exe 发行版把 assets-offline.zip 与 install.ps1 同目录投放，二者是一体的。
+# zip 在场却解不出 manifest（解压失败/被杀软删文件/磁盘满）绝不能回落在线——那会让"无需联网"的承诺静默失效，
+# 表现为 20 分钟后才在 Python 下载处报错（2026-09-10 沙盒实录）。此处即刻致命失败，让用户重新解压而不是等超时。
+if (-not $IsOffline -and (Test-Path $OfflineZip)) {
+    Die "离线资源包在场但未能就绪（$OfflineZip 未解出 manifest.json）——离线安装不能降级为在线。请确认磁盘剩余 ≥3GB 后点击「重新安装」重试解压。"
+}
+Log $(if ($IsOffline) { "模式：离线安装（全部资源内嵌，全程无需网络）" } else { "模式：在线安装（未检测到离线资源包，将走镜像下载）" })
 New-Item -ItemType Directory -Force -Path $HermesHome | Out-Null
 function Test-Done([string]$step) { (Test-Path $StateFile) -and ((Get-Content $StateFile -ErrorAction SilentlyContinue) -contains $step) }
 function Mark-Done([string]$step) { if (-not (Test-Done $step)) { Add-Content -Path $StateFile -Value $step } }
