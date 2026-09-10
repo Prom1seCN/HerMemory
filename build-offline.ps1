@@ -243,7 +243,17 @@ $manifest | ConvertTo-Json -Depth 4 | Set-Content -Path (Join-Path $Assets "mani
 
 $zipOut = Join-Path $OutDir "assets-offline.zip"
 if (Test-Path $zipOut) { Remove-Item $zipOut -Force }
-tar -acf $zipOut -C $OutDir assets-offline
+# 必须用标准 zip 写入器（central directory 完整）——2026-09-10 VM 实录：
+# 旧写法 `tar -acf out.zip -C $OutDir assets-offline` 走 bsdtar 的 zip writer，
+# 打包机能解、VM 的 tar -xf 却只读到空归档（退出码依旧 0，manifest.json 不出现），
+# 表现为"离线包在场但解不出来"→ 断言触发。教训：跨机器分发的归档不用 tar 写 zip。
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+[System.IO.Compression.ZipFile]::CreateFromDirectory(
+    $Assets,
+    $zipOut,
+    [System.IO.Compression.CompressionLevel]::Optimal,
+    $false   # 不写顶层 assets-offline/ 目录前缀：zip 内直接是清单文件，与 install.ps1 解压后布局一致
+)
 $sw.Stop()
 $size = (Get-Item $zipOut).Length / 1MB
 $assetsSize = ($files | Measure-Object Length -Sum).Sum / 1MB

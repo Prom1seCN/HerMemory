@@ -73,35 +73,50 @@ $StateFile = Join-Path $HermesHome "hermemory-install.state"
 # ---------- 0. 离线模式检测（assets-offline.zip 由离线发行版 exe 内嵌，ExtractPayload 自动解出到本目录） ----------
 $OfflineZip = Join-Path $PSScriptRoot "assets-offline.zip"
 $OfflineDir = Join-Path $PSScriptRoot "assets-offline"
+# zip 内布局历史包袱：早期 build-offline.ps1 用 `tar -acf` 打的是 `assets-offline/…`（带顶层目录），
+# 后期改用 ZipFile::CreateFromDirectory 打平。两种布局都吃——解压后按 manifest.json 实际所在层确定根，不搬文件。
+function Get-OfflineRoot([string]$dir) {
+    if (Test-Path (Join-Path $dir "manifest.json")) { return $dir }
+    $nested = Join-Path $dir "assets-offline"
+    if (Test-Path (Join-Path $nested "manifest.json")) { return $nested }
+    return $null
+}
 if (-not (Test-Path $OfflineZip) -and $PSScriptRoot -match '^(.*)\\[^\\]+$') {
     # 仓库模式直跑 install.sh 同级的 install.ps1 时，资源包在 build\offline\ 下
     $repoOffline = Join-Path ($Matches[1] + "\build\offline") "assets-offline.zip"
     if (Test-Path $repoOffline) { $OfflineZip = $repoOffline }
 }
-if ((Test-Path $OfflineZip) -and -not (Test-Path (Join-Path $OfflineDir "manifest.json"))) {
+if ((Test-Path $OfflineZip) -and -not (Get-OfflineRoot $OfflineDir)) {
     Log "解压内嵌离线资源包（一次性，约 1GB，视磁盘速度需一两分钟）……"
     $drive = Get-PSDrive -Name ($OfflineDir.Substring(0, 1)) -ErrorAction SilentlyContinue
     if ($drive -and $drive.Free -lt 3GB) { Warn "磁盘剩余空间不足 3GB——解压可能失败（当前剩余 $([Math]::Round($drive.Free/1GB,1))GB）" }
+    Remove-Item $OfflineDir -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force -Path $OfflineDir | Out-Null
+    # 主路径：标准 zip 解压器（.NET，带 central directory 校验，任何 zip 都能解）。
+    # 不用 tar：2026-09-10 实测 GNU tar 对 zip 直接 "This does not look like a tar archive" 且退出码为 0，
+    # 静默解出空目录——正是"离线包在场却 manifest 缺失"的根因。
+    $ZIP_OK = $false
     try {
-        New-Item -ItemType Directory -Force -Path $OfflineDir | Out-Null
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        [System.IO.Compression.ZipFile]::ExtractToDirectory($OfflineZip, $OfflineDir, $true)
+        $ZIP_OK = $true
+    } catch {
+        $zipErr = $_.Exception.Message
+        if ($_.Exception.InnerException) { $zipErr += " <- $($_.Exception.InnerException.Message)" }
+        Warn "标准 zip 解压失败（$zipErr）——尝试 tar 兜底……"
         $prev = $ErrorActionPreference; $ErrorActionPreference = "Continue"
         tar -xf $OfflineZip -C $OfflineDir 2>&1 | Out-Null
-        $tarExit = $LASTEXITCODE
         $ErrorActionPreference = $prev
-        if ($tarExit -ne 0) { throw "tar 退出码 $tarExit" }
-    } catch {
-        Warn "tar 解压失败（$($_.Exception.Message)）——尝试 Expand-Archive 兜底……"
-        try {
-            New-Item -ItemType Directory -Force -Path $OfflineDir | Out-Null
-            Expand-Archive -Path $OfflineZip -DestinationPath $OfflineDir -Force -ErrorAction Stop
-        } catch {
-            Die "离线资源包解压失败（tar 与 Expand-Archive 均失败）：$($_.Exception.Message)——请检查磁盘剩余空间后点击「重新安装」"
-        }
     }
-    if (Test-Path (Join-Path $OfflineDir "manifest.json")) { Ok "离线资源包就绪" }
-    else { Warn "离线资源包解压异常（manifest 缺失）——回落在线安装流程" }
+    if (-not (Get-OfflineRoot $OfflineDir)) {
+        Die "离线资源包解压失败（标准 zip 解压器与 tar 均未产出 manifest.json）——请检查磁盘剩余空间与杀软拦截后点击「重新安装」"
+    }
+    Ok "离线资源包就绪"
 }
-$IsOffline = Test-Path (Join-Path $OfflineDir "manifest.json")
+# 确定离线根目录：manifest 落在哪层，哪层就是根（嵌套布局自动适配，后续一律引用 $OfflineDir）
+$_offRoot = Get-OfflineRoot $OfflineDir
+if ($_offRoot) { $OfflineDir = $_offRoot }
+$IsOffline = [bool]$_offRoot
 # 离线性断言：exe 发行版把 assets-offline.zip 与 install.ps1 同目录投放，二者是一体的。
 # zip 在场却解不出 manifest（解压失败/被杀软删文件/磁盘满）绝不能回落在线——那会让"无需联网"的承诺静默失效，
 # 表现为 20 分钟后才在 Python 下载处报错（2026-09-10 沙盒实录）。此处即刻致命失败，让用户重新解压而不是等超时。
@@ -399,12 +414,16 @@ if (Test-Done "upstream") {
         } else {
             Log "Node 预置：解压内嵌 Node.js 22……"
             New-Item -ItemType Directory -Force -Path $ndDir | Out-Null
-            tar -xf (Join-Path $OfflineDir "node.zip") -C $OfflineDir
-            $ndInner = Get-ChildItem $OfflineDir -Directory -Filter "node-v*" | Select-Object -First 1
+            # 标准 zip 解压器（tar 不解 zip，见段 0 注释）
+            Add-Type -AssemblyName System.IO.Compression.FileSystem
+            $ndTmp = Join-Path $env:TEMP "hm-node-unzip"
+            Remove-Item $ndTmp -Recurse -Force -ErrorAction SilentlyContinue
+            [System.IO.Compression.ZipFile]::ExtractToDirectory((Join-Path $OfflineDir "node.zip"), $ndTmp, $true)
+            $ndInner = Get-ChildItem $ndTmp -Directory -Filter "node-v*" | Select-Object -First 1
             if ($ndInner) {
                 Copy-Item -Path (Join-Path $ndInner.FullName "*") -Destination $ndDir -Recurse -Force
-                Remove-Item $ndInner.FullName -Recurse -Force -ErrorAction SilentlyContinue
             }
+            Remove-Item $ndTmp -Recurse -Force -ErrorAction SilentlyContinue
             if (Test-Path $ndExe) { Ok "Node.js $(((& $ndExe --version) | Out-String).Trim()) 已预置（离线）" }
             else { Die "离线 Node 解压异常——内嵌资源包不完整，请重新获取 HerMemory 离线版" }
         }
@@ -486,8 +505,16 @@ if (Test-Done "upstream") {
             $tmpOff = Join-Path $env:TEMP "hm-hermes-agent-off"
             if (Test-Path $tmpOff) { Remove-Item -Recurse -Force $tmpOff }
             New-Item -ItemType Directory -Force -Path $tmpOff | Out-Null
-            tar -xf (Join-Path $OfflineDir "hermes-agent.zip") -C $tmpOff
-            Move-Item $tmpOff $repoDir
+            # 标准 zip 解压器（tar 不解 zip，见段 0 注释）
+            Add-Type -AssemblyName System.IO.Compression.FileSystem
+            [System.IO.Compression.ZipFile]::ExtractToDirectory((Join-Path $OfflineDir "hermes-agent.zip"), $tmpOff, $true)
+            # zip 内可能带 hermes-agent/ 顶层目录——找到含 .git 的那层作为仓库根
+            $repoSrc = $tmpOff
+            if (-not (Test-Path (Join-Path $tmpOff ".git"))) {
+                $inner = Get-ChildItem $tmpOff -Directory | Where-Object { Test-Path (Join-Path $_.FullName ".git") } | Select-Object -First 1
+                if ($inner) { $repoSrc = $inner.FullName }
+            }
+            Move-Item $repoSrc $repoDir
         }
         & git -C $repoDir remote set-url origin (Join-Path $OfflineDir "hermes-agent.bundle") 2>$null
         $inTree  = (& git -C $repoDir rev-parse --is-inside-work-tree 2>$null)
