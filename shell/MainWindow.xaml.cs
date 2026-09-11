@@ -690,7 +690,7 @@ namespace HerMemory
         }
 
         /// <summary>安装子进程是否仍在跑（退出保护用）。</summary>
-        private bool InstallInProgress
+        public bool InstallInProgress
         {
             get { try { return _installProc != null && !_installProc.HasExited; } catch { return false; } }
         }
@@ -874,6 +874,11 @@ namespace HerMemory
             if (Directory.Exists(VaultDir))
                 Process.Start(new ProcessStartInfo("explorer.exe", $"\"{VaultDir}\"") { UseShellExecute = true });
         }
+
+        /// <summary>主界面 → 安装向导：直接切到向导首页并重跑预检。
+        /// 已安装状态下重跑，install.ps1 会自动跳过已完成步骤；若此前落在"安装不完整"状态，
+        /// 这也是唯一的自愈入口（启动判定把不完整安装导向向导，本按钮则让日常态也能回去）。</summary>
+        private void BtnWizard_Click(object sender, RoutedEventArgs e) => GoWelcome();
 
         private void BtnTheme_Click(object sender, RoutedEventArgs e)
         {
@@ -1093,11 +1098,19 @@ namespace HerMemory
                 : IsDeveloperModeOn() ? "开发者模式：已开启"
                 : "管理员权限：未具备（注入槽位可能创建失败）");
 
+            // 安装不完整（2026-09-11）：bin\hermes.exe 在场但解释器链断了 —— 启动判定会把这种情况
+            // 导向向导（见 HermesCtl.Installed）。用户必须知道"重跑一次即可修复"，
+            // 而不是误以为要从零重装、或以为程序坏了。
+            bool brokenInstall = File.Exists(Path.Combine(HermesCtl.HermesHome, "bin", "hermes.exe"))
+                                 && !HermesCtl.InterpreterHealthy();
+            if (brokenInstall) notes.Add("检测到安装不完整（解释器缺失），重新安装即可修复");
+
             bool allOk = _repoRoot != null;
             PrecheckStatus.Text = string.Join(Environment.NewLine, notes);
             PrecheckStatus.Foreground = new System.Windows.Media.SolidColorBrush(
                 (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(
-                    allOk ? (offlinePack ? "#2E7D32" : "#EF6C00") : "#C62828"));
+                    brokenInstall ? "#EF6C00"
+                    : allOk ? (offlinePack ? "#2E7D32" : "#EF6C00") : "#C62828"));
             BtnStart.IsEnabled = allOk;
         }
 

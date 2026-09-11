@@ -177,7 +177,14 @@ namespace HerMemory
 
         private void ShowMain()
         {
-            if (_wizard != null) { _wizard.ShowFromTray(); return; }
+            if (_wizard != null)
+            {
+                _wizard.ShowFromTray();
+                // 从向导页（例如点了托盘「安装向导…」）回到主界面：只 Show 不切页会停在向导页上，
+                // 表现为"再也回不到配置界面"。安装进行中则不抢页——那会打断进度显示与「中止安装」入口。
+                if (!_wizard.InstallInProgress) _wizard.GoHome();
+                return;
+            }
             // 主界面被真正关闭过（罕见：窗口 Close 而非最小化到托盘）时按当前安装态重建。
             // 旧实现回落到 ShowWizard()：已安装状态下会开出预检页而非日常页，与"打开主界面"语义不符。
             _wizard = new MainWindow { HomeMode = true };

@@ -64,6 +64,7 @@
                 <StackPanel Orientation="Horizontal" Margin="0,22,0,0">
                     <Button Content="打开使用文档" Style="{StaticResource GhostButton}" Click="BtnGuide_Click"/>
                     <Button Content="打开同步库" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="BtnVault_Click"/>
+                    <Button Content="安装向导" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="BtnWizard_Click"/>
                     <Button x:Name="BtnTheme" Width="36" Height="36" Margin="14,0,0,0" Click="BtnTheme_Click" Cursor="Hand" Background="{DynamicResource FieldBg}">
                         <Button.Template>
                             <ControlTemplate TargetType="Button">

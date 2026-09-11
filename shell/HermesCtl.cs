@@ -108,8 +108,36 @@ namespace HerMemory
 
         public static string LogsDir => Path.Combine(HermesHome, "logs");
 
+        /// <summary>判定“已安装”必须同时满足：① bin\hermes.exe 在场 ② venv 的解释器链可用。
+        /// 只查 ① 不够——2026-09-11 实录：uv 托管目录缺一个（精确版本目录）时 bin\hermes.exe 仍在，
+        /// 但 venv 的 pyvenv.cfg 记的 home 已失效，任何 hermes 调用都报
+        /// No Python at '"...\cpython-3.11.16-windows-x86_64-none\python.exe"'。
+        /// 而启动判定若据此认为“已安装”，用户就**永远没有正常路径进入安装/修复流程**。</summary>
         public static bool Installed =>
-            File.Exists(Path.Combine(HermesHome, "bin", "hermes.exe"));
+            File.Exists(Path.Combine(HermesHome, "bin", "hermes.exe")) && InterpreterHealthy();
+
+        /// <summary>解释器链是否可用：读 venv\pyvenv.cfg 的 home=，检查其中 python.exe 是否存在。
+        /// 路径取自 pyvenv.cfg 本身，因此对 uv 托管（hermes\uv-python）与其它安装位置同样成立。</summary>
+        public static bool InterpreterHealthy()
+        {
+            try
+            {
+                var cfg = Path.Combine(HermesHome, "hermes-agent", "venv", "pyvenv.cfg");
+                if (!File.Exists(cfg)) return false;
+                foreach (var line in File.ReadAllLines(cfg))
+                {
+                    var t = line.Trim();
+                    if (!t.StartsWith("home", StringComparison.OrdinalIgnoreCase)) continue;
+                    var eq = t.IndexOf('=');
+                    if (eq < 0) continue;
+                    var home = t.Substring(eq + 1).Trim().Trim('"');
+                    if (home.Length == 0) return false;
+                    return File.Exists(Path.Combine(home, "python.exe"));
+                }
+                return false;
+            }
+            catch { return false; }
+        }
 
         /// <summary>统一构造 hermes 进程：NO_COLOR 关颜色码（URL 提取与关键词答题都依赖干净输出）。</summary>
         private static ProcessStartInfo HermsPsi(string args)
