@@ -394,30 +394,77 @@ if (Test-Done "upstream") {
     # **它不读 PATH**，只认 uv 自己安装的托管布局（含 .gitignore/.lock 元数据、精确版本+次版本双目录）。
     # 因此离线包内预置的是「uv 真装出来的托管根目录」（uv-python/），落位后把 UV_PYTHON_INSTALL_DIR 指过去——
     # uv python find 即刻命中，跳过任何下载。旧方案（解 PBS 到任意目录 + 塞 PATH）VM 实录必然失败。
+    # uv 托管布局落**两个**目录：别名目录 + 精确版本目录。上游创建的 venv 在 pyvenv.cfg 里
+    # 记录的是**精确版本目录**（本机实证：home = ...\uv-python\cpython-3.11.16-windows-x86_64-none）。
+    # 旧实现只校验别名目录 → 精确版本目录缺失/残缺时仍判「已就位，跳过」→ **永不修复**，
+    # 症状：hermes 一律报 No Python at '"...\cpython-3.11.16-windows-x86_64-none\python.exe"'。
+    $pyInstallDir = Join-Path $HermesHome "uv-python"
+    $pyNeeded = @(
+        "cpython-3.11-windows-x86_64-none\python.exe",
+        "cpython-3.11.16-windows-x86_64-none\python.exe"
+    )
     if ($IsOffline) {
-        $pyInstallDir = Join-Path $HermesHome "uv-python"
-        $pyManaged = Join-Path $pyInstallDir "cpython-3.11-windows-x86_64-none\python.exe"
-        if (Test-Path $pyManaged) {
+        $pyMissing = @($pyNeeded | Where-Object { -not (Test-Path (Join-Path $pyInstallDir $_)) })
+        if ($pyMissing.Count -eq 0) {
             Log "Python 预置：已就位，跳过"
         } else {
             Log "Python 预置：落位内嵌 uv 托管 Python 3.11……"
             $pySrc = Join-Path $OfflineDir "uv-python"
-            if (-not (Test-Path (Join-Path $pySrc "cpython-3.11-windows-x86_64-none\python.exe"))) {
-                Die "离线包内缺 uv-python 托管目录。内嵌资源包不完整，请重新获取 HerMemory 离线版。"
+            $srcMissing = @($pyNeeded | Where-Object { -not (Test-Path (Join-Path $pySrc $_)) })
+            if ($srcMissing.Count -gt 0) {
+                Die "离线包内缺 uv-python 托管目录（$($srcMissing -join '; ')）。内嵌资源包不完整，请重新获取 HerMemory 离线版。"
             }
-            if (Test-Path $pyInstallDir) { Remove-Item $pyInstallDir -Recurse -Force -ErrorAction SilentlyContinue }
-            # 整目录复制（含 .gitignore/.lock 等 uv 元数据，缺一不可）
-            Copy-Item $pySrc $pyInstallDir -Recurse -Force
-            if (Test-Path $pyManaged) { Ok "Python 3.11 已预置（uv 托管，上游 uv python find 将直接命中）" }
-            else { Die "离线 Python 落位异常（缺 cpython-3.11-windows-x86_64-none\python.exe）。请重新获取 HerMemory 离线版。" }
+            # 先整目录拷到临时位置并校验，再整体换位——避免「删一半 / 拷一半」留下半成品。
+            # Copy-Item 不是原子操作：按字符串序（'-' < '.'）先落别名目录、后落精确版本目录，
+            # 一旦中断恰好留下「别名在、精确版本缺」，正是这次踩到的状态。
+            $pyTmp = "$pyInstallDir.hm-new"
+            if (Test-Path $pyTmp) { Remove-Item $pyTmp -Recurse -Force -ErrorAction SilentlyContinue }
+            Copy-Item $pySrc $pyTmp -Recurse -Force
+            $tmpMissing = @($pyNeeded | Where-Object { -not (Test-Path (Join-Path $pyTmp $_)) })
+            if ($tmpMissing.Count -gt 0) {
+                Remove-Item $pyTmp -Recurse -Force -ErrorAction SilentlyContinue
+                Die "离线 Python 临时落位异常（缺 $($tmpMissing -join '; ')）。请重新获取 HerMemory 离线版。"
+            }
+            $pyOld = "$pyInstallDir.hm-old"
+            if (Test-Path $pyOld) { Remove-Item $pyOld -Recurse -Force -ErrorAction SilentlyContinue }
+            $swapped = $false
+            if (Test-Path $pyInstallDir) {
+                try { Move-Item $pyInstallDir $pyOld -ErrorAction Stop; $swapped = $true } catch { }
+            } else { $swapped = $true }
+            if ($swapped) {
+                try { Move-Item $pyTmp $pyInstallDir -ErrorAction Stop }
+                catch {
+                    try { if (Test-Path $pyOld) { Move-Item $pyOld $pyInstallDir -ErrorAction Stop } } catch { }
+                    $swapped = $false
+                }
+            }
+            if ($swapped) {
+                Remove-Item $pyOld -Recurse -Force -ErrorAction SilentlyContinue
+            } else {
+                # 目录被占用（残留 python/hermes 进程）无法整体换位：退化为「逐个补齐缺失目录」，
+                # 最终仍以校验为准——宁可报错也不留下半成品。
+                Warn "Python 目录被占用，改为逐目录补齐……"
+                foreach ($rel in $pyMissing) {
+                    $sub = Split-Path $rel -Parent
+                    $dst = Join-Path $pyInstallDir $sub
+                    if (Test-Path $dst) { Remove-Item $dst -Recurse -Force -ErrorAction SilentlyContinue }
+                    Copy-Item (Join-Path $pySrc $sub) $dst -Recurse -Force
+                }
+                Remove-Item $pyTmp -Recurse -Force -ErrorAction SilentlyContinue
+            }
+            $stillMissing = @($pyNeeded | Where-Object { -not (Test-Path (Join-Path $pyInstallDir $_)) })
+            if ($stillMissing.Count -gt 0) {
+                Die "离线 Python 落位失败（仍缺 $($stillMissing -join '; ')）。请关闭占用程序后重试，或重新获取 HerMemory 离线版。"
+            }
+            Ok "Python 3.11 已预置（uv 托管）"
         }
         # 指向上游：uv 通过该环境变量定位托管解释器（上游 Install-Python 第一步即 uv python find）
         $env:UV_PYTHON_INSTALL_DIR = $pyInstallDir
     } elseif ($pbsSource -in @("npmmirror", "ghproxy")) {
         # 在线镜像场景：仍用 uv 自己装（配 UV_PYTHON_INSTALL_MIRROR），不再手工解 PBS
-        $pyInstallDir = Join-Path $HermesHome "uv-python"
         $env:UV_PYTHON_INSTALL_DIR = $pyInstallDir
-        if (Test-Path (Join-Path $pyInstallDir "cpython-3.11-windows-x86_64-none\python.exe")) {
+        $pyMissing = @($pyNeeded | Where-Object { -not (Test-Path (Join-Path $pyInstallDir $_)) })
+        if ($pyMissing.Count -eq 0) {
             Log "Python 预置：已就位，跳过"
         } else {
             Log "Python 预置：uv 下载 CPython 3.11（镜像 $pbsSource）……"
@@ -430,10 +477,12 @@ if (Test-Done "upstream") {
             $prevEapPy = $ErrorActionPreference; $ErrorActionPreference = "Continue"
             $uvPyOut = & (Join-Path $HermesHome "bin\uv.exe") python install 3.11 2>&1
             $ErrorActionPreference = $prevEapPy
-            if (Test-Path (Join-Path $pyInstallDir "cpython-3.11-windows-x86_64-none\python.exe")) {
+            # 同样校验**两个**目录（与离线段一致）：只要缺一个就算未就绪，走回落
+            $afterMissing = @($pyNeeded | Where-Object { -not (Test-Path (Join-Path $pyInstallDir $_)) })
+            if ($afterMissing.Count -eq 0) {
                 Ok "Python 3.11 已由 uv 安装"
             } else {
-                Warn "Python 预置失败，回落 uv 默认流程（镜像已配）"
+                Warn "Python 预置未完整（仍缺 $($afterMissing -join '; ')），回落 uv 默认流程（镜像已配）"
                 Warn ($uvPyOut | Select-Object -Last 3 | Out-String)
             }
         }
