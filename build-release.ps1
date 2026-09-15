@@ -1,0 +1,97 @@
+﻿#requires -Version 5.1
+<#
+  HerMemory 发行构建 —— 拆包后的「双产物」。
+
+  产出两份东西，职责分离：
+    1) build\app\HerMemory.exe            程序本体（几十 MB）：托盘 + 主界面 + 安装向导
+    2) build\HerMemory-Setup-v<版本>.exe  安装器（~800 MB）：内嵌上者 + 离线素材，负责安装与卸载
+
+  为什么必须分两次发布：安装器要把「程序本体」当资源嵌进自己里面（csproj 的 app/ 逻辑名），
+  所以程序本体必须先存在。反过来程序本体不能带离线素材（否则又变回 792 MB 的巨物）。
+
+  用法：
+    powershell -ExecutionPolicy Bypass -File build-release.ps1 [-Version 0.1.0]
+  前置：
+    build\offline\assets-offline.zip 必须已存在（由 build-offline.ps1 产出）。
+#>
+param(
+    [string]$Version = "0.1.0",
+    [string]$Configuration = "Release",
+    [switch]$SkipApp          # 跳过程序本体发布。仅在「程序本体未改动」时可用；改过 C# 就一定要重发。
+)
+$ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
+
+$Root = $PSScriptRoot
+$Shell = Join-Path $Root "shell\HerMemory.csproj"
+$AppDir = Join-Path $Root "build\app"
+$SetupDir = Join-Path $Root "build\setup"
+
+# ---- dotnet 定位（沙盒/CI 里常不在 PATH，回落到用户级安装目录） ----
+$dotnet = $null
+$cmd = Get-Command dotnet -ErrorAction SilentlyContinue
+if ($cmd) { $dotnet = $cmd.Source }
+if (-not $dotnet) {
+    $cand = Join-Path $env:USERPROFILE ".dotnet\dotnet.exe"
+    if (Test-Path $cand) { $dotnet = $cand }
+}
+if (-not $dotnet) { throw "找不到 dotnet SDK。请安装 .NET 8 SDK，或把 dotnet 加入 PATH。" }
+Write-Host "dotnet: $dotnet"
+
+function Step([string]$n) { Write-Host ""; Write-Host "=== $n ===" -ForegroundColor Cyan }
+
+$common = @(
+    "-c", $Configuration,
+    "-r", "win-x64",
+    "--self-contained", "true",
+    "-p:PublishSingleFile=true",
+    "-p:EnableCompressionInSingleFile=true",
+    "-p:IncludeNativeLibrariesForSelfExtract=true",
+    "-p:Version=$Version",
+    "--no-restore"
+)
+
+# 依赖还原：publish 一律带 --no-restore（避免每次发布都重新解析依赖图、也避免离线机器上联网等待），
+# 所以这里负责补上——既缺文件、也缺 win-x64 目标（首次用 -r 发布时常见）都要还原。
+$assets = Join-Path $Root "shell\obj\project.assets.json"
+$needRestore = $true
+if (Test-Path $assets) {
+    try { $needRestore = -not (Select-String -Path $assets -Pattern "win-x64" -Quiet -ErrorAction Stop) } catch { $needRestore = $true }
+}
+if ($needRestore) {
+    Step "0/2 还原依赖（win-x64）"
+    & $dotnet restore $Shell -r win-x64
+    if ($LASTEXITCODE -ne 0) { throw "依赖还原失败（exit $LASTEXITCODE）" }
+} else {
+    Write-Host "依赖已就绪（含 win-x64 目标），跳过还原。"
+}
+
+# ---- 1. 程序本体 ----
+if (-not $SkipApp) {
+    Step "1/2 发布程序本体（不含离线素材）"
+    & $dotnet publish $Shell @common "-p:SetupMode=false" "-o" "$AppDir"
+    if ($LASTEXITCODE -ne 0) { throw "程序本体发布失败（exit $LASTEXITCODE）" }
+    $appExe = Join-Path $AppDir "HerMemory.exe"
+    if (-not (Test-Path $appExe)) { throw "程序本体未产出：$appExe" }
+    Write-Host ("  -> {0}  ({1:N1} MB)" -f $appExe, ((Get-Item $appExe).Length / 1MB)) -ForegroundColor Green
+} else {
+    Step "1/2 跳过程序本体发布（-SkipApp）"
+}
+
+# ---- 2. 安装器 ----
+Step "2/2 发布安装器（内嵌程序本体 + 离线素材）"
+$zip = Join-Path $Root "build\offline\assets-offline.zip"
+if (-not (Test-Path $zip)) { throw "缺少离线素材：$zip。请先运行 build-offline.ps1。" }
+
+& $dotnet publish $Shell @common "-p:SetupMode=true" "-p:AssemblyName=HerMemorySetup" "-o" "$SetupDir"
+if ($LASTEXITCODE -ne 0) { throw "安装器发布失败（exit $LASTEXITCODE）" }
+
+$setupExe = Join-Path $SetupDir "HerMemorySetup.exe"
+if (-not (Test-Path $setupExe)) { throw "安装器未产出：$setupExe" }
+$outExe = Join-Path $Root ("build\HerMemory-Setup-v{0}.exe" -f $Version)
+Copy-Item $setupExe $outExe -Force
+
+Write-Host ""
+Write-Host "构建完成。" -ForegroundColor Green
+Write-Host ("  程序本体：{0}  ({1:N1} MB)" -f (Join-Path $AppDir "HerMemory.exe"), ((Get-Item (Join-Path $AppDir "HerMemory.exe")).Length / 1MB))
+Write-Host ("  安装器  ：{0}  ({1:N1} MB)" -f $outExe, ((Get-Item $outExe).Length / 1MB))

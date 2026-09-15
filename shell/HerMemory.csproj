@@ -1,6 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <!-- 发行形态（2026-09-15 拆包）：
+         SetupMode=false（默认）→ 程序本体 HerMemory.exe（几十 MB）：托盘 + 主界面 + 安装向导（无离线素材，可走在线镜像）
+         SetupMode=true         → 安装器 HerMemorySetup.exe（~800 MB）：额外内嵌「程序本体」与「离线素材」，
+                                  负责把程序本体释放到 Program Files 并把运行时装到位
+         两者是同一份代码、同一份 csproj，构建两次；用 build-release.ps1 编排。 -->
+    <SetupMode Condition="'$(SetupMode)' == ''">false</SetupMode>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
@@ -12,6 +18,7 @@
     <Version>0.1.0</Version>
     <Product>HerMemory</Product>
     <AssemblyTitle>HerMemory</AssemblyTitle>
+    <Company>Prom1seCN</Company>
     <LangVersion>latest</LangVersion>
     <ApplicationIcon>app.ico</ApplicationIcon>
   </PropertyGroup>
@@ -27,9 +34,10 @@
     </EmbeddedResource>
   </ItemGroup>
 
-  <!-- 发行版 payload 内嵌（裸 exe 分发）：install.ps1 + memory/docs/skins/scripts + 根部脚本/文档。
+  <!-- 发行版 payload 内嵌（两种形态都带）：install.ps1 + memory/docs/skins/scripts + 根部脚本/文档。
+       程序本体带上它是为了：微信扫码脚本、修复安装时跑 install.ps1 的自足性。
        exe 找不到仓库目录时自动解压到 %LOCALAPPDATA%\HerMemory\payload\<版本>\ 作为安装源。
-       四个目录均扁平（无子目录）；逐字节嵌入，BOM/编码与仓库文件完全一致。
+       五个目录均扁平（无子目录）；逐字节嵌入，BOM/编码与仓库文件完全一致。
        icons/、banner-preview.html、女孩设计原图为仓库/网页专用，安装流程不引用，不嵌。 -->
   <ItemGroup>
     <PayloadRoot Include="..\install.ps1;..\install.bat;..\install.sh;..\gateway-run.bat;..\export.sh;..\memory-size.sh;..\README.md;..\LICENSE" />
@@ -44,12 +52,24 @@
     <EmbeddedResource Include="@(PayloadScripts)" LogicalName="payload/scripts/%(Filename)%(Extension)" />
   </ItemGroup>
 
-  <!-- 离线资源内嵌：build/offline/assets-offline.zip（由 build-offline.ps1 产出）存在时自动嵌入，
-       产物仍为 HerMemory.exe（唯一发行版，安装全程无需网络）。zip 不在场时构建瘦版（仅开发调试用）。
-       安装器检测 payload 同目录 assets-offline\manifest.json 走全离线安装。 -->
-  <ItemGroup>
+  <!-- 仅安装器（SetupMode=true）：
+       app/HerMemory.exe —— 程序本体，由 build-release.ps1 先发布到 build\app\ 再内嵌；
+       payload/assets-offline.zip —— 离线素材（uv 托管 Python、Node、PortableGit、内核源码+bundle、uv/npm 预热缓存），
+       由 build-offline.ps1 产出。缺任何一项都由下面的 Target 直接报错——绝不产出「看起来能装、实际装不上」的包。 -->
+  <ItemGroup Condition="'$(SetupMode)' == 'true'">
+    <SetupApp Include="..\build\app\HerMemory.exe" Condition="Exists('..\build\app\HerMemory.exe')" />
+    <EmbeddedResource Include="@(SetupApp)" LogicalName="app/%(Filename)%(Extension)" />
     <OfflineZip Include="..\build\offline\assets-offline.zip" Condition="Exists('..\build\offline\assets-offline.zip')" />
     <EmbeddedResource Include="@(OfflineZip)" LogicalName="payload/assets-offline.zip" />
   </ItemGroup>
+
+  <!-- 安装器的前置产物断言：条件 Exists 只会「静默不嵌」，那会得到一个空有外壳的安装器。
+       这里在编译前硬失败，把问题挡在构建环节而不是用户的安装环节。 -->
+  <Target Name="HmValidateSetupInputs" BeforeTargets="CoreCompile" Condition="'$(SetupMode)' == 'true'">
+    <Error Condition="!Exists('$(MSBuildThisFileDirectory)..\build\app\HerMemory.exe')"
+           Text="安装器缺少程序本体：build\app\HerMemory.exe 不存在。请用 build-release.ps1 构建（它会先发布程序本体）。" />
+    <Error Condition="!Exists('$(MSBuildThisFileDirectory)..\build\offline\assets-offline.zip')"
+           Text="安装器缺少离线素材：build\offline\assets-offline.zip 不存在。请先运行 build-offline.ps1。" />
+  </Target>
 
 </Project>

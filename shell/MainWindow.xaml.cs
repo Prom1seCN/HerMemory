@@ -18,6 +18,11 @@ namespace HerMemory
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "vault", "HerMemory", "docs");
         private string? _answersPath;                 // 本次静默安装的答案文件（成功后删除）
         private string? _provBase, _provModel;
+        // 参数页确认后暂存、等「安装位置」页确认再启动安装（两页之间要保持已填内容）
+        private string _pendTier = "1", _pendUrl = "", _pendKey = "", _pendModel = "";
+        private int _pendMem, _pendUser;
+        private string? _pendAppDir;                  // 程序本体的落地目录（只有安装器形态会给）
+        private bool _pendAutoStart = true;           // 安装时选择的「开机自动启动」
         private CancellationTokenSource? _qrCts;
         private System.Windows.Threading.DispatcherTimer? _tipTimer;
 
@@ -1034,7 +1039,7 @@ namespace HerMemory
         /// <summary>以管理员身份重启自身（触发一次 UAC）。返回 true 表示已成功派发，本实例应退出。
         /// 失败（用户拒绝 UAC / runas 不可用）返回 false，流程继续走非提权安装——
         /// install.ps1 第 5 段会给出明确提示，不会静默。</summary>
-        private static bool TryRelaunchElevated()
+        private static bool TryRelaunchElevated(params string[] extraArgs)
         {
             try
             {
@@ -1042,7 +1047,11 @@ namespace HerMemory
                 if (string.IsNullOrEmpty(self) || !File.Exists(self)) return false;
                 // 必须先释放单实例锁：提权实例启动后会抢同一把锁
                 App.ReleaseSingleInstance();
-                var psi = new ProcessStartInfo(self, "--elevated-attempted")
+                // 附加参数必须带上：卸载是从「设置 → 应用」以普通权限启动的，
+                // 提权重启后若丢掉 --uninstall，用户会被丢到安装向导页而不是卸载页。
+                var args = new List<string> { "--elevated-attempted" };
+                if (extraArgs != null) args.AddRange(extraArgs.Where(a => !string.IsNullOrWhiteSpace(a)));
+                var psi = new ProcessStartInfo(self, string.Join(" ", args))
                 {
                     UseShellExecute = true,     // runas 动词要求 ShellExecute
                     Verb = "runas",             // 弹 UAC
@@ -1059,12 +1068,16 @@ namespace HerMemory
         {
             var notes = new List<string>();
 
-            // 权限前置（2026-09-10）：install.ps1 第 5 段用**文件符号链接**把 vault 里的
-            // SOUL.md / AGENTS.md 注入到 HERMES_HOME 与 $HOME。文件符号链接需要
-            // SeCreateSymbolicLinkPrivilege，只有「管理员令牌」或「开发者模式」二者之一满足才可免提权。
-            // 都不满足时该段直接 Die → 安装在符号链接处硬停（且用户此前已白填 API 参数）。
-            // 故在此先判定并自提权重启。槽位已就位 / 已尝试过 / 用户拒绝 → 不打扰，继续原流程。
-            if (!ElevationAttempted && !IsElevated() && !IsDeveloperModeOn() && !InjectionLinksReady())
+            // 权限前置。两个理由，安装器形态命中第一个、程序本体形态命中第二个：
+            //   ① 拆包后程序本体要落进 Program Files，卸载项要写 HKLM —— 都必须管理员令牌。
+            //      所以安装器**总是**提权（一次 UAC），不再看开发者模式脸色。
+            //   ② install.ps1 第 5 段用**文件符号链接**把 vault 里的 SOUL.md / AGENTS.md 注入到
+            //      HERMES_HOME 与 $HOME。文件符号链接需要 SeCreateSymbolicLinkPrivilege，
+            //      只有「管理员令牌」或「开发者模式」二者之一满足才可免提权；都不满足时该段直接 Die
+            //      → 安装在符号链接处硬停（且用户此前已白填 API 参数）。
+            // 槽位已就位 / 已尝试过 / 用户拒绝 → 不打扰，继续原流程。
+            bool needElevation = AppPaths.IsSetup || (!IsDeveloperModeOn() && !InjectionLinksReady());
+            if (!ElevationAttempted && !IsElevated() && needElevation)
             {
                 if (TryRelaunchElevated()) return;   // 本实例已请求退出，提权实例接管
             }
@@ -1161,8 +1174,12 @@ namespace HerMemory
                 var stampFile = Path.Combine(dir, ".hm-payload-stamp");
                 try
                 {
-                    // stamp=0 表示取不到自身路径：不认缓存，整包重解，避免误判为"已是最新"
-                    if (stamp != 0 && File.Exists(Path.Combine(dir, "install.ps1")) && File.Exists(stampFile)
+                    // stamp=0 表示取不到自身路径：不认缓存，整包重解，避免误判为"已是最新"。
+                    // 内嵌了离线素材时，"已就绪"还要求磁盘上的 zip 也在场——安装成功后素材会被清掉
+                    //（体积考量，见 install.ps1 第 14 段），此后重跑安装必须重新解出来，
+                    // 否则 install.ps1 找不到 zip 会**静默回落在线安装**，与"全程不需网络"的承诺冲突。
+                    bool zipReady = !AppPaths.HasOfflineAssets || File.Exists(Path.Combine(dir, "assets-offline.zip"));
+                    if (stamp != 0 && zipReady && File.Exists(Path.Combine(dir, "install.ps1")) && File.Exists(stampFile)
                         && long.TryParse(File.ReadAllText(stampFile), out var s) && s == stamp)
                         return true; // 构建戳一致 = 目录内容与本 exe 完全同步
                 }
@@ -1180,6 +1197,31 @@ namespace HerMemory
                 }
                 try { File.WriteAllText(stampFile, stamp.ToString()); } catch { }
                 return File.Exists(Path.Combine(dir, "install.ps1"));
+            }
+            catch { return false; }
+        }
+
+        /// <summary>安装器专属：把内嵌的**程序本体**（app/HerMemory.exe，由 build-release.ps1 预先发布并嵌入）
+        /// 释放到目标程序目录。程序本体形态没有这个资源，调用方需先判 AppPaths.IsSetup。
+        /// 返回是否真的产出了可运行的 HerMemory.exe —— 只报"写成功"不够，缺了主文件等于没装成。</summary>
+        private static bool ExtractAppFiles(string appDir)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(appDir)) return false;
+                var asm = System.Reflection.Assembly.GetExecutingAssembly();
+                Directory.CreateDirectory(appDir);
+                foreach (var name in asm.GetManifestResourceNames())
+                {
+                    if (!name.StartsWith("app/", StringComparison.Ordinal)) continue;
+                    var dst = Path.Combine(appDir, name["app/".Length..].Replace('/', Path.DirectorySeparatorChar));
+                    Directory.CreateDirectory(Path.GetDirectoryName(dst)!);
+                    using var rs = asm.GetManifestResourceStream(name);
+                    if (rs == null) continue;
+                    using var fs = File.Create(dst);
+                    rs.CopyTo(fs);
+                }
+                return File.Exists(Path.Combine(appDir, "HerMemory.exe"));
             }
             catch { return false; }
         }
@@ -1288,7 +1330,278 @@ namespace HerMemory
             else tier = Tier1.IsChecked == true ? "1" : Tier2.IsChecked == true ? "2" : "3";
             _provBase = url;
             _provModel = model;
-            StartInstall(tier, url, key, model, customMem, customUser);
+            // 不再直接开始安装：先进「安装位置」页（仅首次安装可改），由该页确认后再启动
+            _pendTier = tier; _pendUrl = url; _pendKey = key; _pendModel = model;
+            _pendMem = customMem; _pendUser = customUser;
+            PrepareLocationPage();
+            ShowPage("PageLocation");
+        }
+
+        // ================= 页 3：安装位置 =================
+        // 已有安装 → 该页只读（用户裁决：位置仅首次安装可选）。
+        // 理由：计划任务脚本里写的是绝对路径，venv 的 pyvenv.cfg、uv 蹦床也都是绝对路径，
+        // 事后改位置等价于卸载重装，而"半移动"的状态无法自愈。
+
+        private void PrepareLocationPage()
+        {
+            var existing = File.Exists(Path.Combine(HermesCtl.HermesHome, "bin", "hermes.exe"));
+            // 程序目录：安装器默认 Program Files\HerMemory；程序本体跑修复安装时就是自己所在的目录
+            if (string.IsNullOrWhiteSpace(LocBox.Text))
+                LocBox.Text = AppPaths.IsSetup ? AppPaths.DefaultAppDir : AppPaths.ExeDir;
+            if (string.IsNullOrWhiteSpace(DataBox.Text)) DataBox.Text = HermesCtl.HermesHome;
+
+            if (existing)
+            {
+                LocBox.IsEnabled = DataBox.IsEnabled = false;
+                BtnLocBrowse.IsEnabled = BtnDataBrowse.IsEnabled = false;
+                BtnLocStart.Content = "继续安装";
+                LocStatus.Text = "检测到已有安装，位置不可更改。如需更换位置，请先卸载再重新安装。";
+                LocStatus.Foreground = Brush("#EF6C00");
+                BtnLocStart.IsEnabled = true;
+            }
+            else
+            {
+                LocBox.IsEnabled = DataBox.IsEnabled = true;
+                BtnLocBrowse.IsEnabled = BtnDataBrowse.IsEnabled = true;
+                BtnLocStart.Content = "开始安装";
+                UpdateLocStatus();
+            }
+        }
+
+        private void LocBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e) => UpdateLocStatus();
+
+        private void UpdateLocStatus()
+        {
+            // 两个目录的可能同时不合法——按「谁先挡住安装」的顺序报，避免用户改好一个又撞上另一个
+            var (okA, msgA) = ValidateAppDir(LocBox.Text);
+            if (!okA)
+            {
+                LocStatus.Text = "程序位置：" + msgA;
+                LocStatus.Foreground = Brush("#C62828");
+                BtnLocStart.IsEnabled = false;
+                return;
+            }
+            var (okD, msgD) = ValidateInstallDir(DataBox.Text);
+            if (!okD)
+            {
+                LocStatus.Text = "数据位置：" + msgD;
+                LocStatus.Foreground = Brush("#C62828");
+                BtnLocStart.IsEnabled = false;
+                return;
+            }
+            LocStatus.Text = "位置可用。安装后合计占用约 2-3 GB。";
+            LocStatus.Foreground = Brush("#2E7D32");
+            BtnLocStart.IsEnabled = true;
+        }
+
+        private void BtnLocBack_Click(object sender, RoutedEventArgs e) => ShowPage("PageParams");
+
+        private void BtnLocBrowse_Click(object sender, RoutedEventArgs e) => BrowseInto(LocBox, "选择程序安装位置");
+
+        private void BtnDataBrowse_Click(object sender, RoutedEventArgs e) => BrowseInto(DataBox, "选择数据存储位置");
+
+        /// <summary>目录选择器：选中后自动在其下建 HerMemory 子目录（末级已叫 HerMemory 就不套层），
+        /// 避免用户直接把整个 D:\ 或 D:\我的资料 选成安装目录。</summary>
+        private void BrowseInto(System.Windows.Controls.TextBox box, string title)
+        {
+            try
+            {
+                using var dlg = new System.Windows.Forms.FolderBrowserDialog
+                {
+                    Description = title,
+                    UseDescriptionForTitle = true,
+                    ShowNewFolderButton = true,
+                };
+                var cur = (box.Text ?? "").Trim();
+                if (cur.Length > 0 && Directory.Exists(cur)) dlg.SelectedPath = cur;
+                if (dlg.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+                {
+                    var picked = dlg.SelectedPath.TrimEnd('\\');
+                    var leaf = Path.GetFileName(picked);
+                    box.Text = string.Equals(leaf, "HerMemory", StringComparison.OrdinalIgnoreCase)
+                        ? picked
+                        : Path.Combine(picked, "HerMemory");
+                }
+            }
+            catch (Exception ex) { ReportUiError("选择目录", ex); }
+        }
+
+        private void BtnLocStart_Click(object sender, RoutedEventArgs e)
+        {
+            var (okA, msgA) = ValidateAppDir(LocBox.Text);
+            if (!okA)
+            {
+                LocStatus.Text = "程序位置：" + msgA;
+                LocStatus.Foreground = Brush("#C62828");
+                return;
+            }
+            var (okD, msgD) = ValidateInstallDir(DataBox.Text);
+            if (!okD)
+            {
+                LocStatus.Text = "数据位置：" + msgD;
+                LocStatus.Foreground = Brush("#C62828");
+                return;
+            }
+
+            _pendAppDir = Path.GetFullPath(LocBox.Text.Trim().Trim('"')).TrimEnd('\\');
+            _pendAutoStart = ChkAutoStart.IsChecked == true;
+
+            var dataDir = Path.GetFullPath(DataBox.Text.Trim().Trim('"')).TrimEnd('\\');
+            if (!string.Equals(dataDir, HermesCtl.HermesHome.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
+            {
+                // 只设**进程级**环境变量：本会话后续的启动/配置/二维码调用与所有子进程随之一致。
+                // 持久化（写 User 环境变量）由上游安装器完成，此处不重复、也不提前写——
+                // 安装失败时不该把一个未真正生效的路径留在用户环境里。
+                Environment.SetEnvironmentVariable("HERMES_HOME", dataDir);
+            }
+            StartInstall(_pendTier, _pendUrl, _pendKey, _pendModel, _pendMem, _pendUser);
+        }
+
+        /// <summary>程序安装位置的校验。与数据目录的差别只有一条：**允许**（也默认）Program Files——
+        /// 那里只放几十 MB 的 exe，日常不写入，受 UAC 保护正是我们想要的；
+        /// 但等于 Windows / Program Files / ProgramData 本身则拒绝，否则会污染整个系统目录树。</summary>
+        private static (bool ok, string msg) ValidateAppDir(string? raw)
+        {
+            var p = (raw ?? "").Trim().Trim('"');
+            if (p.Length == 0) return (false, "请填写程序安装位置。");
+            try
+            {
+                if (!Path.IsPathRooted(p)) return (false, "请使用绝对路径，例如 C:\\Program Files\\HerMemory。");
+                p = Path.GetFullPath(p);
+            }
+            catch { return (false, "路径格式无效。"); }
+
+            if (p.IndexOfAny(Path.GetInvalidPathChars()) >= 0) return (false, "路径含非法字符。");
+            if (p.StartsWith(@"\\", StringComparison.Ordinal)) return (false, "不支持网络路径。");
+
+            var root = Path.GetPathRoot(p) ?? "";
+            if (root.Length == 0) return (false, "路径格式无效。");
+            if (string.Equals(p.TrimEnd('\\'), root.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
+                return (false, "请不要直接使用磁盘根目录，改用其下的子目录。");
+
+            try
+            {
+                var di = new DriveInfo(root);
+                if (di.DriveType != DriveType.Fixed)
+                    return (false, "仅支持本地固定磁盘（可移动磁盘、网络盘、光驱在盘符变动后全部失效）。");
+                if (di.AvailableFreeSpace < 1L * 1024 * 1024 * 1024)
+                    return (false, "该磁盘剩余空间不足 1 GB。");
+            }
+            catch { return (false, "无法访问该位置所在磁盘。"); }
+
+            if (p.Length > 60)
+                return (false, $"路径过长（{p.Length} 字符）。请缩短到 60 字符以内。");
+
+            // 只拒绝「等于」这些目录；其下的子目录（如 Program Files\HerMemory）是允许的
+            foreach (var bad in new[]
+                     {
+                         Environment.GetFolderPath(Environment.SpecialFolder.Windows),
+                         Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                         Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+                         Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                     })
+            {
+                if (string.IsNullOrEmpty(bad)) continue;
+                if (p.TrimEnd('\\').Equals(bad.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
+                    return (false, "请选择其下的子目录，不要直接使用该目录本身。");
+            }
+
+            try
+            {
+                if (File.Exists(p)) return (false, "该位置已存在同名文件。");
+            }
+            catch { }
+
+            // 非空目录：除非它本来就是一处 HerMemory 安装，否则拒绝——避免把 exe 写进用户的资料目录
+            try
+            {
+                if (Directory.Exists(p)
+                    && !File.Exists(Path.Combine(p, "HerMemory.exe"))
+                    && Directory.EnumerateFileSystemEntries(p).Any())
+                    return (false, "该目录非空。请选择空目录，或在其下新建一个目录。");
+            }
+            catch { return (false, "无法读取该目录。"); }
+
+            return (true, "位置可用。");
+        }
+
+        /// <summary>安装位置校验。每一项都给出可读原因——用户需要知道"为什么不行"，而不只是"不行"。
+        /// 拒绝清单的取舍依据：日常态**不提权**运行，而 state.db / sessions / logs / config 都要写进该目录，
+        /// 所以系统目录不是"权限不够"，而是"装了也跑不起来"。</summary>
+        private static (bool ok, string msg) ValidateInstallDir(string? raw)
+        {
+            var p = (raw ?? "").Trim().Trim('"');
+            if (p.Length == 0) return (false, "请填写安装位置。");
+            try
+            {
+                if (!Path.IsPathRooted(p)) return (false, "请使用绝对路径，例如 D:\\HerMemory。");
+                p = Path.GetFullPath(p);
+            }
+            catch { return (false, "路径格式无效。"); }
+
+            if (p.IndexOfAny(Path.GetInvalidPathChars()) >= 0) return (false, "路径含非法字符。");
+            if (p.StartsWith(@"\\", StringComparison.Ordinal)) return (false, "不支持网络路径。");
+
+            var root = Path.GetPathRoot(p) ?? "";
+            if (root.Length == 0) return (false, "路径格式无效。");
+            if (string.Equals(p.TrimEnd('\\'), root.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
+                return (false, "请不要直接使用磁盘根目录，改用其下的子目录。");
+
+            try
+            {
+                var di = new DriveInfo(root);
+                if (di.DriveType != DriveType.Fixed)
+                    return (false, "仅支持本地固定磁盘（可移动磁盘、网络盘、光驱在盘符变动后全部失效）。");
+                const long need = 3L * 1024 * 1024 * 1024;
+                if (di.AvailableFreeSpace < need)
+                    return (false, $"该磁盘剩余空间不足：需 3 GB，当前 {di.AvailableFreeSpace / 1024.0 / 1024 / 1024:F1} GB。");
+            }
+            catch { return (false, "无法访问该位置所在磁盘。"); }
+
+            // 长度：hermes-agent\node_modules 本身层级很深，根路径过长会撞 260 字符上限
+            if (p.Length > 60)
+                return (false, $"路径过长（{p.Length} 字符）。请缩短到 60 字符以内，例如 D:\\HerMemory。");
+
+            foreach (var bad in new[]
+                     {
+                         Environment.GetFolderPath(Environment.SpecialFolder.Windows),
+                         Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                         Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+                         Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                     })
+            {
+                if (string.IsNullOrEmpty(bad)) continue;
+                if (p.Equals(bad, StringComparison.OrdinalIgnoreCase)
+                    || p.StartsWith(bad.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase))
+                    return (false, "不要安装在系统目录下（Windows / Program Files / ProgramData）。");
+            }
+
+            // OneDrive：会把数 GB 的 venv 与依赖交给同步客户端
+            foreach (var key in new[] { "OneDrive", "OneDriveCommercial", "OneDriveConsumer" })
+            {
+                var od = Environment.GetEnvironmentVariable(key);
+                if (string.IsNullOrEmpty(od)) continue;
+                if (p.StartsWith(od.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase))
+                    return (false, "不要安装在 OneDrive 同步目录下。");
+            }
+
+            // 非空目录：除非它本来就是一处 hermes 安装，否则拒绝——避免写进用户自己的资料目录
+            try
+            {
+                if (Directory.Exists(p))
+                {
+                    bool looksLikeInstall =
+                        File.Exists(Path.Combine(p, "bin", "hermes.exe")) ||
+                        File.Exists(Path.Combine(p, ".hermemory-install-state")) ||
+                        File.Exists(Path.Combine(p, "hermemory-install.state")) ||
+                        Directory.Exists(Path.Combine(p, "hermes-agent"));
+                    if (!looksLikeInstall && Directory.EnumerateFileSystemEntries(p).Any())
+                        return (false, "该目录非空。请选择空目录，或在其下新建一个目录。");
+                }
+            }
+            catch { return (false, "无法读取该目录。"); }
+
+            return (true, "位置可用。");
         }
 
         /// <summary>档位单选切换：仅「自定义」时启用两个自由输入框。解析期 Tier1 默认选中会先于输入框创建触发，需判空。</summary>
@@ -1488,6 +1801,10 @@ namespace HerMemory
                         CreateNoWindow = true,
                         // 不设 StandardOutputEncoding：手工字节级读取 + 逐行自适应解码（见下）
                     };
+                    // 显式把安装位置传给子进程（而不是只依赖进程环境继承）：
+                    // install.ps1 读 $env:HERMES_HOME 得到 $HermesHome，再显式传给上游安装器，
+                    // 上游据此落位**并持久化** User 环境变量。三处必须同一个值。
+                    psi.EnvironmentVariables["HERMES_HOME"] = HermesHome;
 
                     // 自适应解码：install.ps1 默认 GBK（chcp 936 自愈），上游脚本中途把会话切成 UTF-8（其 L101），
                     // 归位调用在重定向下不可靠（实测）——流内编码会中途切换，任何单一编码解码必乱一段（VM 两轮实测踩中）。
@@ -1586,7 +1903,11 @@ namespace HerMemory
                     try { File.Delete(_answersPath); } catch { }
                     _answersPath = null;
 
-                    // 3. 微信扫码
+                    // 3. 落地程序文件与 shell 集成（快捷方式 / 卸载项 / 开机启动）。
+                    //    放在安装成功**之后**：失败重试不会在 Program Files 里留下半份程序。
+                    FinalizeShellIntegration();
+
+                    // 4. 微信扫码
                     StopTips();
                     Dispatcher.Invoke(() => { ShowPage("PageQr"); StartQrFlow(); });
                 }
@@ -1609,6 +1930,30 @@ namespace HerMemory
                     _installCts = null;
                 }
             });
+        }
+
+        /// <summary>安装成功后的落地动作：释放程序本体 → 建快捷方式 → 登记卸载项与开机启动。
+        /// 每一步独立容错——任何一步失败都不该把"运行时其实已经装好了"这个结果报成安装失败。
+        ///
+        /// 桌面/开始菜单快捷方式建在**当前用户**而不是公共位置：本软件的数据是 per-user 的
+        /// （vault 与 HERMES_HOME 都属于当前用户），把入口做成全机可见反而会误导其他用户。</summary>
+        private void FinalizeShellIntegration()
+        {
+            try
+            {
+                var appDir = _pendAppDir ?? AppPaths.ExeDir;
+                if (AppPaths.IsSetup) ExtractAppFiles(appDir);
+
+                var appExe = Path.Combine(appDir, "HerMemory.exe");
+                if (!File.Exists(appExe)) return;
+
+                Shortcut.Create(AppPaths.DesktopLnk, appExe, appDir, "HerMemory");
+                Shortcut.Create(AppPaths.StartMenuLnk, appExe, appDir, "HerMemory");
+                // 取消勾选时这一步是"删除既有项"——用户从勾选改成不勾选也要真正生效
+                AutoStart.Set(_pendAutoStart, appExe);
+                UninstallEntry.Register(appDir);
+            }
+            catch { }
         }
 
         private void StartTips()
@@ -1858,9 +2203,13 @@ namespace HerMemory
                 DoneText.Text = "HerMemory 已就绪。" + warn + Environment.NewLine +
                     "在微信发送首条消息，AI 将完成剩余部署。" + Environment.NewLine +
                     "记忆为纯文本，位于 vault\\HerMemory\\memory\\，修改后开启新对话生效。" + Environment.NewLine +
-                    "系统托盘已常驻，可随时启停 Gateway。";
+                    (AppPaths.IsSetup
+                        ? "程序已安装到 " + (_pendAppDir ?? AppPaths.DefaultAppDir) + "，点「完成」启动。"
+                        : "系统托盘已常驻，可随时启停 Gateway。");
                 ShowPage("PageDone");
-                App.Inst?.EnterHomeMode(this);   // 装完当次会话即有托盘，无需重开本程序
+                // 安装器只是过客：不建托盘（否则会在临时解压目录里留下一个幽灵托盘进程）。
+                // 只有程序本体形态（修复安装）才在当次会话即常驻。
+                if (!AppPaths.IsSetup) App.Inst?.EnterHomeMode(this);
             });
         }
 
@@ -1887,9 +2236,11 @@ namespace HerMemory
             {
                 DoneText.Text = "安装完成，微信暂未接入。" + Environment.NewLine +
                     "可随时重新接入：主界面「微信绑定」，或重新运行安装向导。" + Environment.NewLine +
-                    "系统托盘已常驻，可随时启停 Gateway。";
+                    (AppPaths.IsSetup
+                        ? "程序已安装到 " + (_pendAppDir ?? AppPaths.DefaultAppDir) + "，点「完成」启动。"
+                        : "系统托盘已常驻，可随时启停 Gateway。");
                 ShowPage("PageDone");
-                App.Inst?.EnterHomeMode(this);
+                if (!AppPaths.IsSetup) App.Inst?.EnterHomeMode(this);
             });
         }
 
@@ -1915,9 +2266,32 @@ namespace HerMemory
 
         private void BtnFinish_Click(object sender, RoutedEventArgs e)
         {
+            // 安装器形态：启动刚装好的程序本体，然后自己退出——用户从此只跟 Program Files 里的
+            // 那一份打交道，不必保留（也不该继续用）安装包。
+            if (AppPaths.IsSetup && !HomeMode)
+            {
+                LaunchInstalledApp();
+                App.RequestExit();
+                return;
+            }
             // 全新安装完成时已置为日常态（托盘已建）：进主界面而不是关窗口
             if (HomeMode) GoHome();
             else Close();
+        }
+
+        /// <summary>启动已安装的程序本体。
+        /// **经 explorer 转发**而不是直接 Process.Start：安装器是提权进程，直接启动会让程序本体
+        /// 也带上管理员令牌——而日常运行不该提权（运行时要写用户目录、且没有任何需要提权的操作）。
+        /// explorer 常驻在普通权限下，由它拉起的进程自然回到普通权限。</summary>
+        private void LaunchInstalledApp()
+        {
+            try
+            {
+                var appExe = Path.Combine(_pendAppDir ?? AppPaths.DefaultAppDir, "HerMemory.exe");
+                if (!File.Exists(appExe)) return;
+                Process.Start(new ProcessStartInfo("explorer.exe", $"\"{appExe}\"") { UseShellExecute = true });
+            }
+            catch { }
         }
 
         // ================= 卸载 =================
@@ -1942,6 +2316,18 @@ namespace HerMemory
 
         private void BtnUninsRun_Click(object sender, RoutedEventArgs e)
         {
+            // 移除程序文件（Program Files）与 HKLM 卸载项都需要管理员令牌。
+            // 「设置 → 应用」是以用户权限启动本程序的，所以这里先补齐权限——
+            // 就地提权重启并带着 --uninstall 回到本页，而不是让卸载做到一半、还留一个删不掉的条目。
+            if (!IsElevated() && !AppPaths.IsSetup)
+            {
+                if (TryRelaunchElevated("--uninstall")) return;
+                UninsStatus.Text = "需要管理员权限才能移除程序文件与注册表项。"
+                    + Environment.NewLine + "请右键以管理员身份运行本程序后重试。";
+                UninsStatus.Foreground = Brush("#C62828");
+                return;
+            }
+
             var delVault = UninsVault.IsChecked == true;
             if (delVault)
             {
@@ -2012,6 +2398,10 @@ namespace HerMemory
             }
             catch { }
 
+            SetUnins("移除桌面与开始菜单快捷方式……", 24);
+            Shortcut.Delete(AppPaths.DesktopLnk);
+            Shortcut.Delete(AppPaths.StartMenuLnk);
+
             // 只删内嵌发行包缓存，不删 HerMemory 目录本身——用户可能把本程序放在该目录下
             var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
             var payloadCache = Path.Combine(localAppData, "HerMemory", "payload");
@@ -2053,19 +2443,79 @@ namespace HerMemory
             if (Directory.Exists(payloadCache)) left.Add(payloadCache);
             if (delVault && Directory.Exists(VaultDir)) left.Add(VaultDir);
 
+            bool appDirScheduled = false;
+
+            // 软件本体已移除 → 撤掉「控制面板 / 设置 → 应用」里的条目。
+            // 仍有残留（多为文件被占用）则**保留**条目，用户可从系统界面再卸载一次，不必先找 exe。
+            if (!Directory.Exists(hh) && !Directory.Exists(payloadCache))
+            {
+                // 先读登记位置（Unregister 之后就没了）：只有它与本进程所在目录一致，才说明
+                // 程序确实装在那里——否则用户把 exe 拷到别处单独跑一次卸载，会连带删掉那个目录。
+                var installLoc = UninstallEntry.GetInstallLocation();
+                UninstallEntry.Unregister();
+
+                // 清掉安装期写下的 User 环境变量——**只清正好指向本次删除目录的那个值**：
+                // 用户若自己把 HERMES_HOME 指到别处（另一份 home），不碰。
+                try
+                {
+                    var userHome = Environment.GetEnvironmentVariable("HERMES_HOME", EnvironmentVariableTarget.User);
+                    if (!string.IsNullOrEmpty(userHome)
+                        && string.Equals(userHome.Trim().Trim('"').TrimEnd('\\'), hh.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
+                        Environment.SetEnvironmentVariable("HERMES_HOME", null, EnvironmentVariableTarget.User);
+                }
+                catch { }
+
+                // 程序文件：本进程映像正被占用，删不掉自己 → 交给临时脚本，等本进程退出后再删。
+                if (!AppPaths.IsSetup
+                    && !string.IsNullOrEmpty(installLoc) && !string.IsNullOrEmpty(AppPaths.ExeDir)
+                    && string.Equals(installLoc.TrimEnd('\\'), AppPaths.ExeDir.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
+                {
+                    ScheduleSelfDelete(AppPaths.ExeDir);
+                    appDirScheduled = true;
+                }
+            }
+
             SetUnins(left.Count == 0 ? "卸载完成。" : "卸载已完成，存在残留。", 100);
             Dispatcher.Invoke(() =>
             {
                 // 内核已删：撤掉托盘并退回向导态，否则托盘会继续指向一个不存在的安装，关窗只留幽灵进程
                 App.Inst?.LeaveHomeMode(this);
+                var appNote = Environment.NewLine + (appDirScheduled
+                    ? "程序文件将在本程序退出后自动删除。"
+                    : "程序文件请手动删除。");
                 UninsStatus.Text = left.Count == 0
                     ? "卸载完成，已移除全部软件痕迹" + (delVault ? "（含 vault）。" : "；vault 已保留。")
-                      + Environment.NewLine + "本程序文件请自行删除。"
+                      + appNote
                     : "卸载已完成，以下目录未能完全删除（多为文件被占用）：" + Environment.NewLine
                       + string.Join(Environment.NewLine, left) + Environment.NewLine
                       + "关闭占用程序后可手动删除。" + (delVault ? "" : " vault 已保留。");
                 BtnUninsClose.Visibility = Visibility.Visible;
             });
+        }
+
+        /// <summary>删除程序自身所在目录。exe 正在运行、映像被占用，无法当场删除，
+        /// 于是交给一个临时 cmd：等本进程退出后再删，最后自删脚本。
+        /// 用 ping 而不是 timeout 做延迟——timeout 需要控制台，CreateNoWindow 下会直接失败。</summary>
+        private static void ScheduleSelfDelete(string appDir)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(appDir)) return;
+                var bat = Path.Combine(Path.GetTempPath(), $"hm-gc-{Guid.NewGuid():N}.cmd");
+                var sb = new System.Text.StringBuilder();
+                sb.AppendLine("@echo off");
+                sb.AppendLine("ping 127.0.0.1 -n 5 >nul");   // 约 4 秒：等本进程与托盘完全退出，否则文件仍被锁
+                sb.AppendLine($"rd /s /q \"{appDir}\"");
+                sb.AppendLine("del \"%~f0\"");
+                File.WriteAllText(bat, sb.ToString(), new System.Text.UTF8Encoding(false));
+                Process.Start(new ProcessStartInfo("cmd.exe", $"/c \"{bat}\"")
+                {
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    WindowStyle = ProcessWindowStyle.Hidden,
+                });
+            }
+            catch { }
         }
 
         private void BtnUninsDone_Click(object sender, RoutedEventArgs e) => App.RequestExit();

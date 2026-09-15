@@ -25,6 +25,12 @@ $ErrorActionPreference = "Stop"
 # 境内服务商普遍要求 TLS 1.2+；Windows 自带 PS 5.1 默认协商老协议，不强制会连不上
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 $HermesHome = $env:HERMES_HOME; if (-not $HermesHome) { $HermesHome = "$env:LOCALAPPDATA\hermes" }
+$HermesHome = $HermesHome.Trim().Trim('"').TrimEnd('\')
+# 显式导出到本进程环境。上游 vendored 安装器（scripts\upstream-install.ps1）的 param() 默认值
+# 取 $env:HERMES_HOME，其 $InstallDir 亦由其派生，且它会把该值**持久化**写入 User 环境变量。
+# 不导出时 $HermesHome 只是本脚本的变量：上游会按自己的默认值落位，并把**错误路径**持久化下去
+# ——比"自定义目录不生效"更糟。子进程（uv / git / hermes）同样依赖它定位同一份 home。
+$env:HERMES_HOME = $HermesHome
 $UpstreamRepo = "https://github.com/NousResearch/hermes-agent.git"
 $WebDavPort = 5005
 $WebDavUser = "hermemory"
@@ -660,7 +666,9 @@ if (Test-Done "upstream") {
         if (Repair-OfflinePath) { Log "离线：User PATH 已补齐（git\bin + hermes\bin）" }
     }
 
-    & ([scriptblock]::Create((Get-Content $up -Raw))) -Tag $Tag -SkipSetup
+    # 显式传 -HermesHome：不依赖"上游 param 默认值恰好也取 $env:HERMES_HOME"这个巧合。
+    # 上游据 $HermesHome 派生 $InstallDir 并持久化 User 环境变量，故必须显式对齐。
+    & ([scriptblock]::Create((Get-Content $up -Raw))) -Tag $Tag -SkipSetup -HermesHome $HermesHome
     # 编码归位：上游安装脚本开头执行 [Console]::OutputEncoding=UTF8（scriptblock 同会话运行，会“传染”本脚本后续输出）。
     # exe 端已按行自适应解码（UTF-8 严格优先、失败退 GBK），流内切换不再乱码；此处归位主要惠及 install.bat 交互用户的肉眼输出
     #（重定向场景下该 setter 实测不回退、无害保留；交互控制台场景有效）。
@@ -1052,6 +1060,15 @@ if ($Answers) {
 Progress "wechat"
 
 # ---------- 11. gateway 服务（消息通道 + cron；上游在 Windows 用 schtasks 自启） ----------
+# 「开机自动启动」由答案文件的 autoStart 决定（exe 安装位置页的勾选项，默认开）。
+# 不勾选时不注册计划任务——gateway 仍可在主界面手动启动，只是不随登录自动拉起。
+$AutoStartGw = $true
+if ($Answers -and ($Answers.PSObject.Properties.Name -contains "autoStart")) {
+    $AutoStartGw = ("$($Answers.autoStart)" -ne "0")
+}
+if (-not $AutoStartGw) {
+    Warn "已按安装选项跳过开机自启注册（可在主界面手动启动 Gateway）。"
+} else {
 # 判重必须同时满足两点，缺一即重装：
 #   ① 计划任务存在——用**精确任务名**（上游 get_task_name()：默认 profile 即 Hermes_Gateway）
 #   ② 任务实际要跑的启动脚本存在——上游 _write_task_script() 落 gateway-service\<name>.vbs
@@ -1104,6 +1121,7 @@ if ($gwExists -and (Test-Path $gwLauncher)) {
         try { Get-Content $gwOut -Tail 3 -ErrorAction SilentlyContinue | ForEach-Object { Warn "  $_" } } catch { }
     }
 }
+}
 Progress "gateway"
 
 # ---------- 11. 脚本下线 ----------
@@ -1127,3 +1145,21 @@ if ($wxConfigured) {
 Log "文档修改：编辑 $VaultDir\HerMemory\memory\ 内文件，开启新对话后生效。"
 Log "文档：docs\INSTALL.md 部署｜docs\GUIDE.md 使用｜docs\README_REBORN.md 恢复指引"
 Progress "done"
+
+# ---------- 14. 清理安装素材（约 1.5 GB） ----------
+# 只在**走到这里（安装成功）**才清：中途失败时素材必须留着，否则重跑会静默退化成在线安装。
+# 唯一需要保留的"副本"就是用户下载的那个安装包 exe——需要修复或重装时重新运行它即可。
+# 保留 install.ps1 等小 payload（1 MB 量级，微信扫码脚本与修复安装都靠它），只清离线素材。
+$freedBytes = 0
+foreach ($t in @($OfflineDir, "$OfflineDir.stamp", $OfflineZip)) {
+    if (-not $t) { continue }
+    try {
+        if (-not (Test-Path $t)) { continue }
+        $sz = 0
+        try { $sz = (Get-ChildItem $t -Recurse -File -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum } catch { }
+        if (-not $sz) { try { $sz = (Get-Item $t -Force -ErrorAction SilentlyContinue).Length } catch { } }
+        Remove-Item $t -Recurse -Force -ErrorAction SilentlyContinue
+        if (-not (Test-Path $t)) { $freedBytes += [double]$sz }
+    } catch { }
+}
+if ($freedBytes -gt 0) { Log ("已清理安装素材，释放约 {0:N0} MB。" -f ($freedBytes / 1MB)) }

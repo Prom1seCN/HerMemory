@@ -118,6 +118,8 @@ namespace HerMemory
             EnsureTray();
             _wizard = w;
             w.PrepareHome();
+            // 卸载项 / 快捷方式 / 开机启动在安装流程收尾时写入（MainWindow.FinalizeShellIntegration），
+            // 此处不重复——那些写入需要提权，而本方法在程序本体形态下也会以普通权限走到。
         }
 
         /// <summary>卸载完成：撤销托盘并退回向导态，避免托盘继续指向已被删除的 hermes。
@@ -161,13 +163,23 @@ namespace HerMemory
                 }
             }
 
-            if (HermesCtl.Installed)
+            // 卸载入口优先于「装没装」的判断：用户可能已经手动删掉了运行数据，
+            // 此时 HermesCtl.Installed 为 false——但那不代表该把人带到安装向导去。
+            bool wantUninstall = e.Args.Any(a => string.Equals(a, "--uninstall", StringComparison.OrdinalIgnoreCase));
+
+            if (HermesCtl.Installed || wantUninstall)
             {
                 // 已安装：托盘 + 主界面双开（用户要求的默认形态）
                 _wizard = new MainWindow { HomeMode = true };
                 EnsureTray();
                 _wizard.Closed += (_, _) => _wizard = null;
                 _wizard.Show();
+                // 卸载项的轻量同步：条目已存在就什么都不做。它写在 HKLM（机器级安装），
+                // 日常启动多半没有提权、写了也会失败——只在条目缺失且程序位于默认安装目录时补写一次，
+                // 并顺带清掉旧版写在 HKCU 的重复项（否则同一个软件会在列表里出现两次）。
+                UninstallEntry.Sync();
+                // 卸载项通过 `"<exe>" --uninstall` 调用本程序：直接落在卸载页
+                if (wantUninstall) ShowUninstall();
             }
             else
             {
