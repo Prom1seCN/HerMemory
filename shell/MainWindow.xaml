@@ -59,6 +59,7 @@
                     <Button Content="API 设置" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="LinkApi_Click"/>
                     <Button Content="微信绑定" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="LinkWeixin_Click"/>
                     <Button Content="WebDAV 同步服务" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="LinkWebdav_Click"/>
+                    <Button x:Name="BtnResetAi" Content="重置 AI" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="BtnResetAi_Click"/>
                 </StackPanel>
                 <!-- 第三行：内容类（文档 / 同步库）+ 主题切换 -->
                 <StackPanel Orientation="Horizontal" Margin="0,22,0,0">
@@ -180,6 +181,8 @@
                 <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
             <TextBlock Grid.Row="0" FontSize="32" FontWeight="Bold" Foreground="{DynamicResource Ink}" Margin="0,0,0,14">HerMemory. <Run Foreground="{DynamicResource Accent}">Your memory.</Run></TextBlock>
+            <!-- 版本号放首页，不进文件名：安装包永远叫 HerMemory-Setup.exe，版本靠这里体现 -->
+            <TextBlock Grid.Row="1" x:Name="AppVersion" FontSize="13" Foreground="#90A4AE"/>
             <StackPanel Grid.Row="2" Margin="0,10,0,0" VerticalAlignment="Top">
                 <TextBlock Style="{StaticResource Body}" Text="即将安装 Hermes 内核、记忆库与微信接入。全部资源已内置，无需联网。"/>
                 <TextBlock Style="{StaticResource Body}" Text="安装完成后，AI 将接入微信。全部记忆为纯文本文件，可随时查看、修改与迁移。"/>
@@ -188,13 +191,13 @@
             <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,0,0,0">
                 <Button x:Name="BtnStart" Content="开始安装" Style="{StaticResource AccentButton}" IsEnabled="False" Click="BtnStart_Click"/>
                 <Button Content="查看安装说明" Style="{StaticResource GhostButton}" Margin="14,0,0,0" Click="BtnDocs_Click"/>
-                <Button Content="卸载 HerMemory" Style="{StaticResource GhostButton}" Margin="14,0,0,0" Click="BtnUninstall_Click"/>
+                <Button x:Name="BtnWelcomeUninstall" Content="卸载 HerMemory" Style="{StaticResource GhostButton}" Margin="14,0,0,0" Click="BtnUninstall_Click"/>
             </StackPanel>
             <TextBlock Grid.Row="4" Margin="0,14,0,0" FontSize="11.5" Foreground="#B0BEC5"
                        Text="符号链接需要开发者模式或管理员权限，以管理员身份运行可免去设置。"/>
         </Grid>
 
-        <!-- ===== 页 2：参数收集 ===== -->
+        <!-- ===== 页 4：记忆与 AI（安装完成后配置） ===== -->
         <Grid x:Name="PageParams" Visibility="Collapsed">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/>
@@ -239,13 +242,13 @@
                     </Grid.ColumnDefinitions>
                     <Button Grid.Column="0" x:Name="BtnModels" Content="获取模型列表" Style="{StaticResource GhostButton}" Click="BtnModels_Click"/>
                     <ComboBox Grid.Column="1" x:Name="ModelCombo" Style="{StaticResource FieldCombo}" Margin="12,0,0,0"/>
-                    <Button Grid.Column="2" x:Name="BtnNext" Content="确定：开始安装" Style="{StaticResource AccentButton}" Margin="12,0,0,0" Click="BtnNext_Click"/>
+                    <Button Grid.Column="2" x:Name="BtnNext" Content="确定：完成配置" Style="{StaticResource AccentButton}" Margin="12,0,0,0" Click="BtnNext_Click"/>
                 </Grid>
                 <TextBlock x:Name="ParamStatus" Margin="0,12,0,0" FontSize="12.5" Foreground="#78909C"/>
             </StackPanel>
         </Grid>
 
-        <!-- ===== 页 3：安装位置（仅首次安装可改；已装则只读） ===== -->
+        <!-- ===== 页 2：安装位置（仅首次安装可改；已装则只读） ===== -->
         <Grid x:Name="PageLocation" Visibility="Collapsed">
             <StackPanel VerticalAlignment="Center">
                 <TextBlock Text="选择安装位置" FontSize="19" FontWeight="SemiBold" Foreground="{DynamicResource Ink}"/>
@@ -284,7 +287,7 @@
             </StackPanel>
         </Grid>
 
-        <!-- ===== 页 4：安装进行中 ===== -->
+        <!-- ===== 页 3：安装进行中（跑两次：安装环境 / 配置 AI） ===== -->
         <Grid x:Name="PageInstall" Visibility="Collapsed">
             <Grid.RowDefinitions>
                 <RowDefinition Height="*"/><RowDefinition Height="Auto"/>
@@ -319,7 +322,7 @@
             </StackPanel>
         </Grid>
 
-        <!-- ===== 页 7：卸载 ===== -->
+        <!-- ===== 页 6：卸载 ===== -->
         <Grid x:Name="PageUninstall" Visibility="Collapsed">
             <StackPanel>
                 <Button x:Name="BtnUninsBack" Content="← 返回" Style="{StaticResource GhostButton}" HorizontalAlignment="Left" Padding="14,6,14,6" Click="BtnUninsCancel_Click"/>
@@ -339,7 +342,7 @@
             </StackPanel>
         </Grid>
 
-        <!-- ===== 页 6：完成 ===== -->
+        <!-- ===== 页 7：完成 ===== -->
         <Grid x:Name="PageDone" Visibility="Collapsed">
             <StackPanel VerticalAlignment="Center">
                 <TextBlock Text="安装完成" FontSize="26" FontWeight="Bold" Foreground="{DynamicResource Ink}"/>

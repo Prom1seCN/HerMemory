@@ -23,6 +23,9 @@ namespace HerMemory
         private int _pendMem, _pendUser;
         private string? _pendAppDir;                  // 程序本体的落地目录（只有安装器形态会给）
         private bool _pendAutoStart = true;           // 安装时选择的「开机自动启动」
+        private bool _autoStartChosen;                // 本会话里用户是否真的在向导中做过这项选择
+        private bool _shellOk = true;                 // 安装收尾是否真的落地了程序文件（供完成页如实报错）
+        private int _installStage = 1;                // 当前/最近一次跑的阶段：1=安装 2=配置（重试按钮据此回对页）
         private CancellationTokenSource? _qrCts;
         private System.Windows.Threading.DispatcherTimer? _tipTimer;
 
@@ -34,11 +37,37 @@ namespace HerMemory
         /// <summary>本程序 exe 路径。单文件发布下 Assembly.Location 恒为空字符串（IL3000），只能用 ProcessPath。</summary>
         private static string SelfPath => Environment.ProcessPath ?? "";
 
+        /// <summary>版本号（显示在首页）。构建时由 `-p:Version=` 写入程序集，这里是唯一读取口——
+        /// 安装包文件名因此可以固定为 HerMemory-Setup.exe，版本靠界面体现。</summary>
+        private static string AppVersionText
+        {
+            get
+            {
+                try
+                {
+                    var v = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+                    return v != null ? "版本 v" + v.ToString(3) : "";
+                }
+                catch { return ""; }
+            }
+        }
+
         public MainWindow()
         {
             InitializeComponent();
             // 标题栏保持纯名字（用户定：不显示构建时间戳）
             ThemeGlyph.Text = Theme.IsDark ? "☾" : "☀";
+            AppVersion.Text = AppVersionText;
+            // 安装器形态必须一眼可辨：桌面上可能同时躺着安装包与已装好的程序，
+            // 标题都叫 HerMemory 会让人分不清自己在跟哪一个打交道。
+            if (AppPaths.IsSetup)
+            {
+                Title = "HerMemory 安装程序";
+                // 安装器不提供卸载入口——卸载是已安装程序的事，由它从「设置 → 应用」发起
+                BtnWelcomeUninstall.Visibility = Visibility.Collapsed;
+                // 同理：重置 AI 是已安装程序的管理职能，安装器里一并隐藏
+                BtnResetAi.Visibility = Visibility.Collapsed;
+            }
             Loaded += async (_, _) =>
             {
                 ApplyGirlIcon();   // 右上角女孩图标：随主题（Assets 为相对路径，用绝对资源文件流加载）
@@ -48,9 +77,12 @@ namespace HerMemory
         }
 
         /// <summary>进入日常主界面：置 HomeMode、显示首页、刷新网关状态。
-        /// 构造 Loaded 与完成页「完成」按钮共用（运行中切换不会自动触发 Loaded）。</summary>
+        /// 构造 Loaded 与完成页「完成」按钮共用（运行中切换不会自动触发 Loaded）。
+        /// **安装器形态下不存在「日常界面」这一说**——它只是一个安装包，这里直接拒绝，
+        /// 让任何调用路径都无法把它变成一份常驻程序（连带第二个托盘图标）。</summary>
         public void GoHome()
         {
+            if (AppPaths.IsSetup) return;
             HomeMode = true;
             ShowPage("PageHome");
             HomeFooter.Text = string.Join(Environment.NewLine,
@@ -64,8 +96,13 @@ namespace HerMemory
             });
         }
 
-        /// <summary>安装成功：置为日常态（关窗走"最小化到托盘"），但停在完成页——点「完成」才进主界面。</summary>
-        public void PrepareHome() => HomeMode = true;
+        /// <summary>安装成功：置为日常态（关窗走"最小化到托盘"），但停在完成页——点「完成」才进主界面。
+        /// 安装器形态不置位：它装完即退出，日常态属于刚被释放到 Program Files 的那份本体。</summary>
+        public void PrepareHome()
+        {
+            if (AppPaths.IsSetup) return;
+            HomeMode = true;
+        }
 
         // ================= 主界面（托盘模式日常页） =================
 
@@ -475,6 +512,134 @@ namespace HerMemory
                     new UTF8Encoding(false));
             }
             catch { }
+        }
+
+        // ================= 重置 AI（不重装软件，只清空记忆） =================
+        // 用户裁决（2026-09-15）：不从头安装软件，但完全清空 AI 的记忆，实现"从头开始使用"。
+        // 这是破坏性动作，所以三道闸：确认对话框（默认「否」）→ 先停 Gateway → 备份后才动手。
+
+        private async void BtnResetAi_Click(object sender, RoutedEventArgs e)
+        {
+            // 安装器没有管理职能（按钮在 Setup 形态下已隐藏，这里是第二道防线）
+            if (AppPaths.IsSetup || _homeBusy) return;
+
+            if (!HermesCtl.Installed)
+            {
+                HomeStatus.Text = "未检测到已安装的 HerMemory，无法重置。";
+                HomeStatus.Foreground = Brush("#C62828");
+                return;
+            }
+
+            // 出厂模板：优先仓库 memory\，否则解压内嵌 payload。两处都缺时返回空串——
+            // AiReset 会在缺模板时中止，而不是把 SOUL/AGENTS 清成空文件。
+            var factory = EnsureFactoryMemoryDir();
+            var memDir = Path.Combine(VaultDir, "HerMemory", "memory");
+
+            // 模板取不到就别进确认框了：确认框会列出"SOUL/AGENTS 恢复出厂"，而实际会中止，
+            // 让用户白确认一次。这里直接如实说明。
+            if (string.IsNullOrEmpty(factory))
+            {
+                HomeStatus.Text = "找不到出厂模板（记忆无法恢复出厂），已取消。可重跑安装向导修复。";
+                HomeStatus.Foreground = Brush("#C62828");
+                return;
+            }
+
+            // 确认框的清单取自 AiReset 的执行计划本身，不手写——否则迟早出现"界面说清了、实际没清"。
+            var plan = AiReset.Describe(memDir, factory);
+            var confirm = new List<string>
+            {
+                "将清空 AI 的全部记忆，回到首次使用的状态。软件本体、API Key、微信绑定均保留。",
+                "",
+                "将清除：",
+            };
+            confirm.AddRange(plan.GroupBy(x => x.Group)
+                .Select(g => "· " + g.Key + "：" + string.Join("、", g.Select(x => x.Label))));
+            confirm.Add("");
+            confirm.Add("保留：.env（API Key 与微信凭据）、config.yaml、内置技能、内核与运行时、同步库中的文档。");
+            confirm.Add("重置前会停止 Gateway，完成后按原状态恢复。");
+            confirm.Add("备份只含记忆文件与会话库（不含日志与缓存），放在 %LOCALAPPDATA%\\HerMemory\\reset-backup-…");
+
+            var yes = System.Windows.MessageBox.Show(this, string.Join(Environment.NewLine, confirm),
+                "重置 AI", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
+            if (yes != MessageBoxResult.Yes) return;
+
+            _homeBusy = true;
+            SetHomeBusy(true);
+            BtnResetAi.IsEnabled = false;
+            HomeStatus.Text = "正在重置 AI……";
+            HomeStatus.Foreground = Brush("#78909C");
+            try
+            {
+                var rep = await Task.Run(() => AiReset.Run(memDir, factory, msg =>
+                {
+                    try { Dispatcher.Invoke(() => HomeStatus.Text = msg); } catch { }
+                }));
+
+                UpdateHomeStatus(await Task.Run(HermesCtl.State));
+                ShowResetResult(rep);
+            }
+            catch (Exception ex) { ReportUiError("重置 AI", ex); }
+            finally { _homeBusy = false; SetHomeBusy(false); BtnResetAi.IsEnabled = true; }
+        }
+
+        /// <summary>出厂记忆模板目录：仓库 memory\（开发机）或解压后的 payload\memory\。
+        /// 都取不到时返回空串——调用方据此中止，不写文件。</summary>
+        private string EnsureFactoryMemoryDir()
+        {
+            try
+            {
+                var root = _repoRoot ?? FindRepoRoot();
+                if (!string.IsNullOrEmpty(root))
+                {
+                    var inRepo = Path.Combine(root, "memory");
+                    if (File.Exists(Path.Combine(inRepo, "SOUL.md"))) return inRepo;
+                }
+            }
+            catch { }
+
+            var pd = PayloadDir;
+            if (ExtractPayload(pd))
+            {
+                var inPayload = Path.Combine(pd, "memory");
+                if (File.Exists(Path.Combine(inPayload, "SOUL.md"))) return inPayload;
+            }
+            return "";
+        }
+
+        private void ShowResetResult(AiReset.Report rep)
+        {
+            var lines = new List<string> { rep.Ok ? "重置完成。" : "重置未完全成功。" };
+            if (rep.Cleared.Count > 0)
+            {
+                // 按组汇总（共十几项，逐条列出会淹掉失败项）
+                lines.Add("");
+                lines.Add("已清除：" + string.Join("、", rep.Cleared
+                    .GroupBy(x => x.Group)
+                    .Select(g => $"{g.Key}（{g.Count()}）")));
+            }
+            if (rep.Failed.Count > 0)
+            {
+                lines.Add("");
+                lines.Add("未完成：");
+                lines.AddRange(rep.Failed.Select(x => $"· {x.Group} / {x.Label}：{x.Error}"));
+            }
+            if (rep.Notes.Count > 0)
+            {
+                lines.Add("");
+                lines.AddRange(rep.Notes);
+            }
+            if (!string.IsNullOrEmpty(rep.BackupDir))
+            {
+                lines.Add("");
+                lines.Add("备份：" + rep.BackupDir);
+            }
+            lines.Add("");
+            lines.Add(rep.Restarted ? "Gateway 已重新启动。"
+                : rep.GatewayWasRunning ? "Gateway 未能重新启动，请在主界面点「启动」。"
+                : "Gateway 原本未运行，保持停止。");
+
+            System.Windows.MessageBox.Show(this, string.Join(Environment.NewLine, lines), "重置 AI",
+                MessageBoxButton.OK, rep.Ok ? MessageBoxImage.Information : MessageBoxImage.Warning);
         }
 
         // ================= 一键导出（原生实现，包结构与 export.sh 一致） =================
@@ -1098,9 +1263,14 @@ namespace HerMemory
             // 装后 export.sh / memory-size.sh 等 bash 脚本所需的 Git Bash 亦由其提供。
 
             // 网络探测已移除（2026-09-10 定案：只发行离线版，全部资源内嵌，无需网络）。
-            // 离线版预检改为「离线资源包在场」：payload 解压后 assets-offline.zip 应与 install.ps1 同目录。
-            bool offlinePack = File.Exists(Path.Combine(PayloadDir, "assets-offline.zip"));
-            notes.Add(offlinePack
+            // 离线版预检 = 「离线资源包可用」。判据必须与 install.ps1 第 0 段同一口径，共三处：
+            //   ① payload 目录里的副本（正常发行路径：内嵌 zip 被解出来）
+            //   ② 仓库根的 assets-offline.zip
+            //   ③ 仓库的 build\offline\assets-offline.zip（开发机在仓库目录内直接跑 exe 时的实况）
+            // 只看 ① 会在②③ 的情形下误报「未发现离线安装包」——而 install.ps1 其实能找到并离线安装，
+            // 于是界面在说谎，用户会以为必须联网。2026-09-15 用户实录（卸载后重开安装包即命中）。
+            var offlineZip = FindOfflineZip();
+            notes.Add(offlineZip != null
                 ? "离线资源包已就位"
                 : "未发现离线资源包，将走在线镜像安装（需网络）");
 
@@ -1123,7 +1293,7 @@ namespace HerMemory
             PrecheckStatus.Foreground = new System.Windows.Media.SolidColorBrush(
                 (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(
                     brokenInstall ? "#EF6C00"
-                    : allOk ? (offlinePack ? "#2E7D32" : "#EF6C00") : "#C62828"));
+                    : allOk ? (offlineZip != null ? "#2E7D32" : "#EF6C00") : "#C62828"));
             BtnStart.IsEnabled = allOk;
         }
 
@@ -1134,6 +1304,29 @@ namespace HerMemory
             {
                 if (File.Exists(Path.Combine(dir.FullName, "install.ps1"))) return dir.FullName;
             }
+            return null;
+        }
+
+        /// <summary>定位可用的离线素材（与 install.ps1 第 0 段的回落顺序一致）。
+        /// 发行版机器上只会有 payload 目录那一份；开发机上 exe 位于 build\ 内、_repoRoot 指向仓库根，
+        /// 此时素材在 build\offline\ —— 这正是「卸载后重开安装包误报未发现离线包」的成因。</summary>
+        private string? FindOfflineZip()
+        {
+            try
+            {
+                var inPayload = Path.Combine(PayloadDir, "assets-offline.zip");
+                if (File.Exists(inPayload)) return inPayload;
+
+                var root = _repoRoot;
+                if (string.IsNullOrEmpty(root)) return null;
+
+                var atRoot = Path.Combine(root, "assets-offline.zip");
+                if (File.Exists(atRoot)) return atRoot;
+
+                var inBuild = Path.Combine(root, "build", "offline", "assets-offline.zip");
+                if (File.Exists(inBuild)) return inBuild;
+            }
+            catch { }
             return null;
         }
 
@@ -1244,7 +1437,11 @@ namespace HerMemory
         // ================= 页 2：参数 =================
         private void BtnStart_Click(object sender, RoutedEventArgs e)
         {
-            ShowPage("PageParams");
+            // 安装顺序（2026-09-15 用户定）：先选目录 → 安装 → 再填记忆与 API。
+            // 参数页因此移到安装之后，它不再承担"开始安装"的职责。
+            // 注意必须在这里初始化位置页——原先这一步是在参数页的「确定」里做的。
+            PrepareLocationPage();
+            ShowPage("PageLocation");
         }
 
         private void BtnDocs_Click(object sender, RoutedEventArgs e)
@@ -1330,11 +1527,11 @@ namespace HerMemory
             else tier = Tier1.IsChecked == true ? "1" : Tier2.IsChecked == true ? "2" : "3";
             _provBase = url;
             _provModel = model;
-            // 不再直接开始安装：先进「安装位置」页（仅首次安装可改），由该页确认后再启动
             _pendTier = tier; _pendUrl = url; _pendKey = key; _pendModel = model;
             _pendMem = customMem; _pendUser = customUser;
-            PrepareLocationPage();
-            ShowPage("PageLocation");
+            // 阶段 2（配置）：环境此前已装好，这里只做记忆档位 + AI 配置 + 微信 + gateway，
+            // 靠 install.ps1 的断点续装自动跳过已完成的步骤。
+            StartInstall(2);
         }
 
         // ================= 页 3：安装位置 =================
@@ -1349,6 +1546,9 @@ namespace HerMemory
             if (string.IsNullOrWhiteSpace(LocBox.Text))
                 LocBox.Text = AppPaths.IsSetup ? AppPaths.DefaultAppDir : AppPaths.ExeDir;
             if (string.IsNullOrWhiteSpace(DataBox.Text)) DataBox.Text = HermesCtl.HermesHome;
+            // 开机启动复选框要反映**现状**，不能靠 XAML 里硬编码的 true：
+            // 修复安装时若默认勾上，用户此前手动关掉的自启会被静默改回来。
+            ChkAutoStart.IsChecked = !existing || AutoStart.IsOn;
 
             if (existing)
             {
@@ -1394,7 +1594,8 @@ namespace HerMemory
             BtnLocStart.IsEnabled = true;
         }
 
-        private void BtnLocBack_Click(object sender, RoutedEventArgs e) => ShowPage("PageParams");
+        // 位置页的前一页现在是欢迎页（参数页已移到安装之后）
+        private void BtnLocBack_Click(object sender, RoutedEventArgs e) => ShowPage("PageWelcome");
 
         private void BtnLocBrowse_Click(object sender, RoutedEventArgs e) => BrowseInto(LocBox, "选择程序安装位置");
 
@@ -1428,6 +1629,18 @@ namespace HerMemory
 
         private void BtnLocStart_Click(object sender, RoutedEventArgs e)
         {
+            // 写程序目录（默认 Program Files）与 HKLM 卸载项都需要管理员令牌。
+            // 正常路径在预检页已提权；这里是「用户当时拒绝了 UAC」的补救——不拦就会装出一个
+            // 没有程序文件、没有快捷方式、没有卸载项的半成品（完成页现在会如实报错，但事前拦住更好）。
+            if (AppPaths.IsSetup && !IsElevated())
+            {
+                if (TryRelaunchElevated()) return;
+                LocStatus.Text = "安装需要管理员权限：程序文件要写入 " + (LocBox.Text ?? "").Trim()
+                    + "，卸载项要写入注册表。请右键以管理员身份运行安装包。";
+                LocStatus.Foreground = Brush("#C62828");
+                return;
+            }
+
             var (okA, msgA) = ValidateAppDir(LocBox.Text);
             if (!okA)
             {
@@ -1445,6 +1658,7 @@ namespace HerMemory
 
             _pendAppDir = Path.GetFullPath(LocBox.Text.Trim().Trim('"')).TrimEnd('\\');
             _pendAutoStart = ChkAutoStart.IsChecked == true;
+            _autoStartChosen = true;   // 用户确实做过这项选择（微信绑定页的补装据此决定是否沿用）
 
             var dataDir = Path.GetFullPath(DataBox.Text.Trim().Trim('"')).TrimEnd('\\');
             if (!string.Equals(dataDir, HermesCtl.HermesHome.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
@@ -1454,7 +1668,8 @@ namespace HerMemory
                 // 安装失败时不该把一个未真正生效的路径留在用户环境里。
                 Environment.SetEnvironmentVariable("HERMES_HOME", dataDir);
             }
-            StartInstall(_pendTier, _pendUrl, _pendKey, _pendModel, _pendMem, _pendUser);
+            // 阶段 1（安装）：只装内核与文件。记忆档位与 AI 配置等用户在下一页填完再补。
+            StartInstall(1);
         }
 
         /// <summary>程序安装位置的校验。与数据目录的差别只有一条：**允许**（也默认）Program Files——
@@ -1739,20 +1954,26 @@ namespace HerMemory
             try { _installCts?.Cancel(); } catch { }
         }
 
-        private void StartInstall(string tier, string url, string key, string model, int customMem = 0, int customUser = 0)
+        /// <summary>跑一次 install.ps1。分两个阶段（2026-09-15 用户定的安装顺序）：
+        ///   stage 1 = 安装：内核与文件。答案文件里**不带** AI 参数，脚本据此跳过配置段。
+        ///   stage 2 = 配置：记忆档位 / AI / 微信 / gateway。答案文件带齐 AI 参数，
+        ///             脚本靠 hermemory-install.state 断点续装，只做这几段。
+        /// 参数从 _pend* 字段取（阶段 1 时它们还没填，所以不能作为入参传）。</summary>
+        private void StartInstall(int stage)
         {
             ShowPage("PageInstall");
             InstallBar.Value = 2;
-            InstallTitle.Text = "正在安装 HerMemory……";
+            InstallTitle.Text = stage == 1 ? "正在安装 HerMemory……" : "正在完成配置……";
             InstallDetail.Text = "";
             InstallFail.Text = "";
             InstallFail.Visibility = Visibility.Collapsed;
             lock (_installTail) _installTail.Clear();
             _mirrorInfo = null;
             _installAborted = false;
-            BtnInstallAbort.Content = "中止安装";
+            BtnInstallAbort.Content = stage == 1 ? "中止安装" : "中止配置";
             BtnInstallAbort.IsEnabled = true;
             BtnInstallAbort.Visibility = Visibility.Visible;
+            _installStage = stage;
             try { _installCts?.Dispose(); } catch { }
             _installCts = new CancellationTokenSource(InstallTimeout);
             var installCt = _installCts.Token;
@@ -1773,14 +1994,25 @@ namespace HerMemory
                     // 先清掉上一次失败留下的残留（含明文 key），避免反复重试在 %TEMP% 里堆积
                     PurgeStaleAnswerFiles();
                     _answersPath = Path.Combine(Path.GetTempPath(), $"hermemory-answers-{Guid.NewGuid():N}.json");
+                    // 分阶段契约（见 install.ps1 开头）：AI 四项要么全给（配置阶段）、要么全不给（安装阶段）
                     var answers = new Dictionary<string, string>
                     {
-                        ["memoryTier"] = tier, ["baseUrl"] = url, ["apiKey"] = key, ["model"] = model
+                        // install.ps1 第 11 段据此决定要不要注册 gateway 开机自启。
+                        // **必须在这里传**：不传的话 install.ps1 读不到 autoStart 就按默认"开"处理，
+                        // 用户在位置页取消勾选会毫无作用。
+                        ["autoStart"] = _pendAutoStart ? "1" : "0",
                     };
-                    if (tier == "custom")
+                    if (stage == 2)
                     {
-                        answers["customMem"] = customMem.ToString();
-                        answers["customUser"] = customUser.ToString();
+                        answers["memoryTier"] = _pendTier;
+                        answers["baseUrl"] = _pendUrl;
+                        answers["apiKey"] = _pendKey;
+                        answers["model"] = _pendModel;
+                        if (_pendTier == "custom")
+                        {
+                            answers["customMem"] = _pendMem.ToString();
+                            answers["customUser"] = _pendUser.ToString();
+                        }
                     }
                     var payload = JsonSerializer.Serialize(answers);
                     await File.WriteAllTextAsync(_answersPath, payload, new UTF8Encoding(false));
@@ -1887,7 +2119,7 @@ namespace HerMemory
                             : $"失败原因（退出码 {exit}，输出末尾 16 行）：";
                         Dispatcher.Invoke(() =>
                         {
-                            InstallTitle.Text = "安装未成功";
+                            InstallTitle.Text = stage == 1 ? "安装未成功" : "配置未成功";
                             InstallFail.Text = why
                                 + (_mirrorInfo != null && exit != -3 && exit != -2 ? Environment.NewLine + "[链路] " + _mirrorInfo : "")
                                 + Environment.NewLine + tailText
@@ -1905,7 +2137,22 @@ namespace HerMemory
 
                     // 3. 落地程序文件与 shell 集成（快捷方式 / 卸载项 / 开机启动）。
                     //    放在安装成功**之后**：失败重试不会在 Program Files 里留下半份程序。
-                    FinalizeShellIntegration();
+                    //    返回值决定完成页怎么说——写不进 Program Files 时必须如实报告，不能报成功。
+                    if (stage == 1)
+                    {
+                        // 安装阶段收尾：落地程序文件与 shell 集成（快捷方式 / 卸载项 / 开机启动）。
+                        // 放在这里而不是阶段 2——"安装"完成时程序就该在 Program Files 里了，
+                        // 用户在下一页填参数时它已到位。返回值供完成页如实报错。
+                        _shellOk = FinalizeShellIntegration();
+                        StopTips();
+                        Dispatcher.Invoke(() =>
+                        {
+                            ParamStatus.Text = "环境已就绪，填写下方参数后完成配置。";
+                            ParamStatus.Foreground = Brush("#2E7D32");
+                            ShowPage("PageParams");
+                        });
+                        return;
+                    }
 
                     // 4. 微信扫码
                     StopTips();
@@ -1917,7 +2164,7 @@ namespace HerMemory
                     {
                         StopTips();
                         BtnInstallAbort.Visibility = Visibility.Collapsed;
-                        InstallTitle.Text = "安装出错";
+                        InstallTitle.Text = stage == 1 ? "安装出错" : "配置出错";
                         InstallFail.Text = "失败原因：" + ex;
                         InstallFail.Visibility = Visibility.Visible;
                         AddRetryButton();
@@ -1933,27 +2180,37 @@ namespace HerMemory
         }
 
         /// <summary>安装成功后的落地动作：释放程序本体 → 建快捷方式 → 登记卸载项与开机启动。
-        /// 每一步独立容错——任何一步失败都不该把"运行时其实已经装好了"这个结果报成安装失败。
+        /// 返回**程序本体是否真的落地**——调用方要用它决定完成页说什么话。
+        /// 静默失败在这里是不可接受的：写 Program Files 需要管理员令牌，权限不足时
+        /// 会装出一个「没程序文件、没快捷方式、没卸载项」的半成品，而完成页却报成功。
         ///
         /// 桌面/开始菜单快捷方式建在**当前用户**而不是公共位置：本软件的数据是 per-user 的
         /// （vault 与 HERMES_HOME 都属于当前用户），把入口做成全机可见反而会误导其他用户。</summary>
-        private void FinalizeShellIntegration()
+        private bool FinalizeShellIntegration()
         {
             try
             {
                 var appDir = _pendAppDir ?? AppPaths.ExeDir;
-                if (AppPaths.IsSetup) ExtractAppFiles(appDir);
+                // 释放程序本体（约 70 MB）留在这个后台线程上；安装器独有，程序本体形态没这资源
+                if (AppPaths.IsSetup && !ExtractAppFiles(appDir)) return false;
 
                 var appExe = Path.Combine(appDir, "HerMemory.exe");
-                if (!File.Exists(appExe)) return;
+                if (!File.Exists(appExe)) return false;
 
-                Shortcut.Create(AppPaths.DesktopLnk, appExe, appDir, "HerMemory");
-                Shortcut.Create(AppPaths.StartMenuLnk, appExe, appDir, "HerMemory");
+                // 快捷方式走 COM（IShellLinkW）。创建它的线程必须是 **STA**：Task.Run 起的是 MTA 线程，
+                // 调 Apartment 模型的 shell 组件要靠隐式 STA 宿主兜底，行为不受保证。WPF 的 UI 线程正是 STA。
+                Dispatcher.Invoke(() =>
+                {
+                    Shortcut.Create(AppPaths.DesktopLnk, appExe, appDir, "HerMemory");
+                    Shortcut.Create(AppPaths.StartMenuLnk, appExe, appDir, "HerMemory");
+                });
+
                 // 取消勾选时这一步是"删除既有项"——用户从勾选改成不勾选也要真正生效
                 AutoStart.Set(_pendAutoStart, appExe);
                 UninstallEntry.Register(appDir);
+                return true;
             }
-            catch { }
+            catch { return false; }
         }
 
         private void StartTips()
@@ -1981,18 +2238,20 @@ namespace HerMemory
         {
             StopTips();
 
-            if (InstallTitle.Text != "安装未成功" && InstallTitle.Text != "安装出错") return;
+            var t = InstallTitle.Text;
+            if (t != "安装未成功" && t != "安装出错" && t != "配置未成功" && t != "配置出错") return;
             // 重试按钮：回到参数页重配（样式从 App.Resources 取——Window.Resources 里是 null）
             var btn = new System.Windows.Controls.Button
             {
-                Content = "重新安装",
+                Content = _installStage == 1 ? "重新安装" : "重新配置",
                 Style = System.Windows.Application.Current.Resources["AccentButton"] as Style,
                 Margin = new Thickness(0, 18, 0, 0),
             };
             btn.Click += (_, _) =>
             {
                 ((StackPanel)InstallTitle.Parent).Children.Remove(btn);
-                ShowPage("PageParams");
+                // 哪一阶段失败就回哪一页：安装阶段回位置页（还能改目录），配置阶段回参数页
+                ShowPage(_installStage == 1 ? "PageLocation" : "PageParams");
             };
             ((StackPanel)InstallTitle.Parent).Children.Add(btn);
         }
@@ -2191,7 +2450,18 @@ namespace HerMemory
             if (!taskExists)
             {
                 SetQr("正在安装 gateway 服务……");
+                // 补装也必须沿用"用户的选择"，否则会走上游默认值把「开机自动启动」又装回来。
+                // 但选择有两个来源，不能一律取 _pendAutoStart：
+                //   · 向导路径 —— 用户在安装位置页选过，用那次的选择；
+                //   · 重绑路径（主界面「微信绑定」，本会话没走过向导）—— 此时 _pendAutoStart 还是
+                //     字段默认值 true，用它会把用户此前**关掉**的开机启动静默打开。这时该看现状。
+                var wantAutoStart = _autoStartChosen ? _pendAutoStart : AutoStart.IsOn;
+                Environment.SetEnvironmentVariable("HERMES_GATEWAY_INSTALL_START_ON_LOGIN",
+                    wantAutoStart ? "1" : "0");
                 await Task.Run(() => HermesCtl.Run("gateway install", 600));
+                // 补装之后必须**重新判定**：否则补装成功也会在完成页报"计划任务未注册"，
+                // 界面在说谎，用户白折腾一次。（原来用的是补装前的 taskExists。）
+                taskExists = await Task.Run(HermesCtl.GatewayTaskUsable);
             }
             // 凭据已落 .env——重启 gateway 加载 weixin 通道（install.ps1 第 10 段起的服务不含微信凭据）
             SetQr("正在重启 Gateway 加载微信通道……");
@@ -2204,7 +2474,10 @@ namespace HerMemory
                     "在微信发送首条消息，AI 将完成剩余部署。" + Environment.NewLine +
                     "记忆为纯文本，位于 vault\\HerMemory\\memory\\，修改后开启新对话生效。" + Environment.NewLine +
                     (AppPaths.IsSetup
-                        ? "程序已安装到 " + (_pendAppDir ?? AppPaths.DefaultAppDir) + "，点「完成」启动。"
+                        ? (_shellOk
+                            ? "程序已安装到 " + (_pendAppDir ?? AppPaths.DefaultAppDir) + "，点「完成」启动。"
+                            : "程序文件未能写入 " + (_pendAppDir ?? AppPaths.DefaultAppDir)
+                              + "（缺少管理员权限）。请右键以管理员身份重新运行安装包。")
                         : "系统托盘已常驻，可随时启停 Gateway。");
                 ShowPage("PageDone");
                 // 安装器只是过客：不建托盘（否则会在临时解压目录里留下一个幽灵托盘进程）。
@@ -2237,7 +2510,10 @@ namespace HerMemory
                 DoneText.Text = "安装完成，微信暂未接入。" + Environment.NewLine +
                     "可随时重新接入：主界面「微信绑定」，或重新运行安装向导。" + Environment.NewLine +
                     (AppPaths.IsSetup
-                        ? "程序已安装到 " + (_pendAppDir ?? AppPaths.DefaultAppDir) + "，点「完成」启动。"
+                        ? (_shellOk
+                            ? "程序已安装到 " + (_pendAppDir ?? AppPaths.DefaultAppDir) + "，点「完成」启动。"
+                            : "程序文件未能写入 " + (_pendAppDir ?? AppPaths.DefaultAppDir)
+                              + "（缺少管理员权限）。请右键以管理员身份重新运行安装包。")
                         : "系统托盘已常驻，可随时启停 Gateway。");
                 ShowPage("PageDone");
                 if (!AppPaths.IsSetup) App.Inst?.EnterHomeMode(this);
@@ -2300,6 +2576,8 @@ namespace HerMemory
 
         private void BtnUninstall_Click(object sender, RoutedEventArgs e)
         {
+            // 安装器没有卸载职能（按钮在 Setup 形态下已隐藏，这里是第二道防线）
+            if (AppPaths.IsSetup) return;
             ShowPage("PageUninstall");
         }
 
@@ -2507,7 +2785,10 @@ namespace HerMemory
                 sb.AppendLine("ping 127.0.0.1 -n 5 >nul");   // 约 4 秒：等本进程与托盘完全退出，否则文件仍被锁
                 sb.AppendLine($"rd /s /q \"{appDir}\"");
                 sb.AppendLine("del \"%~f0\"");
-                File.WriteAllText(bat, sb.ToString(), new System.Text.UTF8Encoding(false));
+                // **必须按 ANSI（简中 = GBK/936）落盘**：cmd.exe 解析 .cmd 用的是当前 ANSI 代码页，
+                // 不是 UTF-8。用 UTF-8 写会把中文路径读成乱码 → rd 什么也删不到，且静默正常退出。
+                // CodePagesEncodingProvider 已在 App.OnStartup 注册，故此处 936 可用。
+                File.WriteAllText(bat, sb.ToString(), Encoding.GetEncoding(936));
                 Process.Start(new ProcessStartInfo("cmd.exe", $"/c \"{bat}\"")
                 {
                     UseShellExecute = false,
@@ -2547,6 +2828,7 @@ namespace HerMemory
 
         public void ShowUninstall()
         {
+            if (AppPaths.IsSetup) return;   // 安装器不承担卸载职能
             ShowPage("PageUninstall");
         }
 

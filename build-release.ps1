@@ -88,10 +88,17 @@ if ($LASTEXITCODE -ne 0) { throw "安装器发布失败（exit $LASTEXITCODE）"
 
 $setupExe = Join-Path $SetupDir "HerMemorySetup.exe"
 if (-not (Test-Path $setupExe)) { throw "安装器未产出：$setupExe" }
-$outExe = Join-Path $Root ("build\HerMemory-Setup-v{0}.exe" -f $Version)
-Copy-Item $setupExe $outExe -Force
+# 文件名固定为 Setup.exe（用户 2026-09-15 定）：版本显示在程序首页，靠文件名标版本会让人误以为
+# "带版本号的那个才是最新的"，下载链接与文档也被迫随版本改。
+$outExe = Join-Path $Root "build\Setup.exe"
+try {
+    Copy-Item $setupExe $outExe -Force -ErrorAction Stop
+} catch {
+    throw ("无法写入 {0} —— 多半是它正被占用（文件预览、杀软扫描或残留句柄）。" +
+           "请关掉占用它的程序后重试，或先手动删除该文件。原始错误：{1}") -f $outExe, $_.Exception.Message
+}
 
 Write-Host ""
 Write-Host "构建完成。" -ForegroundColor Green
 Write-Host ("  程序本体：{0}  ({1:N1} MB)" -f (Join-Path $AppDir "HerMemory.exe"), ((Get-Item (Join-Path $AppDir "HerMemory.exe")).Length / 1MB))
-Write-Host ("  安装器  ：{0}  ({1:N1} MB)" -f $outExe, ((Get-Item $outExe).Length / 1MB))
+Write-Host ("  安装器  ：{0}  ({1:N1} MB)  版本 v{2}" -f $outExe, ((Get-Item $outExe).Length / 1MB), $Version)

@@ -94,6 +94,28 @@ namespace HerMemory
         public static void DeleteGatewayTask() =>
             RunExit("schtasks", $"/Delete /TN \"{GatewayTaskName}\" /F", 30);
 
+        /// <summary>gateway 进程是否仍活着——直接取 gateway.pid 里的 PID 判存活，不经过 CLI。
+        /// 为什么不用 `gateway status`：CLI 读不到时会返回 "stopped"（见 State()），
+        /// 那种误判会让调用方以为"已经停了"而继续删除 gateway 正持有的会话库。
+        /// 另外本判据是纯本地文件读取，可以高频轮询（清空记忆前的等停需要它）。
+        /// pid 文件由 gateway 自己在启动时写下，形如 {"pid": 28572, "kind": "hermes-gateway", …}。</summary>
+        public static bool GatewayProcessAlive()
+        {
+            try
+            {
+                var pidFile = Path.Combine(HermesHome, "gateway.pid");
+                if (!File.Exists(pidFile)) return false;
+                var m = System.Text.RegularExpressions.Regex.Match(
+                    File.ReadAllText(pidFile), "\"pid\"\\s*:\\s*(\\d+)");
+                if (!m.Success) return false;
+                var pid = int.Parse(m.Groups[1].Value);
+                if (pid <= 0) return false;
+                using var p = Process.GetProcessById(pid);   // 进程不在 → 抛 ArgumentException
+                return !p.HasExited;
+            }
+            catch { return false; }
+        }
+
         public static string HermesHome => Environment.GetEnvironmentVariable("HERMES_HOME")
             ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "hermes");
 

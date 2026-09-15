@@ -163,6 +163,16 @@ namespace HerMemory
                 }
             }
 
+            // 安装器形态：它就只是一个安装包——不进日常态、不建托盘、不提供卸载入口。
+            // 那些都是「已安装的程序本体」的职责。尤其要在**已装好的机器**上守住这一条：
+            // 那里 HermesCtl.Installed 为 true，若按已装分支走，安装包就会变成一个可被误用的
+            // 第二份程序（连带第二个托盘图标），用户也再找不到"重新安装"的入口。
+            if (AppPaths.IsSetup)
+            {
+                ShowWizard();
+                return;
+            }
+
             // 卸载入口优先于「装没装」的判断：用户可能已经手动删掉了运行数据，
             // 此时 HermesCtl.Installed 为 false——但那不代表该把人带到安装向导去。
             bool wantUninstall = e.Args.Any(a => string.Equals(a, "--uninstall", StringComparison.OrdinalIgnoreCase));

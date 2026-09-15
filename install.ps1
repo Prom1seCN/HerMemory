@@ -45,22 +45,41 @@ function Die([string]$m)  { Write-Host "[error] $m" -ForegroundColor Red; exit 1
 function Run-Quiet { $ErrorActionPreference = "Continue"; try { & $args 2>&1 | Out-Null } catch {} }
 
 # ---------- 静默模式（exe 契约）：-AnswersFile 提供 JSON 答案，跳过全部交互 ----------
-# JSON 字段：memoryTier(1/2/3/custom；custom 须伴随 customMem/customUser，各为 100-9999999 整数) / baseUrl / apiKey / model——均为必填。
+# **分两个阶段调用（2026-09-15 用户定的安装顺序：先选目录 → 安装 → 再填记忆与 API）**：
+#   安装阶段：答案文件里**不带** AI 四项 → 只装内核与文件，memory-tier / config-ai / wechat / gateway 全跳过
+#   配置阶段：答案文件里**带齐** memoryTier / baseUrl / apiKey / model → 靠断点续装跳过已完成的步骤，
+#             只做记忆档位、AI 配置、微信接入与 gateway 注册
+# 所以校验规则是「要么全给、要么全不给」——只给一部分属于调用方出错，宁可当场报错也不要装出半配置状态。
+# JSON 其余字段：customMem/customUser（memoryTier=custom 时必需，各为 100-9999999 整数）/ autoStart（"1"/"0"，缺省视为 1）。
 # 与交互路径共用同一套验证与落盘逻辑；区别仅在：验证失败即 Die（重试界面由 exe 负责），微信扫码由 exe 接管。
 # 安全语义：key 明文经 JSON 短暂落盘，exe 在安装成功后负责删除。
 $Answers = $null
 if ($AnswersFile) {
     if (-not (Test-Path $AnswersFile)) { Die "AnswersFile 不存在：$AnswersFile" }
     try { $Answers = Get-Content $AnswersFile -Raw -Encoding UTF8 | ConvertFrom-Json } catch { Die "AnswersFile 不是有效 JSON：$($_.Exception.Message)" }
-    foreach ($k in @("memoryTier", "baseUrl", "apiKey", "model")) {
-        if (-not $Answers.$k) { Die "AnswersFile 缺少必填字段：$k" }
+    $aiKeys = @("memoryTier", "baseUrl", "apiKey", "model")
+    $aiGiven = @($aiKeys | Where-Object { $Answers.$_ }).Count
+    if ($aiGiven -ne 0 -and $aiGiven -ne 4) {
+        Die "AnswersFile 的 AI 字段必须要么全给（memoryTier/baseUrl/apiKey/model），要么全不给（安装阶段）；当前只给了 $aiGiven 个。"
     }
-    # 与交互路径同款净化：只保留可见 ASCII
-    $Answers.baseUrl = (($Answers.baseUrl -replace "[^\x21-\x7E]", "")).TrimEnd("/")
-    $Answers.apiKey  = ($Answers.apiKey  -replace "[^\x21-\x7E]", "")
-    $Answers.model   = ($Answers.model   -replace "[^\x21-\x7E]", "")
-    if (-not $Answers.baseUrl -or -not $Answers.apiKey -or -not $Answers.model) { Die "AnswersFile 字段净化后为空（疑似混入非 ASCII 字符）" }
-    Log "静默模式：答案来自 $AnswersFile"
+    if ($aiGiven -eq 4) {
+        # 与交互路径同款净化：只保留可见 ASCII
+        $Answers.baseUrl = (($Answers.baseUrl -replace "[^\x21-\x7E]", "")).TrimEnd("/")
+        $Answers.apiKey  = ($Answers.apiKey  -replace "[^\x21-\x7E]", "")
+        $Answers.model   = ($Answers.model   -replace "[^\x21-\x7E]", "")
+        if (-not $Answers.baseUrl -or -not $Answers.apiKey -or -not $Answers.model) { Die "AnswersFile 字段净化后为空（疑似混入非 ASCII 字符）" }
+        Log "静默模式（配置阶段）：答案来自 $AnswersFile"
+    } else {
+        Log "静默模式（安装阶段）：答案来自 $AnswersFile，本次不配置 AI"
+    }
+}
+
+# 本次是否要做「配置阶段」的那几段（记忆档位 / AI 配置 / 微信 / gateway）。
+# **只在静默模式（exe 调用）下才分阶段**：交互模式（install.bat 双击、没有 -AnswersFile）
+# 必须照常走完整流程——那几段会用 Read-Host 采参数，若在这里判成 false 就等于把交互安装废掉。
+$HasAiConfig = $true
+if ($AnswersFile) {
+    $HasAiConfig = [bool]($Answers -and $Answers.memoryTier -and $Answers.baseUrl -and $Answers.apiKey -and $Answers.model)
 }
 # exe 进度契约：机器可读标记行（exe 逐行解析画进度条；交互模式下不输出）
 function Progress([string]$step) { if ($Answers) { Write-Host "##HM-PROGRESS## $step" } }
@@ -87,10 +106,22 @@ function Get-OfflineRoot([string]$dir) {
     if (Test-Path (Join-Path $nested "manifest.json")) { return $nested }
     return $null
 }
-if (-not (Test-Path $OfflineZip) -and $PSScriptRoot -match '^(.*)\\[^\\]+$') {
-    # 仓库模式直跑 install.sh 同级的 install.ps1 时，资源包在 build\offline\ 下
-    $repoOffline = Join-Path ($Matches[1] + "\build\offline") "assets-offline.zip"
-    if (Test-Path $repoOffline) { $OfflineZip = $repoOffline }
+$RepoOfflineReady = $false
+if (-not (Test-Path $OfflineZip)) {
+    # 仓库模式直跑 install.ps1（不经内嵌 payload 释放）时，素材在**脚本所在目录**的 build\offline\ 下。
+    # 旧实现是 `$PSScriptRoot -match '^(.*)\\[^\\]+$'` 再取 $Matches[1] —— 那取到的是 $PSScriptRoot 的
+    # **父目录**（如 D:\Projects），于是这条分支从来没命中过，仓库模式一路退化成在线安装。
+    # 以前 exe 是单文件、走 %LOCALAPPDATA% 里的内嵌副本，正好掩盖了它；2026-09-15 拆包后在仓库内运行才暴露。
+    $repoOfflineZip = Join-Path $PSScriptRoot "build\offline\assets-offline.zip"
+    $repoOfflineDir = Join-Path $PSScriptRoot "build\offline\assets-offline"
+    if (Test-Path $repoOfflineZip) { $OfflineZip = $repoOfflineZip }
+    # build-offline.ps1 已经把成品解在 build\offline\assets-offline\ 了——直接复用，
+    # 否则这里会往仓库根再解一份 1.5 GB 的重复副本，还会在仓库根留下垃圾。
+    # 该目录不经我方新鲜度机制（它是构建台账的一部分，由 build-offline.ps1 维护）。
+    if (Test-Path (Join-Path $repoOfflineDir "manifest.json")) {
+        $OfflineDir = $repoOfflineDir
+        $RepoOfflineReady = $true
+    }
 }
 # 新鲜度戳：assets-offline/ 是 install.ps1 解出来的，exe 的 .hm-payload-stamp 只管 payload 内嵌文件
 # （会覆盖 assets-offline.zip），**不会**删除这个解压目录。换新 exe 后旧 zip 已换、旧解压目录还在，
@@ -103,7 +134,9 @@ if (Test-Path $OfflineZip) {
     $_zipSig = "{0}:{1}" -f $zi.Length, $zi.LastWriteTimeUtc.Ticks
 }
 $_needExtract = $false
-if ((Test-Path $OfflineZip)) {
+if ($RepoOfflineReady) {
+    # 复用 build\offline\assets-offline\：它是 build-offline.ps1 的成品，不套我方新鲜度机制
+} elseif ((Test-Path $OfflineZip)) {
     if (-not (Get-OfflineRoot $OfflineDir)) { $_needExtract = $true }
     elseif (-not $_zipSig) { $_needExtract = $false }
     else {
@@ -593,17 +626,40 @@ if (Test-Done "upstream") {
     # 用户重试再撞锁（2026-09-10 00:05 实测两连败）。这里把 clone 重活自己做：临时目录 + 重试 3 次 +
     # 完成后同盘原子 Move，上游见完好仓库走增量路径（fetch 小流量）。残缺半成品直接删——无保留价值。
     $repoDir = Join-Path $HermesHome "hermes-agent"
+
+    # 判定「这个目录是不是完好的 git 仓库」。**必须临时降 EAP**：PS 5.1 在 EAP=Stop 下会把原生命令的
+    # stderr 升级成终止性错误（NativeCommandError），而残缺仓库上 rev-parse 恰恰会往 stderr 写
+    # `fatal: Needed a single revision` —— 不降的话脚本在**判定这一行**就崩了，永远走不到下面
+    # 「清除残缺目录后重新落位」的分支（2026-09-15 用户实录：hermes-agent 下只剩一个空的 .git）。
+    function Test-GitRepoHealthy([string]$dir) {
+        if (-not (Test-Path (Join-Path $dir ".git"))) { return $false }
+        $prevEap = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        try {
+            $inTree  = (& git -c windows.appendAtomically=false -C $dir rev-parse --is-inside-work-tree 2>$null)
+            $hasHead = (& git -c windows.appendAtomically=false -C $dir rev-parse --verify HEAD 2>$null)
+            return ("$inTree" -eq "true" -and [bool]$hasHead)
+        } catch { return $false }
+        finally { $ErrorActionPreference = $prevEap }
+    }
     $repoOk = $false
     if (Test-Path $repoDir) {
-        $inTree  = (& git -c windows.appendAtomically=false -C $repoDir rev-parse --is-inside-work-tree 2>$null)
-        $hasHead = (& git -c windows.appendAtomically=false -C $repoDir rev-parse --verify HEAD 2>$null)
-        if ("$inTree" -eq "true" -and $hasHead) {
+        if (Test-GitRepoHealthy $repoDir) {
             $repoOk = $true
             Log "内核仓库已就位，跳过 clone"
         } else {
-            Log "发现残缺的 hermes-agent，清除后重新 clone……"
+            Log "发现残缺的 hermes-agent（非有效 git 仓库或没有 HEAD），清除后重新落位……"
             Remove-Item -Recurse -Force $repoDir -ErrorAction SilentlyContinue
-            if (Test-Path $repoDir) { Die "残缺目录被占用，无法删除：$repoDir。请关闭正在使用它的程序（含后台 git 进程）后重新安装。" }
+            if (Test-Path $repoDir) {
+                # 删不掉（多为文件被占用）时**改为挪走**：让它让出位置继续装，比直接 Die
+                # 让用户"重试也过不去"要好——残骸留待用户自行清理。
+                $broken = "$repoDir.broken-$(Get-Date -Format yyyyMMdd-HHmmss)"
+                try {
+                    Move-Item $repoDir $broken -ErrorAction Stop
+                    Warn "残缺目录被占用、已挪到 $broken（可稍后手动删除）"
+                } catch { }
+            }
+            if (Test-Path $repoDir) { Die "残缺目录既删不掉也挪不动：$repoDir。请关闭占用它的程序（含后台 git / python 进程）后重新安装。" }
         }
     }
     if ($IsOffline) {
@@ -624,10 +680,11 @@ if (Test-Done "upstream") {
             }
             Move-Item $repoSrc $repoDir
         }
+        # remote set-url 同样要降 EAP：仓库一旦不完整，git 会往 stderr 写东西，EAP=Stop 下会直接崩
+        $prevEapSet = $ErrorActionPreference; $ErrorActionPreference = "Continue"
         & git -C $repoDir remote set-url origin (Join-Path $OfflineDir "hermes-agent.bundle") 2>$null
-        $inTree  = (& git -C $repoDir rev-parse --is-inside-work-tree 2>$null)
-        $hasHead = (& git -C $repoDir rev-parse --verify HEAD 2>$null)
-        if ("$inTree" -eq "true" -and $hasHead) {
+        $ErrorActionPreference = $prevEapSet
+        if (Test-GitRepoHealthy $repoDir) {
             $repoOk = $true
             Ok "内核仓库已离线落位（pin $Tag，origin 指向内嵌 bundle）"
         } else { Die "离线仓库落位异常（非有效 git repo）。内嵌资源包不完整，请重新获取 HerMemory 离线版。" }
@@ -791,6 +848,13 @@ Run-Quiet hermes config set display.language zh
 if ($LASTEXITCODE -eq 0) { Ok "界面语言：中文" } else { Warn "display.language 写入失败（非致命）" }
 Run-Quiet hermes config set display.timestamps true
 if ($LASTEXITCODE -eq 0) { Ok "对话时间标签 [HH:MM]：已开启" } else { Warn "display.timestamps 写入失败（非致命）" }
+
+# ---------- 9~11. 配置阶段：记忆档位 / AI 配置 / 微信接入 / gateway 服务 ----------
+# 分阶段安装（2026-09-15 用户定：先选目录 → 安装 → 再填记忆与 API）：安装阶段整段跳过，
+# 只装内核与文件；用户填完参数后向导再跑一次本脚本，靠断点续装只做这一段。
+if (-not $HasAiConfig) {
+    Log "安装阶段：跳过记忆档位、AI 配置、微信接入与 gateway 注册（向导收集完参数后会再运行一次）。"
+} else {
 
 # ---------- 9. 记忆档位 ----------
 if (Test-Done "memory-tier") {
@@ -1061,14 +1125,13 @@ Progress "wechat"
 
 # ---------- 11. gateway 服务（消息通道 + cron；上游在 Windows 用 schtasks 自启） ----------
 # 「开机自动启动」由答案文件的 autoStart 决定（exe 安装位置页的勾选项，默认开）。
-# 不勾选时不注册计划任务——gateway 仍可在主界面手动启动，只是不随登录自动拉起。
+# 注意这**不是"装不装 gateway"的开关**，而是"要不要随登录自启"的开关：
+# 服务本身照装（否则扫码之后的 gateway restart 起不来，微信直接接不上），只是不挂登录触发器。
 $AutoStartGw = $true
 if ($Answers -and ($Answers.PSObject.Properties.Name -contains "autoStart")) {
     $AutoStartGw = ("$($Answers.autoStart)" -ne "0")
 }
-if (-not $AutoStartGw) {
-    Warn "已按安装选项跳过开机自启注册（可在主界面手动启动 Gateway）。"
-} else {
+if (-not $AutoStartGw) { Log "按安装选项：gateway 服务照装，但不随登录自动启动。" }
 # 判重必须同时满足两点，缺一即重装：
 #   ① 计划任务存在——用**精确任务名**（上游 get_task_name()：默认 profile 即 Hermes_Gateway）
 #   ② 任务实际要跑的启动脚本存在——上游 _write_task_script() 落 gateway-service\<name>.vbs
@@ -1089,11 +1152,12 @@ if ($gwExists -and (Test-Path $gwLauncher)) {
     # 其非交互守卫 is_noninteractive() 只认 HERMES_NONINTERACTIVE，**不检查 stdin**
     #（hermes_cli/setup.py 该函数文档声称"或 stdin 被重定向"，实现里没有）——静默安装下不设值
     # 就会走 input()，而 GUI 进程无控制台 → 永久阻塞（本机 + 沙盒双复现，2026-09-10）。
-    #   START_ON_LOGIN=1：注册登录自启 Scheduled Task（本步的产物）。
+    #   START_ON_LOGIN：按安装选项决定是否挂登录自启触发器。不挂时服务仍完整可用，
+    #                    只是开机不会自动拉起，需在主界面点「启动」。
     #   START_NOW=0：不在安装期派生常驻进程——安装常以管理员身份运行，避免留下提权 gateway。
     #   需要启动时由 exe 的微信流程或用户自行 gateway start。
     $env:HERMES_NONINTERACTIVE = "1"
-    $env:HERMES_GATEWAY_INSTALL_START_ON_LOGIN = "1"
+    $env:HERMES_GATEWAY_INSTALL_START_ON_LOGIN = $(if ($AutoStartGw) { "1" } else { "0" })
     $env:HERMES_GATEWAY_INSTALL_START_NOW = "0"
     Log "安装 gateway 服务……"
     $gwExe = Join-Path $HermesHome "bin\hermes.exe"
@@ -1121,8 +1185,9 @@ if ($gwExists -and (Test-Path $gwLauncher)) {
         try { Get-Content $gwOut -Tail 3 -ErrorAction SilentlyContinue | ForEach-Object { Warn "  $_" } } catch { }
     }
 }
-}
 Progress "gateway"
+
+}   # end of 配置阶段（9~11 段）
 
 # ---------- 11. 脚本下线 ----------
 # 设计（用户流程 2）：key 配置完成后 AI 上线，脚本下线。
@@ -1150,8 +1215,23 @@ Progress "done"
 # 只在**走到这里（安装成功）**才清：中途失败时素材必须留着，否则重跑会静默退化成在线安装。
 # 唯一需要保留的"副本"就是用户下载的那个安装包 exe——需要修复或重装时重新运行它即可。
 # 保留 install.ps1 等小 payload（1 MB 量级，微信扫码脚本与修复安装都靠它），只清离线素材。
+#
+# **只清 payload 目录里我们自己释放出来的那几样**。开发机在仓库目录内跑 exe 时走的是仓库模式，
+# 此时 $OfflineZip 指向 build\offline\ —— 那是 build-offline.ps1 的**构建素材**，
+# 删掉下次 build-release.ps1 会直接失败、重建又要几十分钟。判据 = zip 是否就位于脚本同目录。
 $freedBytes = 0
-foreach ($t in @($OfflineDir, "$OfflineDir.stamp", $OfflineZip)) {
+$payloadZip = Join-Path $PSScriptRoot "assets-offline.zip"
+$cleanTargets = @()
+if ($RepoOfflineReady) {
+    # 复用 build\offline\assets-offline\：那是构建素材，本次没有产生任何副本，无需清理
+} else {
+    # 解压目录与指纹始终由本脚本建在脚本同目录下（zip 内若带顶层目录，$OfflineDir 会被改写成嵌套层，
+    # 故外层路径也一并列出）；仓库模式下 zip 就位于脚本同目录时也要清掉那份副本。
+    $cleanTargets += @($OfflineDir, "$OfflineDir.stamp",
+                       (Join-Path $PSScriptRoot "assets-offline"), (Join-Path $PSScriptRoot "assets-offline.stamp"))
+    if ($OfflineZip -and ($OfflineZip -eq $payloadZip)) { $cleanTargets += $payloadZip }
+}
+foreach ($t in $cleanTargets) {
     if (-not $t) { continue }
     try {
         if (-not (Test-Path $t)) { continue }
