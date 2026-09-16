@@ -6,12 +6,13 @@
 #
 # 做的事：clone 上游 pin 版本 → 跑官方 setup-hermes.sh → 建 vault
 #   → 铺出厂四文件 → 软链注入槽位 → 皮肤 → 时区 → 时间注入开关
-#   → 记忆档位 → gateway 服务 → WebDAV 一键同步 → 自检脚本。
+#   → 记忆档位 → AI 配置 → 微信接入 → gateway 服务。
 #
 # key 配置：脚本内引导（用户流程 2），底层走上游原生机制；
 #   不装 ripgrep（可选，后补）；不碰任何商业引导。
+#   WebDAV 同步服务**不在安装范围**：装完由 AI 引导用户开启（见文件末「脚本下线」）。
 #
-# 运行方式：clone 本仓库后，在仓库根目录 bash install.sh
+# 运行方式：clone 本仓库后，在仓库根目录 bash install.sh（需交互式终端）
 # 目标环境：headless Linux（Ubuntu 22/24、主流 NAS）
 # ============================================================
 set -euo pipefail
@@ -33,12 +34,40 @@ ok()   { printf '\033[32m[完成]\033[0m %s\n' "$*"; }
 warn() { printf '\033[33m[注意]\033[0m %s\n' "$*"; }
 die()  { printf '\033[31m[错误]\033[0m %s\n' "$*" >&2; exit 1; }
 
+# ---------- hermes CLI 的调用口径（2026-09-16 补）----------
+# 一律**先把 ~/.local/bin 前置到 PATH**，不依赖"当前 shell 恰好 source 过 .bashrc"。
+# 三处会让 hermes 解析不到：
+#   ① 非交互 / 非登录 shell（ssh host 'bash install.sh'、sudo、cron）不 source .bashrc；
+#   ② setup-hermes.sh 里的 export PATH 只作用于**它自己那个进程**，父脚本看不到；
+#   ③ 重跑安装器时走"已装"分支，那个分支原本什么都不补——而 set -e 下第一次
+#      hermes 调用失败就是**静默中止**（输出被 >/dev/null 吞掉），看不出原因。
+case ":$PATH:" in
+    *":$HOME/.local/bin:"*) ;;
+    *) export PATH="$HOME/.local/bin:$PATH" ;;
+esac
+
+# 配置写入的统一入口：失败时给出**可读原因**，而不是让 set -e 静默收场。
+cfg_set() {
+    if ! hermes config set "$1" "$2" >/dev/null 2>&1; then
+        die "配置写入失败：hermes config set $1 = $2（hermes CLI：$(command -v hermes 2>/dev/null || echo 未找到)）"
+    fi
+}
+
 # ---------- 断点续装（状态文件记录已完成步骤；删除它 = 全部重来） ----------
 STATE_FILE="$HERMES_HOME/.hermemory-install-state"
 mkdir -p "$HERMES_HOME"; touch "$STATE_FILE"
 done_step() { grep -qx "$1" "$STATE_FILE" 2>/dev/null; }
 mark_done() { done_step "$1" || echo "$1" >> "$STATE_FILE"; }
 log "安装状态文件：$STATE_FILE"
+
+# ---------- 交互性检查 ----------
+# 脚本要用 read 采集记忆档位与 API Key。stdio 不是终端时 read 会立刻 EOF，
+# 在 set -e 下表现为"跑了几行就静默退出"，完全看不出原因（`ssh host 'bash install.sh'`
+# 这类非交互调用最容易踩）。只在**确实还有要采集的步骤**时才拦：已经装完的机器
+# 仍可用它做无交互的修复重跑。
+if [ ! -t 0 ] && { ! done_step memory-tier || ! done_step config-ai; }; then
+    die "本脚本需要交互式终端（要采集记忆档位与 API Key），但当前 stdin 不是终端。请登录服务器后在终端里运行：bash install.sh"
+fi
 
 # ---------- 0. 环境检查 ----------
 [[ "$(uname -s)" == "Linux" ]] || die "仅支持 Linux（headless）。PC 端部署见 docs/INSTALL.md。"
@@ -53,7 +82,9 @@ VAULT_DIR="$HOME/vault"
 
 # ---------- 2. 安装上游 Hermes（pin tag，官方脚本） ----------
 # 本体获取四层：同目录本体包 → 服务器直链 → GitHub clone
-if [ -x "$HOME/.local/bin/hermes" ]; then
+# 判据看**两个真实位置**，而不是只看软链：软链可能因仓库被搬走而断裂，
+# 也可能 venv 被手动删掉、只剩一个空链。
+if [ -x "$HOME/.local/bin/hermes" ] || [ -x "$UPSTREAM_DIR/venv/bin/hermes" ]; then
     log "上游已安装：hermes CLI 就绪，跳过获取与 setup"
     mark_done upstream
 elif done_step upstream; then
@@ -103,12 +134,18 @@ else
 
     log "运行官方 setup-hermes.sh（uv + venv + hermes CLI）……"
     # stdin 喂两个 n：① 跳过 ripgrep 可选安装 ② 跳过 key 配置向导（零商业：key 沿用官方流程，用户稍后自配）
-    printf 'n\nn\n' | (cd "$UPSTREAM_DIR" && bash setup-hermes.sh) || die "上游 setup 失败，见上方输出"
+    # ⚠ 必须写 'nn'，不能写 'n\nn\n'：上游那两处是 `read -n 1`，遇到换行符会**立即返回空值**，
+    #   而空值在上游判定 `[[ $REPLY =~ ^[Yy]$ ]] || [[ -z $REPLY ]]` 里等价于默认 [Y/n] 的 Y
+    #   → 第二个提示反而答"是"，会启动交互式 setup 向导（此时 stdin 已耗尽 → EOF）。
+    #   2026-09-16 实测：'n\nn\n' → 启动向导；'nn' → 两个都跳过。
+    printf 'nn' | (cd "$UPSTREAM_DIR" && bash setup-hermes.sh) || die "上游 setup 失败，见上方输出"
     export PATH="$HOME/.local/bin:$PATH"
     command -v hermes >/dev/null || die "hermes CLI 不可用（~/.local/bin 不在 PATH？）"
     ok "hermes CLI 就绪"
     mark_done upstream
 fi
+# 统一守卫：把后面十几处含糊的 command-not-found 收成一句可执行的提示。
+command -v hermes >/dev/null 2>&1 || die "找不到 hermes CLI（期望 $UPSTREAM_DIR/venv/bin/hermes，或 ~/.local/bin/hermes 在 PATH 上）。内核没装好就删掉 $STATE_FILE 后重跑；只是 PATH 问题就 export PATH=\"\$HOME/.local/bin:\$PATH\" 后重跑。"
 ok "hermes CLI 就绪"
 
 # ---------- 2.5 内核 UX 补丁（发行版自有，幂等）：微信二维码改为链接+浏览器提示 ----------
@@ -346,12 +383,16 @@ grep -q "^${KEY_ENV}=" "$HERMES_HOME/.env" 2>/dev/null || echo "${KEY_ENV}=$API_
 # 清除会劫持路由的 OPENAI_*（上游明确告警的 env 污染场景）
 hermes config unset OPENAI_API_KEY >/dev/null 2>&1
 hermes config unset OPENAI_BASE_URL >/dev/null 2>&1
-sed -i '/^OPENAI_API_KEY=/d; /^OPENAI_BASE_URL=/d' "$HERMES_HOME/.env"
-hermes config set model.default "$PROV_MODEL" >/dev/null
-hermes config set model.provider custom >/dev/null
-hermes config set model.base_url "$PROV_BASE" >/dev/null
-hermes config set model.api_key "\${${KEY_ENV}}" >/dev/null
-hermes config set model.api_mode chat_completions >/dev/null
+# 存在性保护：上游 config set 有可能没把 .env 落盘（Windows 侧踩过同一处），
+# 而 set -e 下 sed -i 对不存在的文件会直接中断安装。
+if [ -f "$HERMES_HOME/.env" ]; then
+    sed -i '/^OPENAI_API_KEY=/d; /^OPENAI_BASE_URL=/d' "$HERMES_HOME/.env"
+fi
+cfg_set model.default "$PROV_MODEL"
+cfg_set model.provider custom
+cfg_set model.base_url "$PROV_BASE"
+cfg_set model.api_key "\${${KEY_ENV}}"
+cfg_set model.api_mode chat_completions
 # 落盘验证：缺则直改文件
 grep -q "provider: custom" "$HERMES_HOME/config.yaml" 2>/dev/null || sed -i 's/^  provider: .*/  provider: custom/' "$HERMES_HOME/config.yaml"
 if ! grep -q 'api_key: \${'"$KEY_ENV"'}' "$HERMES_HOME/config.yaml" 2>/dev/null; then
@@ -397,10 +438,25 @@ else
     done
     if [ "$WX_CONFIGURED" = "1" ]; then
         # 兜底：统一消息授权为 allowlist（防止向导默认的 pairing 拦截首条微信消息）
-        WX_USER_ID=$(python3 -c "
+        # 账号 JSON 的位置随 HERMES_HOME 走（**不能硬编码 ~/.hermes**：自定义数据目录时
+        # 会读不到本人 ID，allowlist 便写不进去 → 首条微信消息被 pairing 拦下）。
+        # python 优先用 venv 里的真身，不假设系统装了 python3。
+        # 变量名避开 WX_PY：那个名字在上面（2.5 段内核补丁）指的是"要打补丁的 weixin.py"，
+        # 这里指的是解释器——同名会让后来改那一段的人踩坑。
+        WX_PYTHON=""
+        if [ -x "$UPSTREAM_DIR/venv/bin/python" ]; then
+            WX_PYTHON="$UPSTREAM_DIR/venv/bin/python"
+        elif command -v python3 >/dev/null 2>&1; then
+            WX_PYTHON="python3"
+        fi
+        WX_USER_ID=""
+        if [ -n "$WX_PYTHON" ]; then
+            WX_USER_ID=$(HERMES_HOME="$HERMES_HOME" "$WX_PYTHON" -c "
 import json, glob, os
-files = sorted(glob.glob(os.path.expanduser('~/.hermes/weixin/accounts/*.json')), key=os.path.getmtime)
+home = os.environ.get('HERMES_HOME') or os.path.expanduser('~/.hermes')
+files = sorted(glob.glob(os.path.join(home, 'weixin/accounts/*.json')), key=os.path.getmtime)
 print(json.load(open(files[-1])).get('user_id', '') if files else '')" 2>/dev/null || true)
+        fi
         if [ -n "$WX_USER_ID" ]; then
             if grep -q "WEIXIN_DM_POLICY" "$HERMES_HOME/.env" 2>/dev/null; then
                 sed -i "s|^WEIXIN_DM_POLICY=.*|WEIXIN_DM_POLICY=allowlist|" "$HERMES_HOME/.env"
@@ -433,6 +489,27 @@ GW_TIMEOUT=""
 if command -v timeout >/dev/null 2>&1; then GW_TIMEOUT="timeout 240"; fi
 if $GW_TIMEOUT hermes gateway install --start-now --start-on-login < /dev/null > "$GW_LOG" 2>&1; then
     ok "gateway 服务已安装"
+    # ---- 登出后常驻（systemd linger）----
+    # systemd 的 **user** 服务默认在最后一个会话退出时被停掉：服务器上这意味着
+    # SSH 一断 gateway 就停了、微信不再有回复，"24h 在线"不成立。
+    # 上游只**检测并提示**（hermes_cli/doctor.py:_check_gateway_service_linger，建议
+    # 手动 `sudo loginctl enable-linger $USER`），不代劳，所以这里补上。
+    # 只用 `sudo -n`（免密）：需要密码时**故意不弹提示**——远程挂机安装会一直卡在
+    # 密码输入上；那种情况改为打印一条明确的手动命令，完成提示里再列一次。
+    LINGER_STATE=none
+    if command -v loginctl >/dev/null 2>&1; then
+        if [ "$(loginctl show-user "$(id -un)" -p Linger --value 2>/dev/null || true)" = "yes" ]; then
+            LINGER_STATE=on
+            ok "systemd linger 已开启（登出后 gateway 继续运行）"
+        elif sudo -n loginctl enable-linger "$(id -un)" >/dev/null 2>&1; then
+            LINGER_STATE=on
+            ok "systemd linger 已开启（登出后 gateway 继续运行）"
+        else
+            LINGER_STATE=need
+            warn "未能自动开启 systemd linger：**退出 SSH 后微信通道会停止**。"
+            warn "  请手动执行一次：sudo loginctl enable-linger $(id -un)"
+        fi
+    fi
     # AGENTS.md 走 cwd 目录链：服务必须以 $HOME 为 WorkingDirectory
     # unit 文件在用户自己的 ~/.config 下——直接改写即可，用 sudo 反而会在无免密环境静默失败
     for unit in "$HOME/.config/systemd/user/"*hermes*.service; do
@@ -468,6 +545,10 @@ echo "  注意事项"
 echo "  1. AGENTS.md 可自由编辑。上游 Hermes 对其执行威胁扫描，含触发词的内容会被整体拦截。"
 echo "     MEMORY.md 与 USER.md 逐条扫描，命中条目在对话中显示为 [BLOCKED]，文件本身保留。"
 echo "  2. 自动化默认关闭。日记与总结需明确指令后写入；定时任务由对话建立并登记至 AUTOMATION.md。"
+if [ "${LINGER_STATE:-}" = "need" ]; then
+    echo "  3. 【待办】退出 SSH 后 gateway 会被 systemd 停掉，微信将不再回复。"
+    echo "     执行一次即可：sudo loginctl enable-linger $(id -un)"
+fi
 echo ""
 if [ "$WX_CONFIGURED" = "1" ]; then
     log "微信已接入。打开微信发送消息即可开始。"
