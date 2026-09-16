@@ -116,8 +116,25 @@ namespace HerMemory
             catch { return false; }
         }
 
-        public static string HermesHome => Environment.GetEnvironmentVariable("HERMES_HOME")
-            ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "hermes");
+        /// <summary>HERMES_HOME 的解析：① 本进程环境变量（含向导在「安装位置」页显式设的那个）
+        /// ② **User 注册表**里的持久值 ③ 默认 %LOCALAPPDATA%\hermes。
+        ///
+        /// 为什么必须有 ②：进程环境块是**进程创建那一刻**从注册表合并来的快照。上游在安装期把
+        /// HERMES_HOME 写进 User 注册表，但**已经启动的进程看不见这次更新**——资源管理器也不例外
+        /// （它再 spawn 的本程序同样看不见）。于是「阶段 1 装完 → 关掉向导 → 之后重新运行安装包」
+        /// 这条路上，新进程读不到自定义数据目录 → 回落成默认值 → 把「已有安装」误判成「全新安装」，
+        /// 结果往默认目录再装一整套内核与运行时。注册表读取无副作用且恒为最新，故作为第二判据。</summary>
+        public static string HermesHome
+        {
+            get
+            {
+                var v = Environment.GetEnvironmentVariable("HERMES_HOME");
+                if (!string.IsNullOrEmpty(v)) return v;
+                try { v = Environment.GetEnvironmentVariable("HERMES_HOME", EnvironmentVariableTarget.User); } catch { }
+                if (!string.IsNullOrEmpty(v)) return v;
+                return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "hermes");
+            }
+        }
 
         public static string HermsExe
         {

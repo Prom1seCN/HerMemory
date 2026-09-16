@@ -44,7 +44,8 @@ namespace HerMemory
                 _tray = null;
                 return;
             }
-            _tray.OpenWizard += () => SafeDispatch(ShowWizard);
+            // 托盘不再提供「安装向导」入口（2026-09-16 用户裁决）：主界面第三行已经有这个按钮，
+            // 托盘里再来一个是重复的；而且它容易让人误以为"安装包还常驻着"。
             _tray.OpenMain += () => SafeDispatch(ShowMain);
             _tray.OpenUninstall += () => SafeDispatch(ShowUninstall);
             _tray.OpenWeixin += () => SafeDispatch(ShowWeixinFromTray);
@@ -202,8 +203,9 @@ namespace HerMemory
             if (_wizard != null)
             {
                 _wizard.ShowFromTray();
-                // 从向导页（例如点了托盘「安装向导…」）回到主界面：只 Show 不切页会停在向导页上，
-                // 表现为"再也回不到配置界面"。安装进行中则不抢页——那会打断进度显示与「中止安装」入口。
+                // 有可能正停在向导页（启动时运行时缺失 → 自动落到了向导页，见 OnStartup 的 else 分支）：
+                // 只 Show 不切页会停在向导页上，表现为"再也回不到配置界面"。
+                // 安装进行中则不抢页——那会打断进度显示与「中止安装」入口。
                 if (!_wizard.InstallInProgress) _wizard.GoHome();
                 return;
             }

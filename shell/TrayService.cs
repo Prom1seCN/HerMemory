@@ -30,8 +30,6 @@ namespace HerMemory
         public event Action<string, string>? StatusChanged;
         /// <summary>左键单击托盘（用户要求：打开主界面）。</summary>
         public event Action? OpenMain;
-        /// <summary>菜单点"安装向导"。</summary>
-        public event Action? OpenWizard;
         /// <summary>菜单点"卸载"。</summary>
         public event Action? OpenUninstall;
         /// <summary>菜单点"微信绑定…"。</summary>
@@ -62,7 +60,6 @@ namespace HerMemory
             });
             var miMain = new System.Windows.Forms.ToolStripMenuItem("打开主界面", null, (_, _) => OpenMain?.Invoke());
             var miWeixin = new System.Windows.Forms.ToolStripMenuItem("微信绑定…", null, (_, _) => OpenWeixin?.Invoke());
-            var miWizard = new System.Windows.Forms.ToolStripMenuItem("安装向导…", null, (_, _) => OpenWizard?.Invoke());
             var miUnins = new System.Windows.Forms.ToolStripMenuItem("卸载…", null, (_, _) => OpenUninstall?.Invoke());
             var miAuto = new System.Windows.Forms.ToolStripMenuItem("开机自启", null, (_, _) => ToggleAutostart())
             {
@@ -94,7 +91,6 @@ namespace HerMemory
             _menu.Items.Add(miLogs);
             _menu.Items.Add(miMain);
             _menu.Items.Add(miWeixin);
-            _menu.Items.Add(miWizard);
             _menu.Items.Add(miUnins);
             _menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
             _menu.Items.Add(miAuto);

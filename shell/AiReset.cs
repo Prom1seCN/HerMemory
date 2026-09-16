@@ -209,7 +209,7 @@ namespace HerMemory
             };
             foreach (var s in slots)
             {
-                if (!File.Exists(s.Path)) { r.Notes.Add($"AI 读取位置不可用：{s.Path}（重跑安装向导可修复）"); continue; }
+                if (!File.Exists(s.Path)) { r.Notes.Add($"AI 读取位置不可用：{s.Path}（重新运行安装包可修复）"); continue; }
                 try
                 {
                     if (s.MustBeEmpty)

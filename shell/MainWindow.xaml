@@ -53,19 +53,19 @@
                     <Button Content="一键导出" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="BtnExport_Click"/>
                     <Button Content="卸载" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="BtnUninstall_Click"/>
                 </StackPanel>
-                <!-- 第二行：设置类（记忆 / API / 微信绑定 / 同步服务子页） -->
+                <!-- 第二行：设置类（记忆 / API / 微信绑定 / 重置） -->
                 <StackPanel Orientation="Horizontal" Margin="0,22,0,0">
                     <Button Content="记忆设置" Style="{StaticResource GhostButton}" Click="LinkMemory_Click"/>
                     <Button Content="API 设置" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="LinkApi_Click"/>
                     <Button Content="微信绑定" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="LinkWeixin_Click"/>
-                    <Button Content="WebDAV 同步服务" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="LinkWebdav_Click"/>
                     <Button x:Name="BtnResetAi" Content="重置 AI" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="BtnResetAi_Click"/>
                 </StackPanel>
-                <!-- 第三行：内容类（文档 / 同步库）+ 主题切换 -->
+                <!-- 第三行：内容类（文档 / 同步库）+ 主题切换。
+                     这里**不放「安装向导」**（2026-09-16 用户裁决）：安装器与日常管理器已经分离，
+                     安装/修复是安装包 `Setup.exe` 的事，管理器窗口不该出现安装入口。 -->
                 <StackPanel Orientation="Horizontal" Margin="0,22,0,0">
                     <Button Content="打开使用文档" Style="{StaticResource GhostButton}" Click="BtnGuide_Click"/>
                     <Button Content="打开同步库" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="BtnVault_Click"/>
-                    <Button Content="安装向导" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="BtnWizard_Click"/>
                     <Button x:Name="BtnTheme" Width="36" Height="36" Margin="14,0,0,0" Click="BtnTheme_Click" Cursor="Hand" Background="{DynamicResource FieldBg}">
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
@@ -144,18 +144,6 @@
                     <Button x:Name="CfgSave" Content="保存" Style="{StaticResource AccentButton}" Padding="20,7,20,7" Click="CfgSave_Click"/>
                     <TextBlock x:Name="CfgHint" VerticalAlignment="Center" Margin="14,0,0,0" FontSize="12" Foreground="#90A4AE"/>
                 </StackPanel>
-            </StackPanel>
-        </Grid>
-
-        <!-- ===== 主界面子页：WebDAV 同步服务 ===== -->
-        <Grid x:Name="PageWebdav" Visibility="Collapsed">
-            <StackPanel>
-                <Button Content="← 返回" Style="{StaticResource GhostButton}" HorizontalAlignment="Left" Padding="14,6,14,6" Click="BtnBack_Click"/>
-                <TextBlock Text="WebDAV 同步服务" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource Ink}" Margin="0,18,0,0"/>
-                <TextBlock x:Name="WebDavStatus" Margin="0,44,0,0" FontSize="13" Foreground="#546E7A" Text="检测中……"/>
-                <TextBlock Style="{StaticResource Body}" Margin="0,10,0,0" Text="启停请与 AI 对话。"/>
-                <TextBlock Style="{StaticResource Body}" Foreground="#B0BEC5" Margin="0,18,0,0"
-                           Text="同步即备份，删除会随同步传播。"/>
             </StackPanel>
         </Grid>
 

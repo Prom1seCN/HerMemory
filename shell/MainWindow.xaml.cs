@@ -12,8 +12,10 @@ namespace HerMemory
     {
         // —— 路径与环境 ——
         private string? _repoRoot;                    // 含 install.ps1 的发行版根目录
-        private string HermesHome => Environment.GetEnvironmentVariable("HERMES_HOME")
-            ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "hermes");
+        // 与 HermesCtl.HermesHome 保持**同一处实现**。此前这里自己又读了一遍进程环境变量，
+        // 等于两个判据并行——一旦只给其中一处加修正（如"进程环境块看不见刚写入的 User 变量"），
+        // 同一进程里就会出现"位置页按 A 判、启动子进程按 B 传"的分裂。这里只做转发。
+        private string HermesHome => HermesCtl.HermesHome;
         private string VaultDocs => Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "vault", "HerMemory", "docs");
         private string? _answersPath;                 // 本次静默安装的答案文件（成功后删除）
@@ -106,7 +108,9 @@ namespace HerMemory
 
         // ================= 主界面（托盘模式日常页） =================
 
-        /// <summary>托盘模式点"安装向导"：回向导首页重跑预检（本机已装时多步会自动跳过）。</summary>
+        /// <summary>回向导首页并重跑预检（本机已装时多步会自动跳过）。
+        /// **唯一调用者是 App.OnStartup 的"运行时缺失/损坏"分支**——管理器窗口不再提供安装入口
+        /// （2026-09-16 用户裁决：安装器与日常管理器分离，安装/修复是 Setup.exe 的事）。</summary>
         public void GoWelcome()
         {
             ShowFromTray();
@@ -127,29 +131,10 @@ namespace HerMemory
             };
             HomeStatus.Foreground = Brush(state == "running" ? "#2E7D32" : "#90A4AE");
             // 只刷新"当前正看着的那一页"。本方法会被托盘每 10 秒的轮询触发，而无差别刷新代价很大：
-            // UpdateTierTable 要起两次 hermes CLI，WebDAV 探测占 UI 线程——更要命的是 hermes 调用
-            // 全局串行，用户点的按钮会排在轮询发起的 config get 后面等锁，表现为"按下去几秒才反应"。
+            // UpdateTierTable 要起两次 hermes CLI——更要命的是 hermes 调用全局串行，
+            // 用户点的按钮会排在轮询发起的 config get 后面等锁，表现为"按下去几秒才反应"。
             if (PageMemory.Visibility == Visibility.Visible) UpdateTierTable();
             if (PageApi.Visibility == Visibility.Visible) UpdateCfgRegion(state);
-            if (PageWebdav.Visibility == Visibility.Visible) RefreshWebdavStatus();
-        }
-
-        /// <summary>WebDAV 状态异步填充：WebDavRunning 是回环端口探测（超时 400ms），
-        /// 同步调用会让 UI 线程每 10 秒卡一下；改为先占位、后台探测后回填。</summary>
-        private void RefreshWebdavStatus()
-        {
-            WebDavStatus.Text = "同步服务（WebDAV）：检测中……";
-            _ = Task.Run(() =>
-            {
-                var up = HermesCtl.WebDavRunning();
-                try
-                {
-                    Dispatcher.Invoke(() => WebDavStatus.Text = up
-                        ? "同步服务（WebDAV）：运行中"
-                        : "同步服务（WebDAV）：未运行");
-                }
-                catch { }   // 退出期 Dispatcher 会拒绝新工作
-            });
         }
 
         /// <summary>启停/刷新期间的可见忙态：把按钮置灰 = 明确的"收到了、正在处理"。
@@ -539,7 +524,7 @@ namespace HerMemory
             // 让用户白确认一次。这里直接如实说明。
             if (string.IsNullOrEmpty(factory))
             {
-                HomeStatus.Text = "找不到出厂模板（记忆无法恢复出厂），已取消。可重跑安装向导修复。";
+                HomeStatus.Text = "找不到出厂模板（记忆无法恢复出厂），已取消。可重新运行安装包修复。";
                 HomeStatus.Foreground = Brush("#C62828");
                 return;
             }
@@ -903,12 +888,6 @@ namespace HerMemory
             });
         }
 
-        private void LinkWebdav_Click(object sender, RoutedEventArgs e)
-        {
-            ShowPage("PageWebdav");
-            RefreshWebdavStatus();   // 异步：同步探测会卡 UI 线程最长 400ms
-        }
-
         // ================= 微信绑定（绑定 / 换绑夺回 / 解绑）=================
         // 微信官方限制：一个微信同一时刻只活一个绑定。上游无 logout/unbind 命令——绑定态=两处文件：
         //   {HermesHome}\weixin\accounts\*.json（token，含 context_token 缓存）+ .env 的 WEIXIN_* 键（源码实证）。
@@ -1048,7 +1027,9 @@ namespace HerMemory
         /// <summary>主界面 → 安装向导：直接切到向导首页并重跑预检。
         /// 已安装状态下重跑，install.ps1 会自动跳过已完成步骤；若此前落在"安装不完整"状态，
         /// 这也是唯一的自愈入口（启动判定把不完整安装导向向导，本按钮则让日常态也能回去）。</summary>
-        private void BtnWizard_Click(object sender, RoutedEventArgs e) => GoWelcome();
+        // 原「安装向导」按钮已移除（2026-09-16 用户裁决）：安装器与日常管理器分离，
+        // 管理器窗口不提供安装入口。GoWelcome() 仍保留——它服务于 App.OnStartup 里
+        // "运行时缺失/损坏 → 自动落到向导页自助修复" 那条路径（不是用户主动点进来的）。
 
         private void BtnTheme_Click(object sender, RoutedEventArgs e)
         {
@@ -2114,8 +2095,12 @@ namespace HerMemory
                             tailText = string.Join(Environment.NewLine,
                                 _installTail.Where(l => !string.IsNullOrWhiteSpace(l) && !l.StartsWith("##HM-PROGRESS##") && !l.StartsWith("##HM-MIRROR##"))
                                             .Select(l => l.Trim()).TakeLast(16));
-                        var why = exit == -3 ? "安装已中止。"
-                            : exit == -2 ? $"安装超时（超过 {InstallTimeout.TotalMinutes:0} 分钟）已终止。"
+                        // 分阶段的文案必须整体跟着阶段走：标题/退出码说明/页脚引导三处都要一致，
+                        // 否则会出现「按钮写重新配置、页脚写重新安装」这种自相矛盾（用户实拍命中过）。
+                        var why = exit == -3 ? (stage == 1 ? "安装已中止。" : "配置已中止。")
+                            : exit == -2 ? (stage == 1
+                                ? $"安装超时（超过 {InstallTimeout.TotalMinutes:0} 分钟）已终止。"
+                                : $"配置超时（超过 {InstallTimeout.TotalMinutes:0} 分钟）已终止。")
                             : $"失败原因（退出码 {exit}，输出末尾 16 行）：";
                         Dispatcher.Invoke(() =>
                         {
@@ -2124,7 +2109,9 @@ namespace HerMemory
                                 + (_mirrorInfo != null && exit != -3 && exit != -2 ? Environment.NewLine + "[链路] " + _mirrorInfo : "")
                                 + Environment.NewLine + tailText
                                 + Environment.NewLine + Environment.NewLine
-                                + "已完成步骤将自动跳过；排除问题后点击「重新安装」继续。";
+                                + (stage == 1
+                                    ? "已完成步骤将自动跳过；排除问题后点击「重新安装」继续。"
+                                    : "已完成步骤将自动跳过；排除问题后点击「重新配置」继续。");
                             InstallFail.Visibility = Visibility.Visible;
                             AddRetryButton();
                         });
@@ -2508,7 +2495,7 @@ namespace HerMemory
             Dispatcher.Invoke(() =>
             {
                 DoneText.Text = "安装完成，微信暂未接入。" + Environment.NewLine +
-                    "可随时重新接入：主界面「微信绑定」，或重新运行安装向导。" + Environment.NewLine +
+                    "可随时重新接入：主界面「微信绑定」，或重新运行安装包。" + Environment.NewLine +
                     (AppPaths.IsSetup
                         ? (_shellOk
                             ? "程序已安装到 " + (_pendAppDir ?? AppPaths.DefaultAppDir) + "，点「完成」启动。"

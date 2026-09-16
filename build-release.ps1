@@ -17,7 +17,8 @@
 param(
     [string]$Version = "0.1.0",
     [string]$Configuration = "Release",
-    [switch]$SkipApp          # 跳过程序本体发布。仅在「程序本体未改动」时可用；改过 C# 就一定要重发。
+    [switch]$SkipApp,         # 跳过程序本体发布。仅在「程序本体未改动」时可用；改过 C# 就一定要重发。
+    [switch]$SkipPrivacyGate  # 仅当闸门误报、且你已确认那是误报时才用。别拿它当常规开关。
 )
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
@@ -40,6 +41,10 @@ Write-Host "dotnet: $dotnet"
 
 function Step([string]$n) { Write-Host ""; Write-Host "=== $n ===" -ForegroundColor Cyan }
 
+# ---- 隐私闸门：实现见 scripts\check-privacy.ps1（抽成独立文件，便于单独测试） ----
+# 起因与判据写在该文件头部。这里只负责构建前调用它：宁可不产出，也不产出带个人信息的包。
+. (Join-Path $Root "scripts\check-privacy.ps1")
+
 $common = @(
     "-c", $Configuration,
     "-r", "win-x64",
@@ -51,6 +56,11 @@ $common = @(
     "--no-restore"
 )
 
+# ---- 0/3 隐私闸门（先于一切构建：宁可不产出，也不产出带个人信息的包） ----
+Step "0/3 隐私闸门（随包源码不得含构建机用户名）"
+if ($SkipPrivacyGate) { Write-Host "  已按 -SkipPrivacyGate 跳过。" -ForegroundColor Yellow }
+else { Test-PrivacyGate -Root $Root }
+
 # 依赖还原：publish 一律带 --no-restore（避免每次发布都重新解析依赖图、也避免离线机器上联网等待），
 # 所以这里负责补上——既缺文件、也缺 win-x64 目标（首次用 -r 发布时常见）都要还原。
 $assets = Join-Path $Root "shell\obj\project.assets.json"
@@ -59,7 +69,7 @@ if (Test-Path $assets) {
     try { $needRestore = -not (Select-String -Path $assets -Pattern "win-x64" -Quiet -ErrorAction Stop) } catch { $needRestore = $true }
 }
 if ($needRestore) {
-    Step "0/2 还原依赖（win-x64）"
+    Step "1/3 还原依赖（win-x64）"
     & $dotnet restore $Shell -r win-x64
     if ($LASTEXITCODE -ne 0) { throw "依赖还原失败（exit $LASTEXITCODE）" }
 } else {
@@ -68,18 +78,18 @@ if ($needRestore) {
 
 # ---- 1. 程序本体 ----
 if (-not $SkipApp) {
-    Step "1/2 发布程序本体（不含离线素材）"
+    Step "2/3 发布程序本体（不含离线素材）"
     & $dotnet publish $Shell @common "-p:SetupMode=false" "-o" "$AppDir"
     if ($LASTEXITCODE -ne 0) { throw "程序本体发布失败（exit $LASTEXITCODE）" }
     $appExe = Join-Path $AppDir "HerMemory.exe"
     if (-not (Test-Path $appExe)) { throw "程序本体未产出：$appExe" }
     Write-Host ("  -> {0}  ({1:N1} MB)" -f $appExe, ((Get-Item $appExe).Length / 1MB)) -ForegroundColor Green
 } else {
-    Step "1/2 跳过程序本体发布（-SkipApp）"
+    Step "2/3 跳过程序本体发布（-SkipApp）"
 }
 
 # ---- 2. 安装器 ----
-Step "2/2 发布安装器（内嵌程序本体 + 离线素材）"
+Step "3/3 发布安装器（内嵌程序本体 + 离线素材）"
 $zip = Join-Path $Root "build\offline\assets-offline.zip"
 if (-not (Test-Path $zip)) { throw "缺少离线素材：$zip。请先运行 build-offline.ps1。" }
 

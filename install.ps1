@@ -44,6 +44,30 @@ function Die([string]$m)  { Write-Host "[error] $m" -ForegroundColor Red; exit 1
 # Run-Quiet 在函数作用域内降级 EAP，stderr 静默流出——专用于允许失败的原生调用。
 function Run-Quiet { $ErrorActionPreference = "Continue"; try { & $args 2>&1 | Out-Null } catch {} }
 
+# ---------- hermes CLI 的调用口径（2026-09-15 定） ----------
+# **一律走显式路径，不依赖 PATH**。三处都会让 hermes 这个命令名落空：
+#   ① 分阶段安装下「配置阶段」是**新进程** —— User 注册表 PATH 的更新对"已经启动的父进程"不可见
+#      （exe 从资源管理器继承的是它启动那一刻的环境，它再 spawn 的 powershell 同样看不见）；
+#   ② 上游每个 Stage 进 Invoke-Stage 都先跑 Sync-EnvPath()，把 $env:Path 整体覆盖为注册表值；
+#   ③ upstream 那三个分支里，只有「全新装内核」那条会补 PATH；`Test-Done "upstream"` 命中的那条什么都不补。
+# 2026-09-15 异机实录（HERMES_HOME 被改到非 %LOCALAPPDATA% 的自定义目录，如 D:\apps\HerMemory）：阶段 1 装完内核一切正常，
+# 阶段 2 走到第 8 段调用 CLI 时直接 CommandNotFoundException → 退出码 1 →「配置未成功」。
+# 同一次安装里阶段 1 能过、阶段 2 不能过，正是 ① + ③ 叠加的结果。
+$HermesCli = Join-Path $HermesHome "bin\hermes.exe"
+# 顺手补进**本进程** PATH：让既有的 Get-Command 判据、以及 hermes 自己 spawn 的子进程都能看到它。
+# 注意这不等于写注册表（那是 Repair-OfflinePath 的职责）。
+if (Test-Path $HermesCli) { $env:Path = "$HermesHome\bin;$env:Path" }
+
+# 与 Run-Quiet 同样降 EAP，但**返回退出码**。凡是"要看结果"的调用都用它：
+# 命令不存在时 & 抛 CommandNotFound（被 catch 吃掉），而 $LASTEXITCODE 会保留**上一条**原生命令的值，
+# 于是「Run-Quiet ... ; if ($LASTEXITCODE -eq 0)」会报假成功 —— 同机实录：hermes 根本找不到，
+# 却打印了「皮肤已激活」。（在**同一作用域**里读 $LASTEXITCODE，不依赖它的作用域语义。）
+function Run-Q {
+    $ErrorActionPreference = "Continue"
+    try { & $args 2>&1 | Out-Null } catch { return 1 }
+    return [int]$LASTEXITCODE
+}
+
 # ---------- 静默模式（exe 契约）：-AnswersFile 提供 JSON 答案，跳过全部交互 ----------
 # **分两个阶段调用（2026-09-15 用户定的安装顺序：先选目录 → 安装 → 再填记忆与 API）**：
 #   安装阶段：答案文件里**不带** AI 四项 → 只装内核与文件，memory-tier / config-ai / wechat / gateway 全跳过
@@ -209,6 +233,10 @@ function Repair-OfflinePath {
     foreach ($d in $dirs) { $env:Path = "$d;$env:Path" }
     return $changed
 }
+# 离线系统件目录（git\bin + bin）**每次运行都补一次**，不能只挂在 upstream 的分支下：
+# 阶段 2 走 `Test-Done "upstream"` 那条分支，那里什么都不补，于是 git 与 hermes 一起落空。
+# 本函数幂等（已在注册表里就不动），重复调用只多几条进程内 PATH 条目，无副作用。
+if ($IsOffline) { Repair-OfflinePath | Out-Null }
 Log "安装状态文件：$StateFile"
 
 # ---------- 0. 环境检查 ----------
@@ -831,23 +859,24 @@ if ($exJ -and $exJ.LinkType -eq "Junction" -and "$($exJ.Target)" -eq $jTarget) {
 }
 
 # ---------- 6. 品牌皮肤 ----------
+# 先把"CLI 到底在不在"问清楚。不查的话，后面每一步都只是一句含糊的 CommandNotFoundException，
+# 而按 `Test-Done "upstream"` 跳过内核安装的那条路径**不做任何 PATH / CLI 校验**（见文件头注释）。
+if (-not (Test-Path $HermesCli)) {
+    Die "hermes CLI 不存在：$HermesCli。内核未装好，或 HERMES_HOME 指向了别的目录（当前 $HermesHome）。"
+}
 New-Item -ItemType Directory -Force -Path "$HermesHome\skins" | Out-Null
 Copy-Item "$SRC\skins\hermemory.yaml" "$HermesHome\skins\hermemory.yaml" -Force
-Run-Quiet hermes config set display.skin hermemory
-if ($LASTEXITCODE -eq 0) { Ok "皮肤已激活：HerMemory（/skin 可切换）" }
+if ((Run-Q $HermesCli config set display.skin hermemory) -eq 0) { Ok "皮肤已激活：HerMemory（/skin 可切换）" }
 else { Warn "display.skin 写入失败（非致命）。可在运行时执行 /skin hermemory 手动切换。" }
 
 # ---------- 7. 时区 ----------
 Log "时间注入取本机系统时钟。请在系统设置中确认时区为 (UTC+08:00) 北京。"
 
 # ---------- 8. 时间注入开关 + 界面显示偏好 ----------
-& hermes config set gateway.message_timestamps.enabled true | Out-Null
-if ($LASTEXITCODE -eq 0) { Ok "时间注入已开启：每条用户消息头部自动附加本机时间" }
+if ((Run-Q $HermesCli config set gateway.message_timestamps.enabled true) -eq 0) { Ok "时间注入已开启：每条用户消息头部自动附加本机时间" }
 else { Die "gateway.message_timestamps.enabled 写入失败。" }
-Run-Quiet hermes config set display.language zh
-if ($LASTEXITCODE -eq 0) { Ok "界面语言：中文" } else { Warn "display.language 写入失败（非致命）" }
-Run-Quiet hermes config set display.timestamps true
-if ($LASTEXITCODE -eq 0) { Ok "对话时间标签 [HH:MM]：已开启" } else { Warn "display.timestamps 写入失败（非致命）" }
+if ((Run-Q $HermesCli config set display.language zh) -eq 0) { Ok "界面语言：中文" } else { Warn "display.language 写入失败（非致命）" }
+if ((Run-Q $HermesCli config set display.timestamps true) -eq 0) { Ok "对话时间标签 [HH:MM]：已开启" } else { Warn "display.timestamps 写入失败（非致命）" }
 
 # ---------- 9~11. 配置阶段：记忆档位 / AI 配置 / 微信接入 / gateway 服务 ----------
 # 分阶段安装（2026-09-15 用户定：先选目录 → 安装 → 再填记忆与 API）：安装阶段整段跳过，
@@ -890,8 +919,8 @@ switch ($choice) {
     default { $memLimit = 2200; $userLimit = 1375 }
 }
 }
-& hermes config set memory.memory_char_limit $memLimit | Out-Null
-& hermes config set memory.user_char_limit $userLimit | Out-Null
+& $HermesCli config set memory.memory_char_limit $memLimit | Out-Null
+& $HermesCli config set memory.user_char_limit $userLimit | Out-Null
 Ok "记忆档位：MEMORY $memLimit / USER $userLimit 字符（调整：memory-size.sh）"
 Mark-Done "memory-tier"
 }
@@ -1019,11 +1048,11 @@ $u = [uri]$provBase
 $hostId = $u.Host
 if ($u.Port -gt 0) { $hostId = "${hostId}_$($u.Port)" }
 $keyEnv = "HERMES_CUSTOM_" + (($hostId.ToUpper()) -replace "[^A-Z0-9]+", "_").Trim("_") + "_API_KEY"
-& hermes config set $keyEnv $apiKey | Out-Null
+& $HermesCli config set $keyEnv $apiKey | Out-Null
 if (-not (Select-String -Path "$HermesHome\.env" -Pattern ("^" + $keyEnv + "=") -Quiet)) { Add-Content -Path "$HermesHome\.env" -Value "$keyEnv=$apiKey" }
 # 清除会劫持路由的 OPENAI_*（上游 auxiliary_client 明确告警的 env 污染场景）
-Run-Quiet hermes config unset OPENAI_API_KEY
-Run-Quiet hermes config unset OPENAI_BASE_URL
+Run-Quiet $HermesCli config unset OPENAI_API_KEY
+Run-Quiet $HermesCli config unset OPENAI_BASE_URL
 # 存在性保护：.env 可能因上游未落盘而缺失，EAP=Stop 下直接 Get-Content 会中断安装
 $envClean = @()
 if (Test-Path "$HermesHome\.env") {
@@ -1032,11 +1061,11 @@ if (Test-Path "$HermesHome\.env") {
 if (-not $envClean -or $envClean.Count -eq 0) { $envClean = @("$keyEnv=$apiKey") }
 # PS5.1 的 Set-Content -Encoding UTF8 会写 BOM——.env 首行键名会被 BOM 污染，必须无 BOM 落盘
 [IO.File]::WriteAllLines("$HermesHome\.env", [string[]]@($envClean), (New-Object Text.UTF8Encoding($false)))
-& hermes config set model.default $provModel | Out-Null
-& hermes config set model.provider custom | Out-Null
-& hermes config set model.base_url $provBase | Out-Null
-& hermes config set model.api_key ('${' + $keyEnv + '}') | Out-Null
-& hermes config set model.api_mode chat_completions | Out-Null
+& $HermesCli config set model.default $provModel | Out-Null
+& $HermesCli config set model.provider custom | Out-Null
+& $HermesCli config set model.base_url $provBase | Out-Null
+& $HermesCli config set model.api_key ('${' + $keyEnv + '}') | Out-Null
+& $HermesCli config set model.api_mode chat_completions | Out-Null
 # 落盘验证：provider/custom 与 key 引用缺一不可，缺则直改文件
 $cfgPath = Join-Path $HermesHome "config.yaml"
 if ((Test-Path $cfgPath) -and -not (Select-String -Path $cfgPath -Pattern "provider: custom" -Quiet)) {
@@ -1084,7 +1113,7 @@ if ($Answers) {
         if (-not $wxNow) { $wxNow = "Y" }
         if ($wxNow -match "^[Nn]") { break }
         & chcp.com 65001 | Out-Null
-        & hermes gateway setup
+        & $HermesCli gateway setup
         & chcp.com 936 | Out-Null
         if ((Test-Path $envFile) -and (Select-String -Path $envFile -Pattern "WEIXIN_ACCOUNT_ID" -Quiet)) {
             $wxConfigured = $true
@@ -1189,7 +1218,18 @@ Progress "gateway"
 
 }   # end of 配置阶段（9~11 段）
 
-# ---------- 11. 脚本下线 ----------
+# ---------- 12~14. 收尾：完成提示与素材清理 ----------
+# **只在最终阶段执行**（与 9~11 段同一条件）。分阶段安装下，阶段 1 跑完时 AI 还没配置，
+# 若此刻就执行 §14 清理，阶段 2 要付两笔重复 I/O：
+#   ① exe 侧 ExtractPayload 见 payload 里的 zip 不在，会把 723 MB 的 zip 整包重新解出来；
+#   ② 本脚本 §0 见解压目录不在，会把 1.5 GB 的 assets-offline 整目录重新解一遍。
+# 白耗几分钟；而 ② 在系统盘空间紧张时会解压失败 → `Die`，阶段 2 直接报「配置未成功」。
+# 交互模式（无 -AnswersFile）$HasAiConfig 恒为 true，行为与从前完全一致。
+if (-not $HasAiConfig) {
+    Log "安装阶段：跳过完成提示与素材清理（向导收集完参数后会再运行一次本脚本执行）。"
+} else {
+
+# ---------- 12. 脚本下线 ----------
 # 设计（用户流程 2）：key 配置完成后 AI 上线，脚本下线。
 # WebDAV / 微信接入 / 同步引导 / 能力演示全部由 AI 完成（#13）——AI 读 AGENTS.md 指针（内容在 docs）。
 
@@ -1243,3 +1283,10 @@ foreach ($t in $cleanTargets) {
     } catch { }
 }
 if ($freedBytes -gt 0) { Log ("已清理安装素材，释放约 {0:N0} MB。" -f ($freedBytes / 1MB)) }
+
+}   # end of 收尾（12~14 段）
+
+# ---------- 进度契约：两个阶段都必须报 done ----------
+# `Progress "done"` 原本由 §13 发出；§13 移进"最终阶段"后，阶段 1 就没人发了 → 进度条停在上一格。
+# 放在包裹外，两阶段都发。它只决定进度条百分比，**不参与成功判定**（向导看的是退出码）。
+Progress "done"
