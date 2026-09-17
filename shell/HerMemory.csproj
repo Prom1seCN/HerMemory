@@ -54,13 +54,21 @@
 
   <!-- 仅安装器（SetupMode=true）：
        app/HerMemory.exe —— 程序本体，由 build-release.ps1 先发布到 build\app\ 再内嵌；
-       payload/assets-offline.zip —— 离线素材（uv 托管 Python、Node、PortableGit、内核源码+bundle、uv/npm 预热缓存），
-       由 build-offline.ps1 产出。缺任何一项都由下面的 Target 直接报错——绝不产出「看起来能装、实际装不上」的包。 -->
+       payload/ —— 最小随包素材（内核源码快照 / uv / rg），由 scripts\make-minimal-bundle.py 产出。
+       缺任何一项都由下面的 Target 直接报错——绝不产出「看起来能装、实际装不上」的包。 -->
   <ItemGroup Condition="'$(SetupMode)' == 'true'">
     <SetupApp Include="..\build\app\HerMemory.exe" Condition="Exists('..\build\app\HerMemory.exe')" />
     <EmbeddedResource Include="@(SetupApp)" LogicalName="app/%(Filename)%(Extension)" />
-    <OfflineZip Include="..\build\offline\assets-offline.zip" Condition="Exists('..\build\offline\assets-offline.zip')" />
-    <EmbeddedResource Include="@(OfflineZip)" LogicalName="payload/assets-offline.zip" />
+    <!-- 最小内嵌素材（2026-09-16 瘦身）：只随包带「国内没有可靠直连源」的那几件——
+         上游源码快照（来自 GitHub）、uv（官方 release 只在 GitHub）、rg。
+         其余大头（PortableGit 60 / Node 33 / Python 运行时 50 / PyPI 与 npm 依赖 276）
+         改为安装时从国内镜像取（npmmirror / 清华 PyPI），见 install.ps1 的镜像链。
+         不再内嵌 assets-offline.zip —— 那是 Setup 达到 860 MB 的唯一原因。
+         产出方：build-offline.ps1 -Minimal。 -->
+    <BundledAsset Include="..\build\minimal\hermes-agent.zip" Condition="Exists('..\build\minimal\hermes-agent.zip')" />
+    <BundledAsset Include="..\build\minimal\uv.exe" Condition="Exists('..\build\minimal\uv.exe')" />
+    <BundledAsset Include="..\build\minimal\rg.exe" Condition="Exists('..\build\minimal\rg.exe')" />
+    <EmbeddedResource Include="@(BundledAsset)" LogicalName="payload/%(Filename)%(Extension)" />
   </ItemGroup>
 
   <!-- 安装器的前置产物断言：条件 Exists 只会「静默不嵌」，那会得到一个空有外壳的安装器。
@@ -68,8 +76,10 @@
   <Target Name="HmValidateSetupInputs" BeforeTargets="CoreCompile" Condition="'$(SetupMode)' == 'true'">
     <Error Condition="!Exists('$(MSBuildThisFileDirectory)..\build\app\HerMemory.exe')"
            Text="安装器缺少程序本体：build\app\HerMemory.exe 不存在。请用 build-release.ps1 构建（它会先发布程序本体）。" />
-    <Error Condition="!Exists('$(MSBuildThisFileDirectory)..\build\offline\assets-offline.zip')"
-           Text="安装器缺少离线素材：build\offline\assets-offline.zip 不存在。请先运行 build-offline.ps1。" />
+    <Error Condition="!Exists('$(MSBuildThisFileDirectory)..\build\minimal\hermes-agent.zip')"
+           Text="安装器缺少内核源码快照：build\minimal\hermes-agent.zip 不存在。请先运行 build-offline.ps1 -Minimal。" />
+    <Error Condition="!Exists('$(MSBuildThisFileDirectory)..\build\minimal\uv.exe')"
+           Text="安装器缺少 uv：build\minimal\uv.exe 不存在。请先运行 build-offline.ps1 -Minimal。" />
   </Target>
 
 </Project>

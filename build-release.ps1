@@ -3,16 +3,22 @@
   HerMemory 发行构建 —— 拆包后的「双产物」。
 
   产出两份东西，职责分离：
-    1) build\app\HerMemory.exe            程序本体（几十 MB）：托盘 + 主界面 + 安装向导
-    2) build\HerMemory-Setup-v<版本>.exe  安装器（~800 MB）：内嵌上者 + 离线素材，负责安装与卸载
+    1) build\app\HerMemory.exe            程序本体（约 69 MB）：托盘 + 主界面 + 安装向导
+    2) build\Setup.exe                    安装器（约 230 MB）：内嵌上者 + 最小随包素材，负责安装与卸载
 
   为什么必须分两次发布：安装器要把「程序本体」当资源嵌进自己里面（csproj 的 app/ 逻辑名），
-  所以程序本体必须先存在。反过来程序本体不能带离线素材（否则又变回 792 MB 的巨物）。
+  所以程序本体必须先存在。反过来程序本体不能带任何随包素材（否则又变回几百 MB 的巨物）。
+
+  随包素材为什么只有三件（2026-09-16 瘦身）：只带「国内没有可靠直连源」的东西——
+  内核源码快照 / uv / rg。其余大头（PortableGit 60 MB、Node 33 MB、Python 运行时 50 MB、
+  PyPI 与 npm 依赖 276 MB）安装时从国内镜像取（npmmirror / 清华 PyPI），装不上才怪。
+  这也是 Setup 从 861.6 MB 降到约 230 MB 的原因。
 
   用法：
     powershell -ExecutionPolicy Bypass -File build-release.ps1 [-Version 0.1.0]
   前置：
-    build\offline\assets-offline.zip 必须已存在（由 build-offline.ps1 产出）。
+    build\minimal\{hermes-agent.zip,uv.exe,rg.exe} 必须已存在
+    （由 scripts\make-minimal-bundle.py 从 build\offline\assets-offline\ 派生）。
 #>
 param(
     [string]$Version = "0.1.0",
@@ -89,9 +95,12 @@ if (-not $SkipApp) {
 }
 
 # ---- 2. 安装器 ----
-Step "3/3 发布安装器（内嵌程序本体 + 离线素材）"
-$zip = Join-Path $Root "build\offline\assets-offline.zip"
-if (-not (Test-Path $zip)) { throw "缺少离线素材：$zip。请先运行 build-offline.ps1。" }
+Step "3/3 发布安装器（内嵌程序本体 + 最小素材）"
+# 2026-09-16 瘦身：不再内嵌 assets-offline.zip（那是 860 MB 的唯一原因）。
+# 只随包带「国内没有可靠直连源」的几件：内核源码快照 / uv / rg，由 build-offline.ps1 -Minimal 产出。
+# 其余素材安装时从国内镜像取（npmmirror / 清华 PyPI），见 install.ps1 的镜像链。
+$kernelZip = Join-Path $Root "build\minimal\hermes-agent.zip"
+if (-not (Test-Path $kernelZip)) { throw "缺少内核源码快照：$kernelZip。请先运行 scripts\make-minimal-bundle.py（依赖 build\offline\assets-offline 里的完整素材）。" }
 
 & $dotnet publish $Shell @common "-p:SetupMode=true" "-p:AssemblyName=HerMemorySetup" "-o" "$SetupDir"
 if ($LASTEXITCODE -ne 0) { throw "安装器发布失败（exit $LASTEXITCODE）" }

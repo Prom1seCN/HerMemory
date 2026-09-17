@@ -1219,13 +1219,29 @@ function Test-Python {
         # semantics or stderr noise.  This fix was previously landed as
         # commit ec1714e71 and then lost in a release squash; reapplied here.
         $ErrorActionPreference = "Continue"
-        $uvOutput = & $UvCmd python install $PythonVersion 2>&1
+        # HerMemory patch (2026-09-17): stringify stderr ErrorRecords. Under PS 5.1,
+        # `2>&1` wraps each native stderr line as an ErrorRecord, and the first one
+        # can raise a terminating NativeCommandError even under EAP=Continue -- which
+        # kills the pipeline (uv child dies mid-download, Python never lands) and
+        # hides the real diagnostics behind whatever stderr text happened to come
+        # first. Stringified records are plain strings: nothing throws, and
+        # $uvOutput keeps the real progress/errors for the Warn block below.
+        # (Sandbox log: "uv python install error: No interpreter found..." was
+        # exactly this trap -- uv + mirror verified fine locally at 3.9s.)
+        $uvOutput = @(& $UvCmd python install $PythonVersion 2>&1 | ForEach-Object { "$_" })
         $uvExitCode = $LASTEXITCODE
-        $ErrorActionPreference = $prevEAP
 
         # Check if Python is now available (more reliable than exit code
         # since uv may return non-zero due to "already installed" etc.)
+        # HerMemory patch (2026-09-17, round 4): keep EAP relaxed through the find
+        # too. $prevEAP is "Stop"; restoring it BEFORE this call meant the first
+        # stderr line of `uv python find` (its "error: No interpreter found...")
+        # raised a terminating NativeCommandError even under 2>$null -- the catch
+        # then printed THAT text as "uv python install error: ...", masking the real
+        # install output sitting in $uvOutput. With EAP still Continue here, a
+        # failed find just yields $null and the Warn block below shows the truth.
         $pythonPath = & $UvCmd python find $PythonVersion 2>$null
+        $ErrorActionPreference = $prevEAP
         if ($pythonPath) {
             $ver = & $pythonPath --version 2>$null
             Write-Success "Python installed: $ver"
@@ -1241,6 +1257,13 @@ function Test-Python {
         # Restore EAP in case the try block threw before the assignment
         if ($prevEAP) { $ErrorActionPreference = $prevEAP }
         Write-Warn "uv python install error: $_"
+        # HerMemory patch (2026-09-17): whatever threw, the child's real output is
+        # the only thing that can tell us why. Without this it was swallowed and the
+        # user only ever saw the stray stderr line that happened to trigger the throw.
+        if ($uvOutput) {
+            Write-Warn "uv python install output:"
+            Write-Host ($uvOutput -join "`n") -ForegroundColor DarkGray
+        }
     }
 
     # Fallback: check if ANY Python 3.10+ is already available on the system
@@ -2149,6 +2172,19 @@ function Install-Repository {
         }
 
         if ($repoValid) {
+            if ($env:HERMEMORY_PINNED -eq "1") {
+                # HerMemory pinned-version mode: this distribution is pinned to a
+                # single upstream tag and does NOT track upstream updates. Setting
+                # $didUpdate marks the repo as "present, nothing to do", so the whole
+                # fetch/stash/checkout path below -- and the clone path further down,
+                # which is gated on (-not $didUpdate) -- are both skipped.
+                # Two reasons this matters for the offline / CN-mirror install path:
+                #   1. `git fetch` would reach github.com, unreachable on CN networks;
+                #   2. the stash below uses --include-untracked, which would carry away
+                #      the entire untracked source snapshot we just unpacked.
+                Write-Info "HerMemory: pinned to $Tag -- skipping upstream fetch/checkout"
+                $didUpdate = $true
+            } else {
             Write-Info "Existing installation found, updating..."
             Push-Location $InstallDir
             # Wrap the entire fetch+checkout block in EAP=Continue so git's
@@ -2328,6 +2364,7 @@ function Install-Repository {
                 Pop-Location
             }
             $didUpdate = $true
+            }
         } else {
             # Directory exists but isn't a usable git repo -- e.g. an
             # interrupted clone with no initial commit (#40998), or a leftover

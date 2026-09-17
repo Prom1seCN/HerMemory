@@ -7,8 +7,9 @@ namespace HerMemory
     /// <summary>发行形态与关键路径的唯一来源。
     ///
     /// 拆包后的两种形态（同一份代码、两个构建产物，见 csproj 的 SetupMode）：
-    ///   安装器 Setup  —— 内嵌 app/HerMemory.exe（程序本体）与 payload/assets-offline.zip（离线素材）
-    ///   程序本体 App  —— 只有 exe 自己 + 小 payload，不含离线素材
+    ///   安装器 Setup  —— 内嵌 app/HerMemory.exe（程序本体）与 payload/ 最小随包素材
+    ///                    （内核源码快照 hermes-agent.zip / uv.exe / rg.exe）
+    ///   程序本体 App  —— 只有 exe 自己 + 小 payload，不含随包素材
     ///
     /// 目录约定（2026-09-15 定案，「程序与运行时分离」）：
     ///   程序目录  AppDir     默认 C:\Program Files\HerMemory，只读、放 exe（几十 MB）
@@ -51,7 +52,9 @@ namespace HerMemory
             return false;
         }
 
-        /// <summary>内嵌资源里是否带离线素材（安装器带、程序本体不带）。</summary>
+        /// <summary>内嵌资源里是否带离线素材（安装器带、程序本体不带）。
+        /// 2026-09-16 瘦身后 assets-offline.zip 不再随包，本值恒为 false、当前也无人调用；
+        /// 保留它是为将来若再发行「完整离线包」形态时可直接使用。</summary>
         public static bool HasOfflineAssets
         {
             get
