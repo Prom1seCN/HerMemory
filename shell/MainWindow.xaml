@@ -302,7 +302,24 @@
                 <TextBlock x:Name="QrStatus" Style="{StaticResource Body}" Margin="0,14,0,0"
                            Text="正在拉起微信接入。浏览器将打开二维码页面，请用微信扫码并确认。"/>
                 <TextBlock x:Name="QrHint" Style="{StaticResource Body}" Foreground="#90A4AE" Margin="0,10,0,0"
-                           Text="二维码 8 分钟内有效。链接过期或需更换时，点「重新扫码」重新生成并在浏览器打开。"/>
+                           Text="二维码 8 分钟内有效，过期可点「重新扫码」。"/>
+                <!-- 扫码链接（2026-09-17）：沙盒等环境无法拉起浏览器时，用户仍可在应用内查看并复制，
+                     粘到其他设备的浏览器打开扫码。二维码过期重打时会自动更新为新的链接。 -->
+                <Border x:Name="QrLinkBox" Visibility="Collapsed" Margin="0,14,0,0" Padding="12,10"
+                        Background="#F4F6F8" BorderBrush="#D8E0E5" BorderThickness="1" CornerRadius="8">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="QrLinkText" Grid.Column="0" TextWrapping="Wrap" FontSize="12"
+                                   Foreground="#37474F" VerticalAlignment="Center" Cursor="Hand"
+                                   ToolTip="点击复制" MouseLeftButtonUp="QrLinkText_MouseLeftButtonUp"/>
+                        <Button x:Name="BtnCopyQrLink" Grid.Column="1" Content="复制" Margin="12,0,0,0"
+                                Padding="12,5,12,5" VerticalAlignment="Center"
+                                Style="{StaticResource GhostButton}" Click="BtnCopyQrLink_Click"/>
+                    </Grid>
+                </Border>
                 <StackPanel Orientation="Horizontal" Margin="0,22,0,0">
                     <Button x:Name="BtnQrRetry" Content="重新扫码" Style="{StaticResource GhostButton}" Click="BtnQrRetry_Click"/>
                     <Button x:Name="BtnQrSkip" Content="跳过" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="BtnQrSkip_Click"/>

@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 
 namespace HerMemory
 {
@@ -1243,17 +1244,10 @@ namespace HerMemory
             // git 不再预检：上游官方安装器自带 Stage-Git，自动便携化安装 PortableGit（pin 版上游源码实证），
             // 装后 export.sh / memory-size.sh 等 bash 脚本所需的 Git Bash 亦由其提供。
 
-            // 网络探测已移除（2026-09-10 定案：只发行离线版，全部资源内嵌，无需网络）。
-            // 离线版预检 = 「离线资源包可用」。判据必须与 install.ps1 第 0 段同一口径，共三处：
-            //   ① payload 目录里的副本（正常发行路径：内嵌 zip 被解出来）
-            //   ② 仓库根的 assets-offline.zip
-            //   ③ 仓库的 build\offline\assets-offline.zip（开发机在仓库目录内直接跑 exe 时的实况）
-            // 只看 ① 会在②③ 的情形下误报「未发现离线安装包」——而 install.ps1 其实能找到并离线安装，
-            // 于是界面在说谎，用户会以为必须联网。2026-09-15 用户实录（卸载后重开安装包即命中）。
-            var offlineZip = FindOfflineZip();
-            notes.Add(offlineZip != null
-                ? "离线资源包已就位"
-                : "未发现离线资源包，将走在线镜像安装（需网络）");
+            // 离线资源包自检已移除（2026-09-16 瘦身，用户定案）。
+            // 理由：assets-offline.zip 不再随包（随包只剩内核源码快照 / uv / rg 三件），
+            // 这条判据对两种形态都恒为假 —— 于是预检一上来就是橙黄色「未发现离线资源包」，
+            // 而「从国内镜像安装」本来就是现在的正常路径，不是异常。留着只会让新用户以为装不上。
 
             // 权限状态如实回显（不提权也能装，但符号链接那一步会失败——用户要能提前看到）
             bool linksReady = InjectionLinksReady();
@@ -1274,7 +1268,7 @@ namespace HerMemory
             PrecheckStatus.Foreground = new System.Windows.Media.SolidColorBrush(
                 (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(
                     brokenInstall ? "#EF6C00"
-                    : allOk ? (offlineZip != null ? "#2E7D32" : "#EF6C00") : "#C62828"));
+                    : allOk ? "#2E7D32" : "#C62828"));
             BtnStart.IsEnabled = allOk;
         }
 
@@ -1285,29 +1279,6 @@ namespace HerMemory
             {
                 if (File.Exists(Path.Combine(dir.FullName, "install.ps1"))) return dir.FullName;
             }
-            return null;
-        }
-
-        /// <summary>定位可用的离线素材（与 install.ps1 第 0 段的回落顺序一致）。
-        /// 发行版机器上只会有 payload 目录那一份；开发机上 exe 位于 build\ 内、_repoRoot 指向仓库根，
-        /// 此时素材在 build\offline\ —— 这正是「卸载后重开安装包误报未发现离线包」的成因。</summary>
-        private string? FindOfflineZip()
-        {
-            try
-            {
-                var inPayload = Path.Combine(PayloadDir, "assets-offline.zip");
-                if (File.Exists(inPayload)) return inPayload;
-
-                var root = _repoRoot;
-                if (string.IsNullOrEmpty(root)) return null;
-
-                var atRoot = Path.Combine(root, "assets-offline.zip");
-                if (File.Exists(atRoot)) return atRoot;
-
-                var inBuild = Path.Combine(root, "build", "offline", "assets-offline.zip");
-                if (File.Exists(inBuild)) return inBuild;
-            }
-            catch { }
             return null;
         }
 
@@ -1349,11 +1320,10 @@ namespace HerMemory
                 try
                 {
                     // stamp=0 表示取不到自身路径：不认缓存，整包重解，避免误判为"已是最新"。
-                    // 内嵌了离线素材时，"已就绪"还要求磁盘上的 zip 也在场——安装成功后素材会被清掉
-                    //（体积考量，见 install.ps1 第 14 段），此后重跑安装必须重新解出来，
-                    // 否则 install.ps1 找不到 zip 会**静默回落在线安装**，与"全程不需网络"的承诺冲突。
-                    bool zipReady = !AppPaths.HasOfflineAssets || File.Exists(Path.Combine(dir, "assets-offline.zip"));
-                    if (stamp != 0 && zipReady && File.Exists(Path.Combine(dir, "install.ps1")) && File.Exists(stampFile)
+                    // 2026-09-16 瘦身：原先这里还要求「assets-offline.zip 在场」（zipReady）。
+                    // 该 zip 已不再随包，AppPaths.HasOfflineAssets 恒为 false，条件恒真 —— 属死代码，已移除。
+                    // payload 的新鲜度改由 .hm-payload-stamp 单独保证（构建戳一致即视为与 exe 同步）。
+                    if (stamp != 0 && File.Exists(Path.Combine(dir, "install.ps1")) && File.Exists(stampFile)
                         && long.TryParse(File.ReadAllText(stampFile), out var s) && s == stamp)
                         return true; // 构建戳一致 = 目录内容与本 exe 完全同步
                 }
@@ -2278,6 +2248,8 @@ namespace HerMemory
             // 不再用 gateway setup——其 curses 菜单在非 TTY stdin 下直接返回取消值、完全不读管道输入
             //（上游 curses_ui._run_curses_menu isatty 守卫实证），旧答题卡自动化在结构上无法通过；install.ps1 交互路径不受影响（真 TTY 由人应答）。
             SetQr("正在启动微信接入，浏览器将打开二维码页面。");
+            // 重新扫码：旧链接立刻失效，先收起，等新链接到达再显示。
+            HideQrLink();
             try
             {
                 var pyExe = Path.Combine(HermesHome, "hermes-agent", "venv", "Scripts", "python.exe");
@@ -2303,7 +2275,21 @@ namespace HerMemory
                 psi.EnvironmentVariables["NO_COLOR"] = "1";
                 psi.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8";
                 psi.EnvironmentVariables["PYTHONUTF8"] = "1";
+                // 关键：管道（非 TTY）下 Python stdout 是 4KB 块缓冲，上游打出的二维码链接
+                // 会一直躺在缓冲区里直到进程退出——我们全程读不到，扫码页就永远没有链接。
+                // 本机实证：加此变量后链接立即输出，不加则 30 秒内 stdout 为空。
+                psi.EnvironmentVariables["PYTHONUNBUFFERED"] = "1";
+                // 微信接口全在国内（weixin.qq.com），直连永远正确。装过代理软件的机器/沙盒会把
+                // HTTP_PROXY 等死代理带进本进程环境（安装器的体检管不到 exe 后来新起的进程树），
+                // 而上游 qr_login 的 aiohttp 是 trust_env=True——揣着死代理连微信接口必被拒，
+                // 且失败路径只写 logger 就静默 return None（stdout 只剩 fail 一行，2026-09-17 实录）。
+                foreach (var px in new[] { "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy" })
+                    psi.EnvironmentVariables[px] = null;   // 置 null = 从子进程环境移除
+                psi.EnvironmentVariables["NO_PROXY"] = "*";
                 using var p = Process.Start(psi)!;
+                // 全量收集 stdout：一条链接都没有时，把尾部直接摆到界面上——
+                // 上游/微信随时可能换 URL 形态或换失败方式，与其猜，不如让输出自己说话。
+                var outLines = new List<string>();
                 var readerTask = Task.Run(() =>
                 {
                     try
@@ -2312,26 +2298,63 @@ namespace HerMemory
                         {
                             var line = p.StandardOutput.ReadLine();
                             if (line == null) break;
-                            // 二维码链接裸行（过期刷新后重打，仅首次拉起浏览器）
-                            var idx = line.IndexOf("https://liteapp.weixin.qq.com", StringComparison.OrdinalIgnoreCase);
-                            if (!urlOpened && idx >= 0)
+                            outLines.Add(line);
+                            // 脚本诊断行（##HM-QR## fail ...）：ok 行不打扰。
+                            var diag = line.IndexOf("##HM-QR##", StringComparison.Ordinal);
+                            if (diag >= 0)
+                            {
+                                var dmsg = line[(diag + 9)..].Trim();
+                                if (dmsg.Length > 0 && !dmsg.StartsWith("ok", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    _qrDiag = dmsg;
+                                    SetQr("微信接入失败：" + dmsg);
+                                }
+                                continue;
+                            }
+                            // 链接行。不锚定具体域名：上游/微信随时可能换 URL 形态，
+                            // 锚定 liteapp 会让"链接明明打了却匹配不上"无法自证（2026-09-17 实录）。
+                            var idx = line.IndexOf("https://", StringComparison.OrdinalIgnoreCase);
+                            if (idx >= 0)
                             {
                                 var url = line[idx..].Trim();
                                 var end = url.IndexOfAny(new[] { ' ', '\t', ')', '\x1b' });
                                 if (end > 0) url = url[..end];
-                                try
+                                if (url.Length < 24) continue;   // 过短多为日志片段，防误报
+                                ShowQrLink(url);
+                                if (!urlOpened)
                                 {
-                                    Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
-                                    urlOpened = true;
-                                    SetQr("二维码已在浏览器打开，请使用微信扫码确认，8 分钟内有效。");
+                                    try
+                                    {
+                                        Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+                                        urlOpened = true;
+                                        SetQr("二维码已生成，请扫码确认。");
+                                    }
+                                    catch
+                                    {
+                                        SetQr("二维码已生成，浏览器未打开时可复制下方链接。");
+                                    }
                                 }
-                                catch { }
                             }
                         }
                     }
                     catch { }
                 });
-                _ = Task.Run(() => { try { p.StandardError.ReadToEnd(); } catch { } });
+                // stderr 也收进来：上游 qr_login 的失败路径只写 logger（stderr），stdout 什么都不打——
+                // 不收 stderr，"取码失败"这类真实死因就永远看不到（2026-09-17 沙盒实录）。
+                var errLines = new List<string>();
+                var errTask = Task.Run(() =>
+                {
+                    try
+                    {
+                        while (!p.StandardError.EndOfStream)
+                        {
+                            var el = p.StandardError.ReadLine();
+                            if (el == null) break;
+                            lock (errLines) { errLines.Add(el); }
+                        }
+                    }
+                    catch { }
+                });
 
                 // 轮询 .env 等凭据落盘（登录脚本成功后最后一步写 WEIXIN_ACCOUNT_ID）；脚本自行退出（超时/失败）即停止等待。
                 // Delay 必须吃 ct：否则点了「跳过」后旧流程仍会在下一次扫码成功时切走页面。
@@ -2344,13 +2367,29 @@ namespace HerMemory
                 }
                 try { if (!p.HasExited) p.Kill(true); } catch { }
                 try { await readerTask; } catch { }
+                try { await errTask; } catch { }
 
                 // 已取消（用户点跳过 / 离开本页）：到此为止，绝不触碰页面
                 if (ct.IsCancellationRequested) return;
 
+                // 一条链接都没出现：把脚本输出尾部放进灰色提示行。
+                // 上游/微信换什么 URL 形态、脚本死在哪一步，截图即见，不再靠猜。
+                if (_qrLink == null && (outLines.Count > 0 || errLines.Count > 0))
+                {
+                    lock (errLines) { outLines.AddRange(errLines); }
+                    var tail = string.Join(" / ", outLines
+                        .Skip(Math.Max(0, outLines.Count - 3))
+                        .Select(l => l.Trim())
+                        .Where(l => l.Length > 0));
+                    if (tail.Length > 0)
+                        SetQrHint("脚本输出：" + (tail.Length > 120 ? tail[..120] + "…" : tail));
+                }
+
                 if (!EnvHasWeixin())
                 {
-                    SetQr("二维码已超时或未完成扫码，可重试。");
+                    SetQr(string.IsNullOrEmpty(_qrDiag)
+                        ? "二维码已超时，可重试。"
+                        : "微信接入失败：" + _qrDiag);
                     return;
                 }
 
@@ -2365,6 +2404,60 @@ namespace HerMemory
         }
 
         private void SetQr(string text) => Dispatcher.Invoke(() => QrStatus.Text = text);
+        private void SetQrHint(string text) => Dispatcher.Invoke(() => QrHint.Text = text);
+
+        /// <summary>当前二维码链接。脚本每次刷新二维码都会重打一条，这里始终保存最新的一条。</summary>
+        private string? _qrLink;
+
+        /// <summary>脚本最后一条 ##HM-QR## fail/warn 的原文。没有它，失败原因会被
+        /// 流程末尾的"二维码已超时"兜底文案覆盖，用户永远只看到表面症状。</summary>
+        private string? _qrDiag;
+
+        /// <summary>把二维码链接显示到应用内并允许复制。
+        /// 存在的理由：Windows 沙盒等环境拉不起浏览器（http 链接无处可去），
+        /// 用户拿不到链接就完全无法完成扫码。可从后台线程调用（内部走 Dispatcher）。</summary>
+        private void ShowQrLink(string url)
+        {
+            _qrLink = url;
+            Dispatcher.Invoke(() =>
+            {
+                QrLinkText.Text = url;
+                QrLinkBox.Visibility = Visibility.Visible;
+                BtnCopyQrLink.Content = "复制";
+            });
+        }
+
+        /// <summary>收起链接框（重新扫码时旧链接即刻失效，必须先收起）。</summary>
+        private void HideQrLink()
+        {
+            _qrLink = null;
+            _qrDiag = null;
+            Dispatcher.Invoke(() =>
+            {
+                QrLinkBox.Visibility = Visibility.Collapsed;
+                QrLinkText.Text = "";
+                BtnCopyQrLink.Content = "复制";
+            });
+        }
+
+        private void BtnCopyQrLink_Click(object sender, RoutedEventArgs e) => CopyQrLink();
+        private void QrLinkText_MouseLeftButtonUp(object sender, MouseButtonEventArgs e) => CopyQrLink();
+
+        private void CopyQrLink()
+        {
+            if (string.IsNullOrEmpty(_qrLink)) return;
+            try
+            {
+                // 项目同时引用 WPF 与 WinForms，两个 Clipboard 撞名（CS0104），必须完全限定。
+                System.Windows.Clipboard.SetText(_qrLink);
+                Dispatcher.Invoke(() => BtnCopyQrLink.Content = "已复制");
+            }
+            catch
+            {
+                // 剪贴板被占用等：退化为让用户手动选中
+                Dispatcher.Invoke(() => BtnCopyQrLink.Content = "复制失败");
+            }
+        }
 
         private bool EnvHasWeixin()
         {
