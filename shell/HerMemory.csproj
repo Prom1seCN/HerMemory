@@ -2,8 +2,8 @@
 
   <PropertyGroup>
     <!-- 发行形态（2026-09-15 拆包）：
-         SetupMode=false（默认）→ 程序本体 HerMemory.exe（几十 MB）：托盘 + 主界面 + 安装向导（无离线素材，可走在线镜像）
-         SetupMode=true         → 安装器 HerMemorySetup.exe（~800 MB）：额外内嵌「程序本体」与「离线素材」，
+         SetupMode=false（默认）→ 程序本体 HerMemory.exe（约 69 MB）：托盘 + 主界面 + 安装向导（无随包素材）
+         SetupMode=true         → 安装器 HerMemorySetup.exe（约 254 MB）：额外内嵌「程序本体」与「最小随包素材」，
                                   负责把程序本体释放到 Program Files 并把运行时装到位
          两者是同一份代码、同一份 csproj，构建两次；用 build-release.ps1 编排。 -->
     <SetupMode Condition="'$(SetupMode)' == ''">false</SetupMode>
@@ -63,8 +63,8 @@
          上游源码快照（来自 GitHub）、uv（官方 release 只在 GitHub）、rg。
          其余大头（PortableGit 60 / Node 33 / Python 运行时 50 / PyPI 与 npm 依赖 276）
          改为安装时从国内镜像取（npmmirror / 清华 PyPI），见 install.ps1 的镜像链。
-         不再内嵌 assets-offline.zip —— 那是 Setup 达到 860 MB 的唯一原因。
-         产出方：build-offline.ps1 -Minimal。 -->
+         不再内嵌 assets-offline.zip —— 那是拆包前的 Setup 曾达 860 MB 的唯一原因。
+         产出方：scripts\make-minimal-bundle.py。 -->
     <BundledAsset Include="..\build\minimal\hermes-agent.zip" Condition="Exists('..\build\minimal\hermes-agent.zip')" />
     <BundledAsset Include="..\build\minimal\uv.exe" Condition="Exists('..\build\minimal\uv.exe')" />
     <BundledAsset Include="..\build\minimal\rg.exe" Condition="Exists('..\build\minimal\rg.exe')" />
@@ -77,9 +77,9 @@
     <Error Condition="!Exists('$(MSBuildThisFileDirectory)..\build\app\HerMemory.exe')"
            Text="安装器缺少程序本体：build\app\HerMemory.exe 不存在。请用 build-release.ps1 构建（它会先发布程序本体）。" />
     <Error Condition="!Exists('$(MSBuildThisFileDirectory)..\build\minimal\hermes-agent.zip')"
-           Text="安装器缺少内核源码快照：build\minimal\hermes-agent.zip 不存在。请先运行 build-offline.ps1 -Minimal。" />
+           Text="安装器缺少内核源码快照：build\minimal\hermes-agent.zip 不存在。请先运行 scripts\make-minimal-bundle.py。" />
     <Error Condition="!Exists('$(MSBuildThisFileDirectory)..\build\minimal\uv.exe')"
-           Text="安装器缺少 uv：build\minimal\uv.exe 不存在。请先运行 build-offline.ps1 -Minimal。" />
+           Text="安装器缺少 uv：build\minimal\uv.exe 不存在。请先运行 scripts\make-minimal-bundle.py。" />
   </Target>
 
 </Project>

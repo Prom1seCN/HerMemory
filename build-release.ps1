@@ -97,7 +97,7 @@ if (-not $SkipApp) {
 # ---- 2. 安装器 ----
 Step "3/3 发布安装器（内嵌程序本体 + 最小素材）"
 # 2026-09-16 瘦身：不再内嵌 assets-offline.zip（那是 860 MB 的唯一原因）。
-# 只随包带「国内没有可靠直连源」的几件：内核源码快照 / uv / rg，由 build-offline.ps1 -Minimal 产出。
+# 只随包带「国内没有可靠直连源」的几件：内核源码快照 / uv / rg，由 scripts\make-minimal-bundle.py 产出。
 # 其余素材安装时从国内镜像取（npmmirror / 清华 PyPI），见 install.ps1 的镜像链。
 $kernelZip = Join-Path $Root "build\minimal\hermes-agent.zip"
 if (-not (Test-Path $kernelZip)) { throw "缺少内核源码快照：$kernelZip。请先运行 scripts\make-minimal-bundle.py（依赖 build\offline\assets-offline 里的完整素材）。" }

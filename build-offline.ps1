@@ -1,12 +1,15 @@
 ﻿#requires -Version 5.1
 <#
-  HerMemory 离线资源收集脚本（在打包机上跑一次，产出 assets-offline.zip）
+  HerMemory 完整素材收集脚本（在打包机上跑一次，产出解压态的完整素材目录）
 
   用法（打包机 = 有网络的 Windows，GitHub 类资源走系统代理/Clash）：
     powershell -ExecutionPolicy Bypass -File build-offline.ps1 [-OutDir build\offline] [-Tag v2026.8.31]
 
   依赖：git（PATH）、PowerShell 5.1+、tar/curl（Win10 自带）。uv 与 node 由本脚本自举。
-  产出：OutDir\assets-offline.zip —— 交给 dotnet publish -p:IncludeOfflineAssets=true 嵌入 exe。
+  产出：OutDir\assets-offline\（解压态，约 1.2 GB）与 OutDir\assets-offline.zip。
+        这一份是「完整素材」，供开发备查与派生最小随包素材用——发行不直接嵌它
+        （2026-09-16 瘦身后的发行形态见 build-release.ps1）。
+        发行用的三件由 scripts\make-minimal-bundle.py 从这里派生到 build\minimal\。
 
   内容清单（不含 Playwright 浏览器，第一版决定）：
     python-pbs.tar.gz    CPython 3.11 运行时（PBS，npmmirror）
@@ -305,4 +308,4 @@ $size = (Get-Item $zipOut).Length / 1MB
 $assetsSize = ($files | Measure-Object Length -Sum).Sum / 1MB
 Write-Host ""
 Ok ("离线资源包完成：{0}（解压态 {1:N0} MB → 压缩 {2:N0} MB，用时 {3:N0} 秒）" -f $zipOut, $assetsSize, $size, $sw.Elapsed.TotalSeconds)
-Write-Host "下一步：dotnet publish -p:IncludeOfflineAssets=true 产出 HerMemory-offline.exe"
+Write-Host "下一步：scripts\make-minimal-bundle.py 派生最小随包素材 → build-release.ps1 出包（程序本体 + 安装器）"
