@@ -126,10 +126,13 @@ else
     # 境内镜像注入（与 Windows T1 同步）：均为对应工具官方环境变量旋钮，上游零修改；用户已自设时尊重不覆盖。
     # Linux 安装期大头 = PyPI 依赖（setup-hermes.sh 走 uv sync/uv pip install）；uv 安装器本身走 astral.sh（Fastly，境内通常可达）。
     # 仅安装进程内生效；npm/Playwright 两项预置供装后运行时按官方机制取用（如浏览器技能首次拉内核）。
-    [ -n "$UV_DEFAULT_INDEX" ]         || export UV_DEFAULT_INDEX="https://pypi.tuna.tsinghua.edu.cn/simple"
-    [ -n "$PIP_INDEX_URL" ]            || export PIP_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple"
-    [ -n "$npm_config_registry" ]      || export npm_config_registry="https://registry.npmmirror.com"
-    [ -n "$PLAYWRIGHT_DOWNLOAD_HOST" ] || export PLAYWRIGHT_DOWNLOAD_HOST="https://cdn.npmmirror.com/binaries/playwright"
+    # ⚠ 必须写 ${VAR:-}：这四个是本脚本从未赋值的外部环境变量，而本脚本 set -u ——
+    #   干净环境下裸引用 $VAR 会当场 "unbound variable" 退出，一句提示都看不到。
+    #   Linux 沙箱首测命中；此前的测试机没炸，是因为 shell 里恰好已有这几个变量。
+    [ -n "${UV_DEFAULT_INDEX:-}" ]         || export UV_DEFAULT_INDEX="https://pypi.tuna.tsinghua.edu.cn/simple"
+    [ -n "${PIP_INDEX_URL:-}" ]            || export PIP_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple"
+    [ -n "${npm_config_registry:-}" ]      || export npm_config_registry="https://registry.npmmirror.com"
+    [ -n "${PLAYWRIGHT_DOWNLOAD_HOST:-}" ] || export PLAYWRIGHT_DOWNLOAD_HOST="https://cdn.npmmirror.com/binaries/playwright"
     log "在线镜像：PyPI / npm / Playwright 走国内源（用户已自设则沿用）"
 
     log "运行官方 setup-hermes.sh（uv + venv + hermes CLI）……"
@@ -380,9 +383,14 @@ SLUG=$(printf '%s' "$HOSTPORT" | tr '[:lower:]' '[:upper:]' | sed -E 's/[^A-Z0-9
 KEY_ENV="HERMES_CUSTOM_${SLUG}_API_KEY"
 hermes config set "$KEY_ENV" "$API_KEY" >/dev/null
 grep -q "^${KEY_ENV}=" "$HERMES_HOME/.env" 2>/dev/null || echo "${KEY_ENV}=$API_KEY" >> "$HERMES_HOME/.env"
-# 清除会劫持路由的 OPENAI_*（上游明确告警的 env 污染场景）
-hermes config unset OPENAI_API_KEY >/dev/null 2>&1
-hermes config unset OPENAI_BASE_URL >/dev/null 2>&1
+# 清除会劫持路由的 OPENAI_*（上游明确告警的 env 污染场景）。
+# ⚠ || true 必需：key 不存在时上游 unset_config_value 的两条分支（env 路径与 config 路径）
+#   都是 print("Config key not set") + sys.exit(1)，与分支无关。本脚本 set -e，而 stderr
+#   已被 2>&1 吞掉 → 干净机器上用户刚选完模型序号，安装器无一句报错当场死在 AI 上线前一步。
+#   真正兜底的是下面那段 sed（直接删 .env 里的 OPENAI_* 两行）；这两行只是让上游顺带做
+#   完整的凭据生命周期清理（credential_pool / model-cache 行），做成尽力而为即可。
+hermes config unset OPENAI_API_KEY  >/dev/null 2>&1 || true
+hermes config unset OPENAI_BASE_URL >/dev/null 2>&1 || true
 # 存在性保护：上游 config set 有可能没把 .env 落盘（Windows 侧踩过同一处），
 # 而 set -e 下 sed -i 对不存在的文件会直接中断安装。
 if [ -f "$HERMES_HOME/.env" ]; then
