@@ -196,6 +196,23 @@ namespace HerMemory
             // 不设它时 `gateway install` 等子命令会走 input() 等输入——GUI 进程无控制台 → 永久阻塞。
             // 置 1 后 prompt_yes_no 直接返回其默认值，子命令正常执行完。hermes 全部调用统一带上。
             psi.EnvironmentVariables["HERMES_NONINTERACTIVE"] = "1";
+            // bash 解释器路径：上游探测 PortableGit 的位置写死在 %LOCALAPPDATA%\hermes\git，**不读
+            // HERMES_HOME**，数据目录在别处时只能靠 HERMES_GIT_BASH_PATH。注册表里的 User 值不会传给
+            // 已经在跑的本进程（环境块是启动那一刻的快照，资源管理器也不例外），所以这里显式取一次再
+            // 传给子进程——否则托盘「启动」拉起的网关照样找不到 bash，得等一次重新登录才好。
+            var bash = Environment.GetEnvironmentVariable("HERMES_GIT_BASH_PATH");
+            if (string.IsNullOrWhiteSpace(bash) || !File.Exists(bash))
+            { try { bash = Environment.GetEnvironmentVariable("HERMES_GIT_BASH_PATH", EnvironmentVariableTarget.User); } catch { } }
+            if (string.IsNullOrWhiteSpace(bash) || !File.Exists(bash))
+            {
+                bash = null;   // 前两次可能留下一个指向不存在文件的路径，不能原样传给子进程
+                foreach (var rel in new[] { @"git\bin\bash.exe", @"git\usr\bin\bash.exe" })
+                {
+                    var p = Path.Combine(HermesHome, rel);
+                    if (File.Exists(p)) { bash = p; break; }
+                }
+            }
+            if (!string.IsNullOrWhiteSpace(bash)) psi.EnvironmentVariables["HERMES_GIT_BASH_PATH"] = bash;
             return psi;
         }
 

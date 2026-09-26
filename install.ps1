@@ -561,6 +561,27 @@ if ($workingCli -and (Test-Done "upstream")) {
                 [Environment]::SetEnvironmentVariable("Path", ($userPath.TrimEnd(';') + ";$gitDir\cmd"), "User")
             }
         }
+        # 登记 bash 路径。上游把 PortableGit 的探测位置**写死**成 %LOCALAPPDATA%\hermes\git
+        # （tools/environments/local.py 的 _hermes_portable_git），不读 HERMES_HOME —— 数据目录选在
+        # 非默认位置的机器上，我们装的 git 它找不到，终端工具全报 "Git Bash not found"。上游自己的
+        # 安装器靠设 HERMES_GIT_BASH_PATH 绕开这一点，而我们预置后 PATH 里已有 git、上游 Stage-Git
+        # 走快速通道跳过，那次设变量也一并被跳过 —— 所以这个洞只有我们能自己补。
+        $bashExe = @(
+            (Join-Path $gitDir "bin\bash.exe"),
+            (Join-Path $gitDir "usr\bin\bash.exe")
+        ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+        if ($bashExe) {
+            $curBash = [Environment]::GetEnvironmentVariable("HERMES_GIT_BASH_PATH", "User")
+            # 用户自己设过、且指着一个真实存在的文件 → 尊重不动；为空或已失效 → 由我们钉上
+            if ([string]::IsNullOrWhiteSpace($curBash) -or (-not (Test-Path $curBash))) {
+                [Environment]::SetEnvironmentVariable("HERMES_GIT_BASH_PATH", $bashExe, "User")
+            }
+            # 进程内再设一次：注册表更新不会传给已经启动的进程，而本次安装起的网关是它的子进程
+            $env:HERMES_GIT_BASH_PATH = $bashExe
+            Ok "bash 解释器已登记：HERMES_GIT_BASH_PATH = $bashExe"
+        } elseif (Test-Path $gitDir) {
+            Warn "$gitDir 存在但没找到 bash.exe。终端工具若报 Git Bash not found，请把 HERMES_GIT_BASH_PATH 手动指向可用的 bash.exe（WSL 的那个不算，它不认 Windows 路径）。"
+        }
 
         # ②：选可用 git 加速器（ls-remote 轻探针；PS5.1 原生调用需降级 EAP 防 2>$null 炸 NativeCommandError）
         # **离线模式整段跳过**：离线时不可能有加速器可通，探活只会白等三次超时然后撞上下面那条 Die；
