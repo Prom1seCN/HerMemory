@@ -40,6 +40,41 @@ function Log([string]$m)  { Write-Host "[HerMemory] $m" -ForegroundColor Cyan }
 function Ok([string]$m)   { Write-Host "[完成] $m" -ForegroundColor Green }
 function Warn([string]$m) { Write-Host "[note] $m" -ForegroundColor Yellow }
 function Die([string]$m)  { Write-Host "[error] $m" -ForegroundColor Red; exit 1 }
+# 整目录落位。⚠ 绝不能用 `Move-Item <系统盘Temp> <数据目录>`：跨卷移动目录 = 先复制再删源，
+# 而删源那一步会失败——线上实录是 `PermissionDenied: ...\hm-kernel-inline\.git` /
+# RemoveFileSystemItemUnauthorizedAccess。此时复制已经完成，但整段被这一句判死。
+# 成因两个候选，都指向"删源"：① git 把 object 文件置为只读（本机单独放一个只读文件进目录树
+# 实测不足以复现，所以它更可能是叠加条件而非独立主因）；② 刚写出的 .git 被杀软或后台 git
+# 进程占用句柄。数据目录在非系统盘的机器才会走到删源这一步，默认装 C 盘的是同卷改目录项，
+# 不复制也不删——这就是"大多数人正常、个别机器必死"的分界。
+# 因此：① 调用方的暂存目录一律放 $HermesHome 下（与目标同卷），正常路径根本不出现删源；
+#      ② 万一仍失败，退化成「清只读 → 复制 → 强删源」，源删不掉只当残留，不再判死整次安装。
+# 目标已存在时先清掉——否则 Move-Item 会把源塞成目标的一个子目录，落位结果静默错位。
+# 返回 $true/$false、自身不抛；成功判据是"目标存在"，调用方还要自己校验内容（现有三处分别
+# 校验 pyproject.toml 或 git 仓库健康度），因为复制做到一半也会让目标存在。
+function Clear-ReadOnlyTree([string]$path) {
+    Get-ChildItem -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue | ForEach-Object {
+        try { if ($_.Attributes -band [System.IO.FileAttributes]::ReadOnly) { $_.Attributes = [System.IO.FileAttributes]::Normal } } catch { }
+    }
+}
+function Move-TreeTo([string]$src, [string]$dst) {
+    if (-not (Test-Path -LiteralPath $src)) { return $false }
+    if (Test-Path -LiteralPath $dst) { Remove-Item -LiteralPath $dst -Recurse -Force -ErrorAction SilentlyContinue }
+    if (Test-Path -LiteralPath $dst) { return $false }
+    $prevEapTree = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+    try {
+        try { Move-Item -LiteralPath $src -Destination $dst -ErrorAction Stop } catch { }
+        # 成功与否只认「目标存在」——Move-Item 不抛异常并不代表落位完成（实测：源里有
+        # 被占用的文件时它静默返回，目标却没建起来）。
+        if (-not (Test-Path -LiteralPath $dst)) {
+            Warn "整目录移动失败，改用复制落位：$(Split-Path $dst -Leaf)"
+            Clear-ReadOnlyTree $src
+            try { Copy-Item -LiteralPath $src -Destination $dst -Recurse -Force -ErrorAction Stop } catch { return $false }
+        }
+        Remove-Item -LiteralPath $src -Recurse -Force -ErrorAction SilentlyContinue
+        return (Test-Path -LiteralPath $dst)
+    } finally { $ErrorActionPreference = $prevEapTree }
+}
 # PS 5.1 坑：EAP=Stop 时原生命令 2>$null 会把 stderr 变成终止性错误（NativeCommandError）。
 # Run-Quiet 在函数作用域内降级 EAP，stderr 静默流出——专用于允许失败的原生调用。
 # ⚠ **绝不能写 `& $args`**：PowerShell 会把数组隐式转成字符串（[string]@('a','b') = 'a b'），
@@ -565,7 +600,9 @@ if ($workingCli -and (Test-Done "upstream")) {
             # init + 一个空提交 + 打上 pin tag。锚定模式下上游跳过全部 fetch/checkout，
             # 因此这个空仓库只用于通过它的 repoValid 探测，不会被用来更新任何东西。
             Log "镜像③：落位内嵌内核源码快照（$Tag）……"
-            $tmpK = Join-Path $env:TEMP "hm-kernel-inline"
+            # 暂存放 $HermesHome 下（与 $kernelDir 同卷）——放 %TEMP% 会让落位变成跨卷移动，
+            # 从而多走一次「删源」，个别机器就死在那一步，见 Move-TreeTo 注释。
+            $tmpK = Join-Path $HermesHome ".hm-stage-kernel"
             if (Test-Path $tmpK) { Remove-Item -Recurse -Force $tmpK -ErrorAction SilentlyContinue }
             New-Item -ItemType Directory -Force -Path $tmpK | Out-Null
             Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -587,8 +624,7 @@ if ($workingCli -and (Test-Done "upstream")) {
             & git tag -f $Tag 2>&1 | Out-Null
             Pop-Location
             $ErrorActionPreference = $prevEAPk
-            if (Test-Path $kernelDir) { Remove-Item -Recurse -Force $kernelDir -ErrorAction SilentlyContinue }
-            Move-Item $tmpK $kernelDir
+            if (-not (Move-TreeTo $tmpK $kernelDir)) { Die "内核源码快照落位失败：$kernelDir。请确认数据目录所在磁盘可写、且没有安全软件拦截本次复制。" }
             if (-not (Test-Path (Join-Path $kernelDir "pyproject.toml"))) { Die "内嵌内核源码快照解压异常（缺 pyproject.toml）。发行包不完整。" }
             Ok "内核源码快照已落位（pin $Tag，内嵌，无历史）"
         } else {
@@ -929,7 +965,7 @@ if ($workingCli -and (Test-Done "upstream")) {
         # 离线：仓库从内嵌 zip 落位；origin 指向内嵌 bundle——上游 update 的 fetch 命中本地，零网络
         if (-not (Test-Path $repoDir)) {
             Log "离线：落位内嵌 hermes-agent 源码树（pin $Tag）……"
-            $tmpOff = Join-Path $env:TEMP "hm-hermes-agent-off"
+            $tmpOff = Join-Path $HermesHome ".hm-stage-offline"
             if (Test-Path $tmpOff) { Remove-Item -Recurse -Force $tmpOff }
             New-Item -ItemType Directory -Force -Path $tmpOff | Out-Null
             # 标准 zip 解压器（tar 不解 zip，见段 0 注释）
@@ -941,7 +977,8 @@ if ($workingCli -and (Test-Done "upstream")) {
                 $inner = Get-ChildItem $tmpOff -Directory | Where-Object { Test-Path (Join-Path $_.FullName ".git") } | Select-Object -First 1
                 if ($inner) { $repoSrc = $inner.FullName }
             }
-            Move-Item $repoSrc $repoDir
+            if (-not (Move-TreeTo $repoSrc $repoDir)) { Die "离线内核仓库落位失败：$repoDir。内嵌资源包不完整，或目标磁盘不可写。" }
+            if ($repoSrc -ne $tmpOff -and (Test-Path $tmpOff)) { Remove-Item -Recurse -Force $tmpOff -ErrorAction SilentlyContinue }
         }
         # remote set-url 同样要降 EAP：仓库一旦不完整，git 会往 stderr 写东西，EAP=Stop 下会直接崩
         $prevEapSet = $ErrorActionPreference; $ErrorActionPreference = "Continue"
@@ -954,7 +991,7 @@ if ($workingCli -and (Test-Done "upstream")) {
     } elseif (-not $repoOk -and (Get-Command git -ErrorAction SilentlyContinue)) {
         $repoUrl = "https://github.com/NousResearch/hermes-agent.git"
         if ($GhProxy) { $repoUrl = $GhProxy + $repoUrl }
-        $tmpRepo = Join-Path $env:TEMP "hm-hermes-agent"
+        $tmpRepo = Join-Path $HermesHome ".hm-stage-clone"
         $prevEapRepo = $ErrorActionPreference; $ErrorActionPreference = "Continue"
         for ($i = 1; $i -le 3 -and -not $repoOk; $i++) {
             Log "预 clone 内核仓库（第 $i/3 次，pin $Tag，源 $(([uri]$repoUrl).Host)）……"
@@ -962,9 +999,15 @@ if ($workingCli -and (Test-Done "upstream")) {
                 if (Test-Path $tmpRepo) { Remove-Item -Recurse -Force $tmpRepo -ErrorAction SilentlyContinue }
                 & git -c windows.appendAtomically=false clone --depth 1 --branch $Tag $repoUrl $tmpRepo 2>&1 | ForEach-Object { "$_" }
                 if ($LASTEXITCODE -eq 0 -and (Test-Path (Join-Path $tmpRepo ".git"))) {
-                    Move-Item -LiteralPath $tmpRepo -Destination $repoDir -ErrorAction Stop
-                    $repoOk = $true
-                    Ok "内核仓库已预 clone（pin $Tag）"
+                    # Move-TreeTo 的成功判据只是「目标存在」，被占用时它会留下一个空目录，
+                    # 所以这里必须自己验哨兵：没有 .git 就当作没落位，走下一轮重试。
+                    if ((Move-TreeTo $tmpRepo $repoDir) -and (Test-Path (Join-Path $repoDir ".git"))) {
+                        $repoOk = $true
+                        Ok "内核仓库已预 clone（pin $Tag）"
+                    } else {
+                        Warn "预 clone 第 $i 次落位失败（移动与复制都没能建出完整仓库）"
+                        if (Test-Path $repoDir) { Remove-Item -Recurse -Force $repoDir -ErrorAction SilentlyContinue }
+                    }
                 } else {
                     Warn "预 clone 第 $i 次未成功（git 退出码 $LASTEXITCODE）"
                 }
