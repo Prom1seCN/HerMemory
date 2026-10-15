@@ -175,6 +175,8 @@ bash install.sh
 
 本项目采用 [MIT License](LICENSE) 开源，内核基于 [Nous Research](https://github.com/NousResearch/hermes-agent) 的开源 Agent 架构。完全免费，无商业行为。
 
+上游组件声明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
 ---
 
 <div align="center">
