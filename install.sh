@@ -93,6 +93,12 @@ hermes_works() {
     command -v hermes >/dev/null 2>&1 && hermes --version >/dev/null 2>&1
 }
 
+# 「跑得起来」不够：0.1.0 装的 v0.21.0 也跑得起来，只判可用会让升级被静默跳过。
+hermes_version() {
+    command -v hermes >/dev/null 2>&1 || return 0
+    hermes --version 2>/dev/null | sed -n 's/.*Hermes Agent v\([0-9][0-9.]*\).*/\1/p' | head -1
+}
+
 # PM 托管的解释器：<HERMES_HOME>/installs/<key>/facts.json 的 packages.venv.environment。
 # 与上游 pm/environments.py:_recorded_venv 同一口径；没有就回落 v0.21 的 venv。
 resolve_pm_python() {
@@ -106,10 +112,14 @@ resolve_pm_python() {
     return 1
 }
 
-if hermes_works; then
-    log "上游已安装：hermes CLI 就绪，跳过"
+HERMES_WANT_VERSION="0.22.2"
+if hermes_works && [ "$(hermes_version)" = "$HERMES_WANT_VERSION" ]; then
+    log "上游内核：已安装 v$HERMES_WANT_VERSION，跳过"
     mark_done upstream
 else
+    if hermes_works; then
+        warn "检测到 Hermes v$(hermes_version)（本发行版锁定 v$HERMES_WANT_VERSION），将升级内核与运行环境。"
+    fi
     UPSTREAM_INSTALLER="$SRC/scripts/upstream-install.sh"
     [ -f "$UPSTREAM_INSTALLER" ] || die "缺 vendored 上游安装器：$UPSTREAM_INSTALLER（发行包不完整，请重新 git clone 本仓库）"
 

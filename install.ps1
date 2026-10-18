@@ -163,6 +163,20 @@ function Get-WorkingHermesCli {
     return $null
 }
 
+# 已装内核的版本号（`Hermes Agent v0.22.2 ...` 里那个 0.22.2）。取不到返回空串。
+# 用途只有一个：区分「装的是本发行版锁定的内核」与「装的是更早的 0.1.0 内核」。
+function Get-HermesVersion([string]$exe) {
+    if (-not $exe) { return "" }
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $out = & $exe --version 2>&1 | Out-String
+        $m = [regex]::Match($out, 'Hermes Agent v(\d+\.\d+\.\d+)')
+        if ($m.Success) { return $m.Groups[1].Value }
+    } catch { } finally { $ErrorActionPreference = $prev }
+    return ""
+}
+
 # ---------- 静默模式（exe 契约）：-AnswersFile 提供 JSON 答案，跳过全部交互 ----------
 # **分两个阶段调用（2026-09-15 用户定的安装顺序：先选目录 → 安装 → 再填记忆与 API）**：
 #   安装阶段：答案文件里**不带** AI 四项 → 只装内核与文件，memory-tier / config-ai / wechat / gateway 全跳过
@@ -318,11 +332,18 @@ $VaultDir = "$HOME\vault"
 
 # ---------- 2. 上游内核（vendored 官方安装器 + 随包 git bundle，pin commit） ----------
 # 「已装」判据沿用 2026-09-16 的结论：CLI 真的跑得起来才算装上，文件在场不算。
+# 但**跑得起来还不够**：0.1.0 装的是 Hermes v0.21.0，它的 CLI 也跑得起来；只判可用
+# 会把 0.1.0 用户的升级悄悄跳过，装完显示 0.2.0、跑的还是旧内核。所以按版本号判定。
+$WantHermesVersion = "0.22.2"
 $workingCli = Get-WorkingHermesCli
-if ($workingCli) {
-    Log "上游内核：检测到可用安装，跳过"
+$haveVer = if ($workingCli) { Get-HermesVersion $workingCli } else { "" }
+if ($workingCli -and $haveVer -eq $WantHermesVersion) {
+    Log "上游内核：已安装 v$haveVer，跳过"
     Mark-Done "upstream"
 } else {
+    if ($workingCli) {
+        Warn ("检测到 Hermes v" + $(if ($haveVer) { $haveVer } else { "未知" }) + "（本发行版锁定 v$WantHermesVersion），将升级内核与运行环境。")
+    }
     if ($SkipUpstream) { Die "hermes CLI 不可用，且指定了 -SkipUpstream" }
     if ((Test-Done "upstream") -or (Test-Path (Join-Path $HermesHome "hermes-agent"))) {
         Warn "检测到内核痕迹，但 hermes CLI 无法运行（PM 环境可能已失效）→ 将重建内核与环境。"
