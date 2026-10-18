@@ -1,4 +1,4 @@
-﻿<Window x:Class="HerMemory.MainWindow"
+<Window x:Class="HerMemory.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="HerMemory" Height="600" Width="800"
@@ -265,6 +265,13 @@
 
                 <CheckBox x:Name="ChkAutoStart" Content="开机自动启动（托盘与 AI 通道随登录启动）"
                           Margin="0,16,0,0" FontSize="13" IsChecked="True" Cursor="Hand"
+                          Foreground="{DynamicResource Ink}"/>
+
+                <!-- 双形态（v0.22）：浏览器与电脑操作是两个大件（Chromium ~500MB + cua-driver）。
+                     勾选状态会透传给上游安装器，并由上游记进 declined-packages.json，
+                     之后的更新/补装也不会悄悄加回来。 -->
+                <CheckBox x:Name="ChkHeavyTools" Content="安装浏览器与电脑操作能力（约 500 MB，可稍后补装）"
+                          Margin="0,10,0,0" FontSize="13" IsChecked="True" Cursor="Hand"
                           Foreground="{DynamicResource Ink}"/>
 
                 <TextBlock x:Name="LocStatus" Margin="0,12,0,0" FontSize="12.5" TextWrapping="Wrap" Foreground="#78909C"/>

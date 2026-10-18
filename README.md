@@ -7,7 +7,7 @@
 # 你的AI。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-![Hermes](https://img.shields.io/badge/Hermes-v0.21.0%20(v2026.8.31)-22D3EE)
+![Hermes](https://img.shields.io/badge/Hermes-v0.22.2-22D3EE)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey)
 
 </div>
@@ -137,6 +137,7 @@ HerMemory的**一切**都完全属于用户，HerMemory is **Your** memory。
 2. 双击启动图形向导：
    - **环境预检**：自动检测基础依赖。
    - **安装位置**：选择程序与数据放在哪（仅首次安装可选）。
+   - **浏览器与电脑操作**（可选，约 500 MB）：勾选则装网页浏览与屏幕操作能力，不勾可省体积，日后能补装。
    - **记忆与 API**：选记忆档位，填入兼容 OpenAI 协议的模型 API Key。
    - **微信扫码**：自动唤起浏览器展示二维码，微信扫码绑定。
 3. AI启动，程序收至系统托盘，去微信打第一声招呼。

@@ -7,6 +7,11 @@ exe 无法管道答题自动化。本脚本直调上游 gateway.platforms.weixin
 行为与向导 _setup_weixin 一致：登录成功写 accounts json（qr_login 内部）+
 本脚本补齐 .env 的 WEIXIN_* 五键（DM 策略固定 allowlist=当前扫码用户）。
 
+解释器：v0.22 起依赖环境由 PM 托管（<HERMES_HOME>/installs/<key>/facts.json 的
+packages.venv.environment），调用方（GUI / install.ps1 / install.sh）负责解出那个
+python 再跑本脚本；本脚本自身不猜路径。上游依赖用 `hermes pm install --extra messaging`
+补齐（aiohttp / qrcode / cryptography）。
+
 用法：python weixin_qr_login.py <hermes-agent-root> <hermes-home>
 输出：stdout 裸行打印 https://liteapp.weixin.qq.com/... 二维码链接（刷新后重打）；
 结束打 ##HM-QR## ok|fail（人读排障用）。

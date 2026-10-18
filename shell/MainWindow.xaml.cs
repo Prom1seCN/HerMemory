@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
 using System.Text;
@@ -26,6 +26,7 @@ namespace HerMemory
         private int _pendMem, _pendUser;
         private string? _pendAppDir;                  // 程序本体的落地目录（只有安装器形态会给）
         private bool _pendAutoStart = true;           // 安装时选择的「开机自动启动」
+        private bool _pendHeavyTools = true;          // 安装时选择的「浏览器与电脑操作」（v0.22 双形态）
         private bool _autoStartChosen;                // 本会话里用户是否真的在向导中做过这项选择
         private bool _shellOk = true;                 // 安装收尾是否真的落地了程序文件（供完成页如实报错）
         private int _installStage = 1;                // 当前/最近一次跑的阶段：1=安装 2=配置（重试按钮据此回对页）
@@ -1500,6 +1501,9 @@ namespace HerMemory
             // 开机启动复选框要反映**现状**，不能靠 XAML 里硬编码的 true：
             // 修复安装时若默认勾上，用户此前手动关掉的自启会被静默改回来。
             ChkAutoStart.IsChecked = !existing || AutoStart.IsOn;
+            // 同理：「浏览器与电脑操作」反映上游记下的 declined 记录。
+            // 全新安装默认勾上；已有安装则按用户当初的选择回显。
+            ChkHeavyTools.IsChecked = !HermesCtl.HeavyToolsDeclined;
 
             if (existing)
             {
@@ -1609,6 +1613,7 @@ namespace HerMemory
 
             _pendAppDir = Path.GetFullPath(LocBox.Text.Trim().Trim('"')).TrimEnd('\\');
             _pendAutoStart = ChkAutoStart.IsChecked == true;
+            _pendHeavyTools = ChkHeavyTools.IsChecked == true;
             _autoStartChosen = true;   // 用户确实做过这项选择（微信绑定页的补装据此决定是否沿用）
 
             var dataDir = Path.GetFullPath(DataBox.Text.Trim().Trim('"')).TrimEnd('\\');
@@ -1952,6 +1957,10 @@ namespace HerMemory
                         // **必须在这里传**：不传的话 install.ps1 读不到 autoStart 就按默认"开"处理，
                         // 用户在位置页取消勾选会毫无作用。
                         ["autoStart"] = _pendAutoStart ? "1" : "0",
+                        // v0.22 双形态：浏览器与电脑操作要不要装。**只在安装阶段有意义**
+                        // （内核安装时才决定装不装 agent-browser/chromium 与 cua-driver），
+                        // 但是两阶段都传：配置阶段据此核对 declined 记录，修复安装改勾选也能生效。
+                        ["heavyTools"] = _pendHeavyTools ? "1" : "0",
                     };
                     if (stage == 2)
                     {
@@ -2252,12 +2261,14 @@ namespace HerMemory
             HideQrLink();
             try
             {
-                var pyExe = Path.Combine(HermesHome, "hermes-agent", "venv", "Scripts", "python.exe");
+                // 解释器取自 PM 记录（v0.22 起环境由 pm 托管，hermes-agent\venv 已不存在），
+                // 回落 v0.21 的旧布局——HermesCtl.PythonExe 一处收口，别在这里再拼路径。
+                var pyExe = HermesCtl.PythonExe;
                 var script = ResolveQrScript();
-                if (!File.Exists(pyExe) || script == null)
+                if (string.IsNullOrEmpty(pyExe) || script == null)
                 {
-                    SetQr(!File.Exists(pyExe)
-                        ? "微信接入组件缺失（Python 环境未就绪）：" + pyExe
+                    SetQr(string.IsNullOrEmpty(pyExe)
+                        ? "微信接入组件缺失（Python 环境未就绪：PM 未记录可用解释器）。可在主界面「启动」网关一次让环境同步，或重新运行安装包修复。"
                         : $"微信接入组件缺失（登录脚本，安装源={_repoRoot ?? "未定位"}，内嵌包解压也失败，请检查磁盘空间与权限）");
                     return;
                 }

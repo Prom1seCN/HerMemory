@@ -1,28 +1,31 @@
 #!/usr/bin/env bash
 # ============================================================
-# HerMemory installer — v0.1.0
-# 基于 Hermes Agent v0.21.0 (tag v2026.8.31)，MIT。
+# HerMemory installer — v0.2.0
+# 基于 Hermes Agent v0.22.2 (commit d923a5e)，MIT。
 # 上游仓库：https://github.com/NousResearch/hermes-agent.git
 #
-# 做的事：clone 上游 pin 版本 → 跑官方 setup-hermes.sh → 建 vault
-#   → 铺出厂四文件 → 软链注入槽位 → 皮肤 → 时区 → 时间注入开关
+# 做的事：跑随包的官方安装器（clone pin → PM 装 Python/Node/依赖 → 构建 hermes 命令）
+#   → 建 vault → 铺出厂五文件 → 软链注入槽位 → 皮肤 → 时区 → 时间注入开关
 #   → 记忆档位 → AI 配置 → 微信接入 → gateway 服务。
 #
-# key 配置：脚本内引导（用户流程 2），底层走上游原生机制；
-#   不装 ripgrep（可选，后补）；不碰任何商业引导。
+# key 配置：脚本内引导（用户流程 2），底层走上游原生机制；不碰任何商业引导。
 #   WebDAV 同步服务**不在安装范围**：装完由 AI 引导用户开启（见文件末「脚本下线」）。
+#   随包内核：把 hermes-agent.bundle 放在本脚本同目录即走离线落位；没有就按 GitHub 在线装。
 #
 # 运行方式：clone 本仓库后，在仓库根目录 bash install.sh（需交互式终端）
 # 目标环境：headless Linux（Ubuntu 22/24、主流 NAS）
 # ============================================================
 set -euo pipefail
 
-HERMEMORY_VERSION="0.1.0"
-PINNED_HERMES_TAG="v2026.8.31"
+HERMEMORY_VERSION="0.2.0"
+PINNED_HERMES_TAG="v0.22.2"
+# 上游 v0.22 的安装器只认 commit（没有 -Tag 参数），且要求它是 origin/main 的祖先。
+# 这个 sha 就是 tag v0.22.2 指向的 release commit（已在 main 上，实测落后 main 1659 个提交）。
+PINNED_HERMES_COMMIT="d923a5eb487a17c0a68801bba9ef0f56c81040a8"
 UPSTREAM_REPO="https://github.com/NousResearch/hermes-agent.git"
 UPSTREAM_DIR="$HOME/hermes-agent"
-# 上游本体包直链（zip，由 scripts/make_offline_bundle.sh 生成后上传到自己的服务器）。
-# 留空 = 跳过直链层，直接 GitHub clone。境内服务器建议填上——GitHub 不可达时的兜底。
+# 内核 git bundle 直链（由 build-offline.ps1 产出，上传到自己的服务器）。
+# 留空 = 跳过直链层，用同目录的 hermes-agent.bundle，再没有就 GitHub clone。
 OFFLINE_BUNDLE_URL=""
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
 WEBDAV_PORT="5005"
@@ -38,7 +41,7 @@ die()  { printf '\033[31m[错误]\033[0m %s\n' "$*" >&2; exit 1; }
 # 一律**先把 ~/.local/bin 前置到 PATH**，不依赖"当前 shell 恰好 source 过 .bashrc"。
 # 三处会让 hermes 解析不到：
 #   ① 非交互 / 非登录 shell（ssh host 'bash install.sh'、sudo、cron）不 source .bashrc；
-#   ② setup-hermes.sh 里的 export PATH 只作用于**它自己那个进程**，父脚本看不到；
+#   ② 上游安装器里的 export PATH 只作用于**它自己那个进程**，父脚本看不到；
 #   ③ 重跑安装器时走"已装"分支，那个分支原本什么都不补——而 set -e 下第一次
 #      hermes 调用失败就是**静默中止**（输出被 >/dev/null 吞掉），看不出原因。
 case ":$PATH:" in
@@ -80,82 +83,99 @@ log "安装说明见 docs/INSTALL.md"
 # ---------- 1. vault 位置（定名，不询问——路径被提示词与文档广泛引用，固定避免漂移） ----------
 VAULT_DIR="$HOME/vault"
 
-# ---------- 2. 安装上游 Hermes（pin tag，官方脚本） ----------
-# 本体获取四层：同目录本体包 → 服务器直链 → GitHub clone
-# 判据看**两个真实位置**，而不是只看软链：软链可能因仓库被搬走而断裂，
-# 也可能 venv 被手动删掉、只剩一个空链。
-if [ -x "$HOME/.local/bin/hermes" ] || [ -x "$UPSTREAM_DIR/venv/bin/hermes" ]; then
-    log "上游已安装：hermes CLI 就绪，跳过获取与 setup"
+# ---------- 2. 安装上游 Hermes（vendored 官方安装器 + 随包 bundle，pin commit） ----------
+# v0.22 起上游装法变了：安装器只负责 clone → PM 装 Python/Node/依赖 → 构建 hermes 命令，
+# 重依赖全部由 PM 从 pm/lock.json 的 sha256 钉死制品取。我们不再自己 clone + setup-hermes.sh。
+# 判据同 Windows：CLI 真的跑得起来才算装上（venv 由 PM 托管，没有固定路径可查）。
+hermes_works() {
+    command -v hermes >/dev/null 2>&1 && hermes --version >/dev/null 2>&1
+}
+
+# PM 托管的解释器：<HERMES_HOME>/installs/<key>/facts.json 的 packages.venv.environment。
+# 与上游 pm/environments.py:_recorded_venv 同一口径；没有就回落 v0.21 的 venv。
+resolve_pm_python() {
+    local f envdir
+    for f in "$HERMES_HOME"/installs/*/facts.json; do
+        [ -f "$f" ] || continue
+        envdir=$(grep -o '"environment"[[:space:]]*:[[:space:]]*"[^"]*"' "$f" 2>/dev/null | head -1 | sed -e 's/.*:[[:space:]]*"//' -e 's/"$//')
+        if [ -n "$envdir" ] && [ -x "$envdir/bin/python" ]; then printf '%s\n' "$envdir/bin/python"; return 0; fi
+    done
+    if [ -x "$UPSTREAM_DIR/venv/bin/python" ]; then printf '%s\n' "$UPSTREAM_DIR/venv/bin/python"; return 0; fi
+    return 1
+}
+
+if hermes_works; then
+    log "上游已安装：hermes CLI 就绪，跳过"
     mark_done upstream
-elif done_step upstream; then
-    log "上游内核：已完成，自动跳过"
 else
-    if [ ! -f "$UPSTREAM_DIR/setup-hermes.sh" ]; then
-        BUNDLE_ZIP=""
-        for c in "$SRC/hermes-agent-bundle.zip" "$PWD/hermes-agent-bundle.zip"; do
-            [ -f "$c" ] && BUNDLE_ZIP="$c" && break
-        done
-        if [ -n "$BUNDLE_ZIP" ]; then
-            log "检测到本地本体包：$BUNDLE_ZIP"
-        elif [ -n "$OFFLINE_BUNDLE_URL" ]; then
-            log "从直链下载上游本体包……"
-            if curl -fL --retry 2 --max-time 600 -o /tmp/hermes-agent-bundle.zip "$OFFLINE_BUNDLE_URL"; then
-                BUNDLE_ZIP=/tmp/hermes-agent-bundle.zip
-            else
-                warn "直链下载失败，转 GitHub clone"
-            fi
-        fi
-        if [ -n "$BUNDLE_ZIP" ]; then
-            command -v unzip >/dev/null || die "解压本体包需要 unzip：sudo apt install unzip（或删掉包转 GitHub clone）"
-            mkdir -p "$UPSTREAM_DIR"
-            unzip -qo "$BUNDLE_ZIP" -d "$UPSTREAM_DIR" || die "本体包解压失败（包损坏？重新下载）"
-            local_tag=""
-            [ -f "$UPSTREAM_DIR/HERMES_BUNDLE_TAG" ] && local_tag="$(cat "$UPSTREAM_DIR/HERMES_BUNDLE_TAG")"
-            if [ -n "$local_tag" ] && [ "$local_tag" != "$PINNED_HERMES_TAG" ]; then
-                die "本体包版本（$local_tag）与发行版 pin（$PINNED_HERMES_TAG）不一致。请换用匹配版本的本体包。"
-            fi
-            ok "上游 Hermes 本体已就位（本体包，$PINNED_HERMES_TAG）"
+    UPSTREAM_INSTALLER="$SRC/scripts/upstream-install.sh"
+    [ -f "$UPSTREAM_INSTALLER" ] || die "缺 vendored 上游安装器：$UPSTREAM_INSTALLER（发行包不完整，请重新 git clone 本仓库）"
+
+    # 境内索引：PM 只把 UV_* / PIP_* 的索引类设置转发给 uv（pm/index_config.py），官方口子。
+    # ⚠ 必须写 ${VAR:-}：本脚本 set -u，干净环境下裸引用外部变量会当场 unbound variable 退出。
+    [ -n "${UV_DEFAULT_INDEX:-}" ]    || export UV_DEFAULT_INDEX="https://pypi.tuna.tsinghua.edu.cn/simple"
+    [ -n "${PIP_INDEX_URL:-}" ]       || export PIP_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple"
+    [ -n "${npm_config_registry:-}" ] || export npm_config_registry="https://registry.npmmirror.com"
+    # 引导阶段的 CPython 由 uv 直连 GitHub 下载；npmmirror 有同源镜像。
+    [ -n "${UV_PYTHON_INSTALL_MIRROR:-}" ] || export UV_PYTHON_INSTALL_MIRROR="https://registry.npmmirror.com/-/binary/python-build-standalone"
+    log "在线镜像：PyPI 走清华 / npm 走 npmmirror / CPython 走 npmmirror（用户已自设则沿用）"
+
+    # 内核来源：同目录 bundle → 直链 bundle → GitHub（由上游自己 clone）
+    KERNEL_BUNDLE=""
+    for cand in "$SRC/hermes-agent.bundle" "$PWD/hermes-agent.bundle"; do
+        [ -f "$cand" ] && KERNEL_BUNDLE="$cand" && break
+    done
+    if [ -z "$KERNEL_BUNDLE" ] && [ -n "$OFFLINE_BUNDLE_URL" ]; then
+        log "下载内核 bundle……"
+        tmp_bundle="$(mktemp -d)/hermes-agent.bundle"
+        if curl -fL --retry 2 --max-time 900 -o "$tmp_bundle" "$OFFLINE_BUNDLE_URL"; then
+            KERNEL_BUNDLE="$tmp_bundle"
         else
-            log "clone 上游 Hermes $PINNED_HERMES_TAG ..."
-            git clone --depth 1 --branch "$PINNED_HERMES_TAG" "$UPSTREAM_REPO" "$UPSTREAM_DIR"
+            warn "bundle 直链下载失败，转 GitHub clone"
         fi
+    fi
+    if [ -n "$KERNEL_BUNDLE" ]; then
+        export HERMES_REPO_URL="$KERNEL_BUNDLE"
+        ok "内核来源：随包 bundle（$KERNEL_BUNDLE）"
     else
-        log "上游源码已在：$UPSTREAM_DIR（跳过获取，继续 setup）"
+        export HERMES_REPO_URL="$UPSTREAM_REPO"
+        log "内核来源：GitHub（$UPSTREAM_REPO）"
     fi
 
-    # 境内镜像注入（与 Windows T1 同步）：均为对应工具官方环境变量旋钮，上游零修改；用户已自设时尊重不覆盖。
-    # Linux 安装期大头 = PyPI 依赖（setup-hermes.sh 走 uv sync/uv pip install）；uv 安装器本身走 astral.sh（Fastly，境内通常可达）。
-    # 仅安装进程内生效；npm/Playwright 两项预置供装后运行时按官方机制取用（如浏览器技能首次拉内核）。
-    # ⚠ 必须写 ${VAR:-}：这四个是本脚本从未赋值的外部环境变量，而本脚本 set -u ——
-    #   干净环境下裸引用 $VAR 会当场 "unbound variable" 退出，一句提示都看不到。
-    #   Linux 沙箱首测命中；此前的测试机没炸，是因为 shell 里恰好已有这几个变量。
-    [ -n "${UV_DEFAULT_INDEX:-}" ]         || export UV_DEFAULT_INDEX="https://pypi.tuna.tsinghua.edu.cn/simple"
-    [ -n "${PIP_INDEX_URL:-}" ]            || export PIP_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple"
-    [ -n "${npm_config_registry:-}" ]      || export npm_config_registry="https://registry.npmmirror.com"
-    [ -n "${PLAYWRIGHT_DOWNLOAD_HOST:-}" ] || export PLAYWRIGHT_DOWNLOAD_HOST="https://cdn.npmmirror.com/binaries/playwright"
-    log "在线镜像：PyPI / npm / Playwright 走国内源（用户已自设则沿用）"
+    # 浏览器与电脑操作：默认装。设 HERMEMORY_SKIP_BROWSER=1 / HERMEMORY_SKIP_COMPUTER_USE=1 可跳过
+    # （上游会把选择记进 declined-packages.json，之后 hermes update 也不会加回来）。
+    inst_args=(--non-interactive --commit "$PINNED_HERMES_COMMIT" --branch main
+               --dir "$UPSTREAM_DIR" --hermes-home "$HERMES_HOME")
+    [ "${HERMEMORY_SKIP_BROWSER:-0}" = "1" ]      && inst_args+=(--skip-browser)
+    [ "${HERMEMORY_SKIP_COMPUTER_USE:-0}" = "1" ] && inst_args+=(--skip-computer-use)
 
-    log "运行官方 setup-hermes.sh（uv + venv + hermes CLI）……"
-    # stdin 喂两个 n：① 跳过 ripgrep 可选安装 ② 跳过 key 配置向导（零商业：key 沿用官方流程，用户稍后自配）
-    # ⚠ 必须写 'nn'，不能写 'n\nn\n'：上游那两处是 `read -n 1`，遇到换行符会**立即返回空值**，
-    #   而空值在上游判定 `[[ $REPLY =~ ^[Yy]$ ]] || [[ -z $REPLY ]]` 里等价于默认 [Y/n] 的 Y
-    #   → 第二个提示反而答"是"，会启动交互式 setup 向导（此时 stdin 已耗尽 → EOF）。
-    #   2026-09-16 实测：'n\nn\n' → 启动向导；'nn' → 两个都跳过。
-    printf 'nn' | (cd "$UPSTREAM_DIR" && bash setup-hermes.sh) || die "上游 setup 失败，见上方输出"
+    log "运行官方安装器（pin $PINNED_HERMES_TAG / ${PINNED_HERMES_COMMIT:0:12}）……"
+    bash "$UPSTREAM_INSTALLER" "${inst_args[@]}" || die "上游安装失败，见上方输出。重跑可续装。"
+
     export PATH="$HOME/.local/bin:$PATH"
-    command -v hermes >/dev/null || die "hermes CLI 不可用（~/.local/bin 不在 PATH？）"
+    hermes_works || die "上游安装结束，但 hermes CLI 仍不可用。看 $HERMES_HOME/logs/ 下的日志；重跑可续装。"
     ok "hermes CLI 就绪"
     mark_done upstream
 fi
-# 统一守卫：把后面十几处含糊的 command-not-found 收成一句可执行的提示。
-command -v hermes >/dev/null 2>&1 || die "找不到 hermes CLI（期望 $UPSTREAM_DIR/venv/bin/hermes，或 ~/.local/bin/hermes 在 PATH 上）。内核没装好就删掉 $STATE_FILE 后重跑；只是 PATH 问题就 export PATH=\"\$HOME/.local/bin:\$PATH\" 后重跑。"
-ok "hermes CLI 就绪"
 
-# ---------- 2.5 内核 UX 补丁（发行版自有，幂等）：微信二维码改为链接+浏览器提示 ----------
+# ---------- 2.45 微信通道依赖（PM 的 messaging extra） ----------
+# v0.22 政策：平台 SDK 不进 [all]，缺了只给「hermes pm install --extra messaging」的提示。
+# 这里替用户执行那条提示，否则「扫码即用」不成立。
+if hermes pm install --extra messaging >/dev/null 2>&1; then
+    ok "微信通道依赖已就位（messaging extra）"
+else
+    warn "messaging extra 安装失败：扫码可能不可用。稍后可手动执行 hermes pm install --extra messaging"
+fi
+
+# ---------- 2.5 内核 UX 补丁（发行版自有，幂等）：微信二维码只打印链接 ----------
 WX_PY="$UPSTREAM_DIR/gateway/platforms/weixin.py"
 WX_PATCH="$SRC/scripts/patch_weixin_qr.py"
-if [ -f "$WX_PY" ] && [ -f "$WX_PATCH" ] && [ -x "$UPSTREAM_DIR/venv/bin/python" ]; then
-    "$UPSTREAM_DIR/venv/bin/python" "$WX_PATCH" "$WX_PY" || true
+if [ -f "$WX_PY" ] && [ -f "$WX_PATCH" ]; then
+    if PM_PY="$(resolve_pm_python)"; then
+        "$PM_PY" "$WX_PATCH" "$WX_PY" || true
+    else
+        warn "找不到 PM 托管的解释器，跳过内核补丁（不影响扫码，只是终端多一坨字符画）"
+    fi
 fi
 
 # ---------- 3. vault 结构 ----------
@@ -451,9 +471,11 @@ else
         # python 优先用 venv 里的真身，不假设系统装了 python3。
         # 变量名避开 WX_PY：那个名字在上面（2.5 段内核补丁）指的是"要打补丁的 weixin.py"，
         # 这里指的是解释器——同名会让后来改那一段的人踩坑。
+        # 解释器优先用 PM 托管环境（v0.22 起没有固定的 venv 路径），再回落系统 python3。
+        # 这只是读一个 JSON 里的 user_id，不需要 venv 里的依赖。
         WX_PYTHON=""
-        if [ -x "$UPSTREAM_DIR/venv/bin/python" ]; then
-            WX_PYTHON="$UPSTREAM_DIR/venv/bin/python"
+        if WX_PYTHON="$(resolve_pm_python)"; then
+            :
         elif command -v python3 >/dev/null 2>&1; then
             WX_PYTHON="python3"
         fi

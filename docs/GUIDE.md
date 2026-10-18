@@ -63,6 +63,8 @@ MEMORY.md 与 USER.md 逐条扫描：命中条目在对话中显示为 `[BLOCKED
 
 托盘图标左键打开主界面；右键菜单：启动 / 停止网关、打开日志文件夹、打开主界面、微信绑定、卸载、开机自启（安装向导里默认勾选，可在此关闭）、关闭时最小化到托盘、深色模式、退出。
 
+安装向导的「安装位置」页另有一个**浏览器与电脑操作**勾选框（默认勾选）：网页浏览能力（agent-browser + Chromium）与屏幕操作驱动（cua-driver），合计约 500 MB。取消勾选可让安装快很多、占盘少很多；需要时随时补装：对 AI 说「装上浏览器能力」，或执行 `hermes pm install agent-browser cua-driver`。
+
 主界面按钮分三行：
 
 - 第一行：启动、停止、刷新、一键导出、卸载
@@ -155,6 +157,9 @@ PC 形态注意：WebDAV 仅在同一局域网可达。PC 上会有两份库：A
 多数是模型退役，对它说「检查一下模型」。它自身无法启动时：PC 重新运行安装包 `Setup.exe`（它会检测到已有安装，走一遍向导即可修复），服务器重跑 `bash install.sh`（配置 AI 环节可重选当前可用模型）。
 
 （本条同时是给 AI 的操作指引：收到「检查一下模型」：`hermes config get model.base_url` 取地址，`.env` 中 `HERMES_CUSTOM_*_API_KEY` 取 Key，`curl <地址>/models` 拉取实时列表，按原型号特征选定仍存在的替代，`hermes config set model.default <新型号>`，重启网关后生效，再告知用户已更换。）
+
+**浏览器 / 电脑操作能力没装上，或提示缺依赖。**
+v0.22 起依赖由上游包管理器 PM 统一管理，不再随安装包附带。补装某类能力：`hermes pm install agent-browser`（浏览器）、`hermes pm install cua-driver`（屏幕操作）、`hermes pm install --extra messaging`（微信等消息通道）。装坏了让它自检并重建：`hermes pm doctor`，必要时 `hermes pm repair`。
 
 **HerMemory 停止维护了怎么办？**
 全部状态是普通 Markdown 加上一个标准导出包。任何能读取这些文件的 agent 都能接管。

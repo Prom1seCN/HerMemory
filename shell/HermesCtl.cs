@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.IO;
 
 namespace HerMemory
@@ -147,7 +147,95 @@ namespace HerMemory
 
         public static string LogsDir => Path.Combine(HermesHome, "logs");
 
-        /// <summary>判定“已安装”必须同时满足：① bin\hermes.exe 在场 ② venv 的解释器链可用。
+        /// <summary>PM 托管的 venv 目录（v0.22 起）。没有则 null。
+        ///
+        /// 上游 v0.22 把依赖环境整体交给 pm：真正的位置记在
+        /// <c>&lt;HERMES_HOME&gt;\installs\&lt;key&gt;\facts.json</c> 的
+        /// <c>packages.venv.environment</c>，不再是 <c>hermes-agent\venv</c>。
+        /// 这是 pm/environments.py:_recorded_venv 的同一口径；installs 下通常只有一个
+        /// 条目（一个安装一棵树），多条目时取第一个 pyvenv.cfg 还在的。</summary>
+        public static string? PmVenvDir
+        {
+            get
+            {
+                try
+                {
+                    var root = Path.Combine(HermesHome, "installs");
+                    if (!Directory.Exists(root)) return null;
+                    foreach (var d in Directory.GetDirectories(root))
+                    {
+                        var f = Path.Combine(d, "facts.json");
+                        if (!File.Exists(f)) continue;
+                        try
+                        {
+                            using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(f));
+                            if (!doc.RootElement.TryGetProperty("packages", out var pkgs)) continue;
+                            if (!pkgs.TryGetProperty("venv", out var venv)) continue;
+                            if (!venv.TryGetProperty("environment", out var envEl)) continue;
+                            var env = envEl.GetString();
+                            if (string.IsNullOrEmpty(env)) continue;
+                            // 上游同样要求 pyvenv.cfg 在场：记录还在、树已被删的情况要能识别出来
+                            if (File.Exists(Path.Combine(env!, "pyvenv.cfg"))) return env;
+                        }
+                        catch { }
+                    }
+                }
+                catch { }
+                return null;
+            }
+        }
+
+        /// <summary>能直接跑脚本的解释器（微信扫码脚本用）。
+        /// 先取 PM 托管环境的 python，再回落 v0.21 的 hermes-agent\venv。</summary>
+        public static string? PythonExe
+        {
+            get
+            {
+                var env = PmVenvDir;
+                if (!string.IsNullOrEmpty(env))
+                {
+                    var p = Path.Combine(env!, "Scripts", "python.exe");
+                    if (File.Exists(p)) return p;
+                }
+                var legacy = Path.Combine(HermesHome, "hermes-agent", "venv", "Scripts", "python.exe");
+                return File.Exists(legacy) ? legacy : null;
+            }
+        }
+
+        /// <summary>「浏览器与电脑操作」是否已被用户拒装（v0.22 双形态）。
+        /// 上游把选择记在 &lt;HERMES_HOME&gt;\installs\&lt;key&gt;\declined-packages.json，
+        /// 修复安装时据此回显勾选框，避免把用户关掉的东西又默认勾上。</summary>
+        public static bool HeavyToolsDeclined
+        {
+            get
+            {
+                try
+                {
+                    var root = Path.Combine(HermesHome, "installs");
+                    if (!Directory.Exists(root)) return false;
+                    foreach (var d in Directory.GetDirectories(root))
+                    {
+                        var f = Path.Combine(d, "declined-packages.json");
+                        if (!File.Exists(f)) continue;
+                        try
+                        {
+                            using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(f));
+                            if (!doc.RootElement.TryGetProperty("declined", out var arr)) continue;
+                            foreach (var el in arr.EnumerateArray())
+                            {
+                                var n = el.GetString();
+                                if (n == "agent-browser" || n == "cua-driver") return true;
+                            }
+                        }
+                        catch { }
+                    }
+                }
+                catch { }
+                return false;
+            }
+        }
+
+        /// <summary>判定“已安装”必须同时满足：① bin\hermes.exe 在场 ② 解释器链可用。
         /// 只查 ① 不够——2026-09-11 实录：uv 托管目录缺一个（精确版本目录）时 bin\hermes.exe 仍在，
         /// 但 venv 的 pyvenv.cfg 记的 home 已失效，任何 hermes 调用都报
         /// No Python at '"...\cpython-3.11.16-windows-x86_64-none\python.exe"'。
@@ -155,9 +243,23 @@ namespace HerMemory
         public static bool Installed =>
             File.Exists(Path.Combine(HermesHome, "bin", "hermes.exe")) && InterpreterHealthy();
 
-        /// <summary>解释器链是否可用：读 venv\pyvenv.cfg 的 home=，检查其中 python.exe 是否存在。
-        /// 路径取自 pyvenv.cfg 本身，因此对 uv 托管（hermes\uv-python）与其它安装位置同样成立。</summary>
+        /// <summary>解释器链是否可用：PM 记录的 venv 里要有解释器与 pyvenv.cfg；
+        /// 没有 PM 记录时回落 v0.21 的 <c>hermes-agent\venv</c>（老安装升级途中两者都可能在）。</summary>
         public static bool InterpreterHealthy()
+        {
+            try
+            {
+                var env = PmVenvDir;
+                if (!string.IsNullOrEmpty(env))
+                    return File.Exists(Path.Combine(env!, "Scripts", "python.exe"));
+                return LegacyVenvHealthy();
+            }
+            catch { return false; }
+        }
+
+        /// <summary>v0.21 布局：读 venv\pyvenv.cfg 的 home=，检查其中 python.exe 是否存在。
+        /// 路径取自 pyvenv.cfg 本身，因此对 uv 托管（hermes\uv-python）与其它安装位置同样成立。</summary>
+        private static bool LegacyVenvHealthy()
         {
             try
             {

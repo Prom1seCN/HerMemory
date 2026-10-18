@@ -1,16 +1,21 @@
-﻿# ============================================================
-# HerMemory installer (Windows native) — v0.1.0
-# 基于 Hermes Agent v0.21.0 (tag v2026.8.31)，MIT。
-# 上游官方 PowerShell 安装器负责内核（自取 pin tag + uv + Python + Node + PortableGit + venv + CLI），
-# 本脚本只做发行版的铺设：vault + 四文件 + 软链 + 皮肤 + 配置键 + docs。
-# 对应 Linux 侧的 install.sh；上游怎么装，Windows 就怎么装。
+# ============================================================
+# HerMemory installer (Windows native) — v0.2.0
+# 基于 Hermes Agent v0.22.2 (commit d923a5e)，MIT。
+# 上游官方 PowerShell 安装器负责内核（git bundle → checkout → PM 装 Python/Node/依赖 →
+# 构建 hermes 命令与 TUI/web），本脚本只做发行版的铺设：vault + 五文件 + 软链 + 皮肤 +
+# 配置键 + docs。对应 Linux 侧的 install.sh；上游怎么装，Windows 就怎么装。
 #
 # 运行：PowerShell 中  powershell -ExecutionPolicy Bypass -File install.ps1
-# 前置：无需预装任何工具（git/Python/Node 由上游官方安装器自动便携化安装）。软链需要管理员权限或开发者模式。
+# 前置：无需预装任何工具（git/uv/Python/Node 由上游安装器从随包素材与镜像取得）。
+#       软链需要管理员权限或开发者模式。
 # ============================================================
 param(
-    [string]$Tag = "v2026.8.31",
     [switch]$SkipUpstream,
+    # 安装向导里的「浏览器与电脑操作」勾选框（默认装）。关掉时透传给上游
+    # -SkipBrowser / -SkipComputerUse，上游会把选择记进 declined-packages.json，
+    # 之后 `hermes update` / `hermes pm install` 也不会把它加回来。
+    [switch]$SkipBrowser,
+    [switch]$SkipComputerUse,
     [string]$AnswersFile
 )
 
@@ -31,50 +36,12 @@ $HermesHome = $HermesHome.Trim().Trim('"').TrimEnd('\')
 # 不导出时 $HermesHome 只是本脚本的变量：上游会按自己的默认值落位，并把**错误路径**持久化下去
 # ——比"自定义目录不生效"更糟。子进程（uv / git / hermes）同样依赖它定位同一份 home。
 $env:HERMES_HOME = $HermesHome
-$UpstreamRepo = "https://github.com/NousResearch/hermes-agent.git"
-$WebDavPort = 5005
-$WebDavUser = "hermemory"
 $SRC = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 function Log([string]$m)  { Write-Host "[HerMemory] $m" -ForegroundColor Cyan }
 function Ok([string]$m)   { Write-Host "[完成] $m" -ForegroundColor Green }
 function Warn([string]$m) { Write-Host "[note] $m" -ForegroundColor Yellow }
 function Die([string]$m)  { Write-Host "[error] $m" -ForegroundColor Red; exit 1 }
-# 整目录落位。⚠ 绝不能用 `Move-Item <系统盘Temp> <数据目录>`：跨卷移动目录 = 先复制再删源，
-# 而删源那一步会失败——线上实录是 `PermissionDenied: ...\hm-kernel-inline\.git` /
-# RemoveFileSystemItemUnauthorizedAccess。此时复制已经完成，但整段被这一句判死。
-# 成因两个候选，都指向"删源"：① git 把 object 文件置为只读（本机单独放一个只读文件进目录树
-# 实测不足以复现，所以它更可能是叠加条件而非独立主因）；② 刚写出的 .git 被杀软或后台 git
-# 进程占用句柄。数据目录在非系统盘的机器才会走到删源这一步，默认装 C 盘的是同卷改目录项，
-# 不复制也不删——这就是"大多数人正常、个别机器必死"的分界。
-# 因此：① 调用方的暂存目录一律放 $HermesHome 下（与目标同卷），正常路径根本不出现删源；
-#      ② 万一仍失败，退化成「清只读 → 复制 → 强删源」，源删不掉只当残留，不再判死整次安装。
-# 目标已存在时先清掉——否则 Move-Item 会把源塞成目标的一个子目录，落位结果静默错位。
-# 返回 $true/$false、自身不抛；成功判据是"目标存在"，调用方还要自己校验内容（现有三处分别
-# 校验 pyproject.toml 或 git 仓库健康度），因为复制做到一半也会让目标存在。
-function Clear-ReadOnlyTree([string]$path) {
-    Get-ChildItem -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue | ForEach-Object {
-        try { if ($_.Attributes -band [System.IO.FileAttributes]::ReadOnly) { $_.Attributes = [System.IO.FileAttributes]::Normal } } catch { }
-    }
-}
-function Move-TreeTo([string]$src, [string]$dst) {
-    if (-not (Test-Path -LiteralPath $src)) { return $false }
-    if (Test-Path -LiteralPath $dst) { Remove-Item -LiteralPath $dst -Recurse -Force -ErrorAction SilentlyContinue }
-    if (Test-Path -LiteralPath $dst) { return $false }
-    $prevEapTree = $ErrorActionPreference; $ErrorActionPreference = "Continue"
-    try {
-        try { Move-Item -LiteralPath $src -Destination $dst -ErrorAction Stop } catch { }
-        # 成功与否只认「目标存在」——Move-Item 不抛异常并不代表落位完成（实测：源里有
-        # 被占用的文件时它静默返回，目标却没建起来）。
-        if (-not (Test-Path -LiteralPath $dst)) {
-            Warn "整目录移动失败，改用复制落位：$(Split-Path $dst -Leaf)"
-            Clear-ReadOnlyTree $src
-            try { Copy-Item -LiteralPath $src -Destination $dst -Recurse -Force -ErrorAction Stop } catch { return $false }
-        }
-        Remove-Item -LiteralPath $src -Recurse -Force -ErrorAction SilentlyContinue
-        return (Test-Path -LiteralPath $dst)
-    } finally { $ErrorActionPreference = $prevEapTree }
-}
 # PS 5.1 坑：EAP=Stop 时原生命令 2>$null 会把 stderr 变成终止性错误（NativeCommandError）。
 # Run-Quiet 在函数作用域内降级 EAP，stderr 静默流出——专用于允许失败的原生调用。
 # ⚠ **绝不能写 `& $args`**：PowerShell 会把数组隐式转成字符串（[string]@('a','b') = 'a b'），
@@ -103,7 +70,7 @@ function Run-Quiet {
 # 同一次安装里阶段 1 能过、阶段 2 不能过，正是 ① + ③ 叠加的结果。
 $HermesCli = Join-Path $HermesHome "bin\hermes.exe"
 # 顺手补进**本进程** PATH：让既有的 Get-Command 判据、以及 hermes 自己 spawn 的子进程都能看到它。
-# 注意这不等于写注册表（那是 Repair-OfflinePath 的职责）。
+# 注意这不等于写注册表：注册表 PATH 由上游安装器负责（Install-Dependencies / Set-LauncherUserPath）。
 if (Test-Path $HermesCli) { $env:Path = "$HermesHome\bin;$env:Path" }
 
 # 与 Run-Quiet 同样降 EAP，但**返回退出码**。凡是"要看结果"的调用都用它：
@@ -165,9 +132,22 @@ function Format-CliBroken([string]$exe) {
     } else {
         [void]$L.Add("  （未能从 exe 中读出内嵌解释器路径）")
     }
-    $expect = Join-Path $HermesHome "hermes-agent\venv\Scripts\python.exe"
-    [void]$L.Add("  期望的 venv 解释器：$expect")
-    [void]$L.Add("    是否存在？ " + (Test-Path -LiteralPath $expect))
+    # v0.22 起环境由 PM 托管：<HERMES_HOME>\installs\<key>\facts.json 的
+    # packages.venv.environment 指向真正的 venv，不再有 hermes-agent\venv。
+    $pmVenv = $null
+    try {
+        foreach ($f in @(Get-ChildItem (Join-Path $HermesHome "installs\*\facts.json") -ErrorAction SilentlyContinue)) {
+            $d = Get-Content $f.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ($d.packages.venv.environment) { $pmVenv = $d.packages.venv.environment; break }
+        }
+    } catch { }
+    if ($pmVenv) {
+        $py = Join-Path $pmVenv "Scripts\python.exe"
+        [void]$L.Add("  PM 记录的解释器：$py")
+        [void]$L.Add("    是否存在？ " + (Test-Path -LiteralPath $py))
+    } else {
+        [void]$L.Add("  未找到 PM 环境记录（$HermesHome\installs\*\facts.json）")
+    }
     [void]$L.Add("  处置：删除 $HermesHome\hermemory-install.state 后重跑安装器 —— 它会重建内核与 venv，已完成的其他步骤会自动跳过。")
     return ($L -join [Environment]::NewLine)
 }
@@ -188,7 +168,8 @@ function Get-WorkingHermesCli {
 #   配置阶段：答案文件里**带齐** memoryTier / baseUrl / apiKey / model → 靠断点续装跳过已完成的步骤，
 #             只做记忆档位、AI 配置、微信接入与 gateway 注册
 # 所以校验规则是「要么全给、要么全不给」——只给一部分属于调用方出错，宁可当场报错也不要装出半配置状态。
-# JSON 其余字段：customMem/customUser（memoryTier=custom 时必需，各为 100-9999999 整数）/ autoStart（"1"/"0"，缺省视为 1）。
+# JSON 其余字段：customMem/customUser（memoryTier=custom 时必需，各为 100-9999999 整数）/
+# autoStart（"1"/"0"，缺省视为 1）/ heavyTools（"1"/"0"，缺省视为 1；0 表示不装浏览器与电脑操作）。
 # 与交互路径共用同一套验证与落盘逻辑；区别仅在：验证失败即 Die（重试界面由 exe 负责），微信扫码由 exe 接管。
 # 安全语义：key 明文经 JSON 短暂落盘，exe 在安装成功后负责删除。
 $Answers = $null
@@ -212,6 +193,14 @@ if ($AnswersFile) {
     }
 }
 
+# 「浏览器与电脑操作」由安装向导的勾选框决定（heavyTools=0 → 不装）。
+# 这是唯一一个在**安装阶段**就要生效的答案：内核安装时就得决定装不装
+# agent-browser/chromium 与 cua-driver，装完再改要重跑 PM。
+if ($Answers -and ($Answers.PSObject.Properties.Name -contains "heavyTools") -and ("$($Answers.heavyTools)" -eq "0")) {
+    $SkipBrowser = $true
+    $SkipComputerUse = $true
+}
+
 # 本次是否要做「配置阶段」的那几段（记忆档位 / AI 配置 / 微信 / gateway）。
 # **只在静默模式（exe 调用）下才分阶段**：交互模式（install.bat 双击、没有 -AnswersFile）
 # 必须照常走完整流程——那几段会用 Read-Host 采参数，若在这里判成 false 就等于把交互安装废掉。
@@ -233,886 +222,217 @@ try {
 # ---------- 断点续装（状态文件记录已完成步骤；删除它 = 全部重来） ----------
 $StateFile = Join-Path $HermesHome "hermemory-install.state"
 
-# ---------- 0. 离线模式检测（assets-offline.zip 由离线发行版 exe 内嵌，ExtractPayload 自动解出到本目录） ----------
-$OfflineZip = Join-Path $PSScriptRoot "assets-offline.zip"
-$OfflineDir = Join-Path $PSScriptRoot "assets-offline"
-# zip 内布局历史包袱：早期 build-offline.ps1 用 `tar -acf` 打的是 `assets-offline/…`（带顶层目录），
-# 后期改用 ZipFile::CreateFromDirectory 打平。两种布局都吃——解压后按 manifest.json 实际所在层确定根，不搬文件。
-function Get-OfflineRoot([string]$dir) {
-    if (Test-Path (Join-Path $dir "manifest.json")) { return $dir }
-    $nested = Join-Path $dir "assets-offline"
-    if (Test-Path (Join-Path $nested "manifest.json")) { return $nested }
-    return $null
+# ---------- 0. 随包内核与运行期约定（Hermes v0.22 架构） ----------
+# 上游 v0.22 把重依赖整体交给 PM（pm/lock.json 逐件 sha256 钉死），仓库只承担
+# 「checkout + Python 环境 + 构建 hermes 命令与 TUI/web」。因此发行版随包只剩两件：
+#   hermes-agent.bundle  内核源码包（refs/heads/main 指向 pin commit，含 pin tag）
+#   uv.exe               PM 的引导器（上游 Get-Uv 会优先复用运行期目录里的同版本 uv）
+# 其余（CPython 3.14 / Node 26 / Chromium / PyPI 依赖）安装时由 PM 从官方 sha256 镜像
+# 与国内索引取——不再有 assets-offline 那一套 1.5 GB 的随包素材。
+$PinCommit = "d923a5eb487a17c0a68801bba9ef0f56c81040a8"
+$PinTag    = "v0.22.2"
+$KernelBundle = Join-Path $PSScriptRoot "hermes-agent.bundle"
+$ShippedUv    = Join-Path $PSScriptRoot "uv.exe"
+
+# 国内索引：PM 只把 UV_* / PIP_* 的「索引类」设置转发给 uv（pm/index_config.py），
+# 这是官方口子，不是改上游代码。用户已自设则尊重不覆盖。
+if (-not $env:UV_DEFAULT_INDEX)    { $env:UV_DEFAULT_INDEX    = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+if (-not $env:PIP_INDEX_URL)       { $env:PIP_INDEX_URL       = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+if (-not $env:npm_config_registry) { $env:npm_config_registry = "https://registry.npmmirror.com" }
+# 引导阶段的 CPython 由 uv 自己下载（不经过 PM），镜像变量只在这一段生效。
+# 不设的话会直连 GitHub 的 python-build-standalone，境内经常几十 KB/s。
+if (-not $env:UV_PYTHON_INSTALL_MIRROR) {
+    $env:UV_PYTHON_INSTALL_MIRROR = "https://registry.npmmirror.com/-/binary/python-build-standalone"
 }
-$RepoOfflineReady = $false
-if (-not (Test-Path $OfflineZip)) {
-    # 仓库模式直跑 install.ps1（不经内嵌 payload 释放）时，素材在**脚本所在目录**的 build\offline\ 下。
-    # 旧实现是 `$PSScriptRoot -match '^(.*)\\[^\\]+$'` 再取 $Matches[1] —— 那取到的是 $PSScriptRoot 的
-    # **父目录**（如 D:\Projects），于是这条分支从来没命中过，仓库模式一路退化成在线安装。
-    # 以前 exe 是单文件、走 %LOCALAPPDATA% 里的内嵌副本，正好掩盖了它；2026-09-15 拆包后在仓库内运行才暴露。
-    $repoOfflineZip = Join-Path $PSScriptRoot "build\offline\assets-offline.zip"
-    $repoOfflineDir = Join-Path $PSScriptRoot "build\offline\assets-offline"
-    if (Test-Path $repoOfflineZip) { $OfflineZip = $repoOfflineZip }
-    # build-offline.ps1 已经把成品解在 build\offline\assets-offline\ 了——直接复用，
-    # 否则这里会往仓库根再解一份 1.5 GB 的重复副本，还会在仓库根留下垃圾。
-    # 该目录不经我方新鲜度机制（它是构建台账的一部分，由 build-offline.ps1 维护）。
-    if (Test-Path (Join-Path $repoOfflineDir "manifest.json")) {
-        $OfflineDir = $repoOfflineDir
-        $RepoOfflineReady = $true
-    }
-}
-# 新鲜度戳：assets-offline/ 是 install.ps1 解出来的，exe 的 .hm-payload-stamp 只管 payload 内嵌文件
-# （会覆盖 assets-offline.zip），**不会**删除这个解压目录。换新 exe 后旧 zip 已换、旧解压目录还在，
-# 若不比对就会一直复用陈旧资源（2026-09-10 VM 实录：bundle 缺 refs/heads/main 的旧包被复用，反复 128）。
-# 以「zip 长度 + mtime」作指纹：任一变化即整目录重解。指纹存 OfflineDir 同级，随目录一起删。
-$OfflineStamp = "$OfflineDir.stamp"
-$_zipSig = $null
-if (Test-Path $OfflineZip) {
-    $zi = Get-Item $OfflineZip
-    $_zipSig = "{0}:{1}" -f $zi.Length, $zi.LastWriteTimeUtc.Ticks
-}
-$_needExtract = $false
-if ($RepoOfflineReady) {
-    # 复用 build\offline\assets-offline\：它是 build-offline.ps1 的成品，不套我方新鲜度机制
-} elseif ((Test-Path $OfflineZip)) {
-    if (-not (Get-OfflineRoot $OfflineDir)) { $_needExtract = $true }
-    elseif (-not $_zipSig) { $_needExtract = $false }
-    else {
-        $prevSig = ""
-        try { if (Test-Path $OfflineStamp) { $prevSig = (Get-Content $OfflineStamp -Raw -ErrorAction Stop).Trim() } } catch { }
-        if ($prevSig -ne $_zipSig) { $_needExtract = $true }
-    }
-}
-if ($_needExtract) {
-    if ((Get-OfflineRoot $OfflineDir) -and (Test-Path $OfflineStamp)) { Log "离线资源包已更新，重新解压……" }
-    Log "解压内嵌离线资源包……"
-    $drive = Get-PSDrive -Name ($OfflineDir.Substring(0, 1)) -ErrorAction SilentlyContinue
-    if ($drive -and $drive.Free -lt 3GB) { Warn "磁盘剩余空间不足 3GB（当前 $([Math]::Round($drive.Free/1GB,1))GB），解压可能失败。" }
-    Remove-Item $OfflineDir -Recurse -Force -ErrorAction SilentlyContinue
-    New-Item -ItemType Directory -Force -Path $OfflineDir | Out-Null
-    # 主路径：标准 zip 解压器（.NET，带 central directory 校验，任何 zip 都能解）。
-    # 不用 tar：2026-09-10 实测 GNU tar 对 zip 直接 "This does not look like a tar archive" 且退出码为 0，
-    # 静默解出空目录——正是"离线包在场却 manifest 缺失"的根因。
-    # 重载选择：只用两参基础重载 ExtractToDirectory($zip, $dir)——.NET Framework 4.5 起即有，PS5.1/PS7 通吃。
-    # 三参重载的第三参在 .NET Framework 是 entryNameEncoding(Encoding)、在 .NET Core 才是 OverwriteFiles 枚举，
-    # 跨版本语义不一致（2026-09-10 VM 实录：传 $true 报 InvalidCast）。目标目录调用前已清空，无需覆盖语义。
-    $ZIP_OK = $false
-    try {
-        Add-Type -AssemblyName System.IO.Compression.FileSystem
-        [System.IO.Compression.ZipFile]::ExtractToDirectory($OfflineZip, $OfflineDir)
-        $ZIP_OK = $true
-    } catch {
-        $zipErr = $_.Exception.Message
-        if ($_.Exception.InnerException) { $zipErr += " <- $($_.Exception.InnerException.Message)" }
-        Warn "标准 zip 解压失败（$zipErr），尝试 tar 兜底……"
-        $prev = $ErrorActionPreference; $ErrorActionPreference = "Continue"
-        tar -xf $OfflineZip -C $OfflineDir 2>&1 | Out-Null
-        $ErrorActionPreference = $prev
-    }
-    if (-not (Get-OfflineRoot $OfflineDir)) {
-        Die "离线资源包解压失败（标准 zip 解压器与 tar 均未产出 manifest.json）。请检查磁盘剩余空间与杀软拦截后重新安装。"
-    }
-    # 解压成功才落指纹；失败不落（下次仍会重试解压，不会被误判为"已就绪"）
-    try { if ($_zipSig) { Set-Content -Path $OfflineStamp -Value $_zipSig -Encoding ASCII -Force } } catch { }
-    Ok "离线资源包就绪"
-}
-# 确定离线根目录：manifest 落在哪层，哪层就是根（嵌套布局自动适配，后续一律引用 $OfflineDir）
-$_offRoot = Get-OfflineRoot $OfflineDir
-if ($_offRoot) { $OfflineDir = $_offRoot }
-$IsOffline = [bool]$_offRoot
-# 离线性断言：exe 发行版把 assets-offline.zip 与 install.ps1 同目录投放，二者是一体的。
-# zip 在场却解不出 manifest（解压失败/被杀软删文件/磁盘满）绝不能回落在线——那会让"无需联网"的承诺静默失效，
-# 表现为 20 分钟后才在 Python 下载处报错（2026-09-10 沙盒实录）。此处即刻致命失败，让用户重新解压而不是等超时。
-if (-not $IsOffline -and (Test-Path $OfflineZip)) {
-    Die "离线资源包在场但未能就绪（$OfflineZip 未解出 manifest.json）。离线安装不可降级为在线，请确认磁盘剩余 ≥3GB 后重新安装以重试解压。"
-}
-Log $(if ($IsOffline) { "模式：离线安装" } else { "模式：在线安装" })
-New-Item -ItemType Directory -Force -Path $HermesHome | Out-Null
+
+# 运行期目录（PM store / 工具二进制）固定在数据目录内，不写用户主目录与系统盘别处。
+# 上游默认就是 $HermesHome\tools；显式设一次是为了让「预置 uv」与上游取到同一个槽位。
+if (-not $env:HERMES_RUNTIME_DIR) { $env:HERMES_RUNTIME_DIR = Join-Path $HermesHome "tools" }
+New-Item -ItemType Directory -Force -Path $HermesHome, $env:HERMES_RUNTIME_DIR | Out-Null
+
 function Test-Done([string]$step) { (Test-Path $StateFile) -and ((Get-Content $StateFile -ErrorAction SilentlyContinue) -contains $step) }
 function Mark-Done([string]$step) { if (-not (Test-Done $step)) { Add-Content -Path $StateFile -Value $step } }
-
-# 把离线预置的 git\bin 与 bin 补进「User 注册表 PATH」，并在进程内同步。
-# 为什么必须写注册表：上游 scripts/install.ps1 的 Invoke-Stage 每个 Stage 开头都调 Sync-EnvPath()，
-# 把 $env:Path **整体覆盖**为「User PATH + Machine PATH」（见其 862-864 行）。只改进程内 $env:Path 的注入一律被抹掉，
-# 表现为 Stage-Git 报 "Git not found" 转去联网下 PortableGit（离线必败）。写 User 层免管理员；幂等可重复调。
-function Repair-OfflinePath {
-    $dirs = @((Join-Path $HermesHome "git\bin"), (Join-Path $HermesHome "bin"))
-    $reg = [Environment]::GetEnvironmentVariable("Path", "User")
-    $parts = @(); if ($reg) { $parts = @($reg -split ";" | Where-Object { $_ -and $_.Trim() -ne "" }) }
-    $changed = $false
-    foreach ($d in $dirs) { if ($parts -notcontains $d) { $parts = @($d) + $parts; $changed = $true } }
-    if ($changed) {
-        try { [Environment]::SetEnvironmentVariable("Path", ($parts -join ";"), "User") } catch { }
-    }
-    foreach ($d in $dirs) { $env:Path = "$d;$env:Path" }
-    return $changed
-}
-# 从内嵌素材解压 PortableGit（离线模式专用）。素材缺失即 Die —— 离线模式没有备选路径。
-# 抽成函数供两处调用：镜像链的 ① 预置段（离线优先）与下面的「离线系统件预置」。
-function Install-OfflinePortableGit {
-    $pgExe = Join-Path $OfflineDir "portable-git.7z.exe"
-    if (-not (Test-Path $pgExe)) {
-        Die "离线资源包缺少 portable-git.7z.exe，无法预置 git。请重新获取 HerMemory 离线版。"
-    }
-    Log "离线：解压 PortableGit……"
-    $gitRootDir = Join-Path $HermesHome "git"
-    New-Item -ItemType Directory -Force -Path $gitRootDir | Out-Null
-    # PortableGit 是 7z 自解压包。**路径务必传绝对 Windows 形态**（-o<dir>）：实测传 Unix 形态
-    # （/d/...）它静默什么也不解、退出码仍是 0——绝不能只看退出码，解完必须验证产物（下面 Test-Path）。
-    $pgOut = "$gitRootDir"
-    if ($pgOut -notmatch '^[A-Za-z]:') { try { $pgOut = (Get-Item $gitRootDir -ErrorAction Stop).FullName } catch { } }
-    & $pgExe "-o$pgOut" -y 2>&1 | ForEach-Object { "$_" } | Out-Null
-    if (-not (Test-Path (Join-Path $gitRootDir "bin\git.exe"))) {
-        Die "离线 PortableGit 解压未产出 bin\git.exe（退出码 $LASTEXITCODE）。内嵌资源包不完整或被杀软拦截，请重新获取 HerMemory 离线版。"
-    }
-}
-
-# 离线系统件目录（git\bin + bin）**每次运行都补一次**，不能只挂在 upstream 的分支下：
-# 阶段 2 走 `Test-Done "upstream"` 那条分支，那里什么都不补，于是 git 与 hermes 一起落空。
-# 本函数幂等（已在注册表里就不动），重复调用只多几条进程内 PATH 条目，无副作用。
-if ($IsOffline) { Repair-OfflinePath | Out-Null }
 Log "安装状态文件：$StateFile"
 
-# ---------- 0. 环境检查 ----------
+# 预置 uv：上游 Get-Uv 先看 <运行期目录>\uv-<版本>-<target>\uv.exe，命中就不再下载。
+# 两个硬条件：版本号必须等于 pm/lock.json 的 uv pin（否则判定「不是我要的」并重下）；
+# target 按机器架构取（ARM64 机器上随包的 x64 uv 用不了，上游会自己下 arm64）。
+$UvPinVersion = "0.12.3"
+# 随包素材里的 uv.version 由 build-offline.ps1 从上游 pm/lock.json 抄出——有就以它为准，
+# 免得 pin 升级时这里忘了改（槽位名对不上 → 上游判定「不是我要的」并重新下载）。
+$uvVerFile = Join-Path $PSScriptRoot "uv.version"
+if (Test-Path $uvVerFile) {
+    $v = (Get-Content $uvVerFile -Raw -ErrorAction SilentlyContinue)
+    if ($v) { $UvPinVersion = $v.Trim() }
+}
+$_uvArch = "x64"
+try {
+    if ((Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment' -ErrorAction SilentlyContinue).PROCESSOR_ARCHITECTURE -eq 'ARM64') { $_uvArch = "arm64" }
+} catch { }
+if ($_uvArch -eq "x64" -and (Test-Path $ShippedUv)) {
+    $uvSlot = Join-Path $env:HERMES_RUNTIME_DIR "uv-$UvPinVersion-win32-x64"
+    if (-not (Test-Path (Join-Path $uvSlot "uv.exe"))) {
+        New-Item -ItemType Directory -Force -Path $uvSlot | Out-Null
+        Copy-Item $ShippedUv (Join-Path $uvSlot "uv.exe") -Force
+        Ok "uv 已预置（$UvPinVersion，随包）"
+    }
+}
+
+# PM 托管解释器的解析：<HERMES_HOME>\installs\<key>\facts.json 的 packages.venv.environment。
+# 这是上游 pm/environments.py:_recorded_venv 的同一口径；再回落 v0.21 的旧布局。
+# 微信依赖补齐、内核补丁、以及 GUI 侧的扫码脚本都靠它，别再写死 hermes-agent\venv。
+function Get-HermesPython {
+    $cands = New-Object System.Collections.Generic.List[string]
+    try {
+        foreach ($f in @(Get-ChildItem (Join-Path $HermesHome "installs\*\facts.json") -ErrorAction SilentlyContinue)) {
+            try {
+                $d = Get-Content $f.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
+                $venv = $d.packages.venv.environment
+                if ($venv) { [void]$cands.Add((Join-Path $venv "Scripts\python.exe")) }
+            } catch { }
+        }
+    } catch { }
+    [void]$cands.Add((Join-Path $HermesHome "hermes-agent\venv\Scripts\python.exe"))   # v0.21 遗留布局
+    foreach ($c in $cands) { if (Test-Path -LiteralPath $c) { return $c } }
+    return $null
+}
+
+# ---------- 0.1 环境检查 ----------
 if ($env:OS -ne "Windows_NT") { Die "本脚本仅用于 Windows 原生路径；Linux/macOS 用 install.sh" }
-# git 不预检：上游官方安装器自带 Stage-Git 自动装 PortableGit（pin 版上游源码实证），装后 Git Bash 即就位
+# git 不预检：上游 Stage-Prerequisites 会从 pm/lock.json 的 pin 落位 PortableGit。
 Log "安装说明见 docs\INSTALL.md"
 Progress "precheck"
 
 # ---------- 1. vault 位置（定名，不询问——路径被提示词与文档广泛引用，固定避免漂移） ----------
 $VaultDir = "$HOME\vault"
 
-# ---------- 2. 上游内核（官方安装器，pin tag；本脚本不自研内核安装） ----------
-# 「已装」的判据 = **CLI 真的跑得起来**，不是文件在不在。
-# 依据（2026-09-16 异机实录）：bin\hermes.exe 是 uv 造的 trampoline，内嵌 Python 解释器的
-# **绝对路径**；venv 一旦被删/被移走，这个 exe 仍在、Test-Path 仍为真，但每次调用都失败 ——
-# 当时的表现是第 6/8 段两条 config set 全挂，而第 6 段只查 Test-Path 的守卫却放行了。
-# 上游的 Install-Venv 自己会重建既有 venv（先 parking 再 cleanup），所以这里只要不误判为
-# 「已装」，重建路径就能把它治好。
-# 判据仍覆盖 bin\hermes.exe（官方只产出 exe，从不产出 .cmd——本机实证）与 PATH 上的 hermes。
+# ---------- 2. 上游内核（vendored 官方安装器 + 随包 git bundle，pin commit） ----------
+# 「已装」判据沿用 2026-09-16 的结论：CLI 真的跑得起来才算装上，文件在场不算。
 $workingCli = Get-WorkingHermesCli
-if ($workingCli -and (Test-Done "upstream")) {
-    Log "上游内核：已完成，自动跳过"
-} elseif ($workingCli) {
+if ($workingCli) {
     Log "上游内核：检测到可用安装，跳过"
     Mark-Done "upstream"
-    # 已装但离线系统件目录可能还没进 User PATH（上次安装中断在此之后）——补一次，幂等。
-    if ($IsOffline) { Repair-OfflinePath | Out-Null }
 } else {
     if ($SkipUpstream) { Die "hermes CLI 不可用，且指定了 -SkipUpstream" }
-    # 走到这里可能是「第一次装」，也可能是「装过但 CLI 已经跑不起来」（venv 失效）。
-    # 后者必须说清楚，否则用户会以为在白白重装一份内核。
-    if ((Test-Done "upstream") -or (Test-Path (Join-Path $HermesHome "bin\hermes.exe"))) {
-        Warn "检测到内核痕迹，但 hermes CLI 无法运行（venv 可能已失效）→ 将重建内核与 venv。"
-    }
-    # GitHub 探活：多主机 GET + 重试；任何 HTTP 应答（含 403/404）即视为可达——单主机单次 HEAD 在代理/沙盒环境误报多。
-    # PS5.1 的 Invoke-WebRequest 对非 2xx 也抛错，故 catch 里有 Response 对象 = 网络通。
-    # **离线模式不探活**：离线本来就不该联网，探活必然失败，而 3 主机 × 2 次 × 12s 超时纯粹白等
-    #（2026-09-16 沙盒实录：离线包卡在等 GitHub 超时）。镜像链里 ②内核 ③Python ④Node ⑤PBS
-    # 各有自己的离线分支，离线时不需要靠探活结果来决定走哪条。
-    # ---------- 代理体检（2026-09-17 沙盒多轮实录）----------
-    # 代理有两种存在形态，**两种都要查**：
-    #   ① WinINET 系统代理（注册表 ProxyEnable/ProxyServer）→ 影响 Invoke-WebRequest
-    #   ② HTTP(S)_PROXY / ALL_PROXY 环境变量 → 影响 git / uv / npm
-    #      （uv 的 HTTP 栈 reqwest **只看环境变量**，不看 WinINET！）
-    # 第三轮实录：①形态，IWR 三源齐挂 127.0.0.1:7897；第四轮实录：②形态——
-    # 用户关掉注册表代理后 IWR 全部正常，唯独 uv 对 npmmirror 报
-    # "tcp connect error 积极拒绝"（reqwest 从环境变量拿到了同一个死代理）。
-    # 任一形态的代理指向回环、且端口 TCP 探测无人监听 → 全部直连：
-    #   置空 DefaultWebProxy + 清代理环境变量 + NO_PROXY=*（reqwest 认这个）。
-    # 境内源直连本就更快；GitHub 类直连/走死代理一样不通，无损失。代理若活着则不动。
-    $_deadProxy = $false
-    $_deadDesc = ""
-    try {
-        $_is = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -ErrorAction Stop
-        $_srv = "$($_is.ProxyServer)"
-        if ($_is.ProxyEnable -eq 1 -and $_srv -match '(127\.0\.0\.1|localhost)') {
-            $_pPort = 80
-            $_m = [regex]::Match($_srv, ':(\d+)')
-            if ($_m.Success) { $_pPort = [int]$_m.Groups[1].Value }
-            $_tcp = New-Object System.Net.Sockets.TcpClient
-            $_connOk = $false
-            try { $_connOk = $_tcp.ConnectAsync('127.0.0.1', $_pPort).Wait(1500) -and $_tcp.Connected } catch { }
-            finally { $_tcp.Close() }
-            if (-not $_connOk) { $_deadProxy = $true; $_deadDesc = "系统代理 $_srv" }
-        }
-    } catch { }
-    if (-not $_deadProxy) {
-        foreach ($_pn in @('HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','http_proxy','https_proxy','all_proxy')) {
-            $_pv = [Environment]::GetEnvironmentVariable($_pn)
-            if (-not $_pv -or "$_pv" -notmatch '(127\.0\.0\.1|localhost)') { continue }
-            $_pPort = 80
-            $_m = [regex]::Match("$_pv", ':(\d+)')
-            if ($_m.Success) { $_pPort = [int]$_m.Groups[1].Value }
-            $_tcp = New-Object System.Net.Sockets.TcpClient
-            $_connOk = $false
-            try { $_connOk = $_tcp.ConnectAsync('127.0.0.1', $_pPort).Wait(1500) -and $_tcp.Connected } catch { }
-            finally { $_tcp.Close() }
-            if (-not $_connOk) { $_deadProxy = $true; $_deadDesc = "环境变量 $_pn=$_pv"; break }
-        }
-    }
-    if ($_deadProxy) {
-        Warn "$_deadDesc 指向本机端口但无人监听（常见于代理软件未正常关闭）。本次安装全部直连。"
-        [System.Net.WebRequest]::DefaultWebProxy = [System.Net.GlobalProxySelection]::GetEmptyWebProxy()
-        foreach ($_pn in @('HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','http_proxy','https_proxy','all_proxy')) {
-            Remove-Item "Env:$_pn" -Force -ErrorAction SilentlyContinue
-        }
-        # NO_PROXY=* 是 reqwest / curl 系工具的标准写法：无视一切残余代理配置强制直连。
-        # 仅进程级，不写注册表、不改 git config，对用户环境零持久化影响。
-        $env:NO_PROXY = "*"
-        $env:no_proxy = "*"
+    if ((Test-Done "upstream") -or (Test-Path (Join-Path $HermesHome "hermes-agent"))) {
+        Warn "检测到内核痕迹，但 hermes CLI 无法运行（PM 环境可能已失效）→ 将重建内核与环境。"
     }
 
-    $ghOk = $false
-    if (-not $IsOffline) {
-        foreach ($probeUrl in @("https://github.com", "https://codeload.github.com", "https://objects.githubusercontent.com")) {
-            foreach ($probeTry in 1..2) {
-                try { Invoke-WebRequest -Uri $probeUrl -Method Get -TimeoutSec 12 -UseBasicParsing | Out-Null; $ghOk = $true }
-                catch { if ($_.Exception.Response) { $ghOk = $true } }
-                if ($ghOk) { break }
-                Start-Sleep -Seconds 2
-            }
-            if ($ghOk) { break }
-        }
-    }
-
-    # PBS Python 运行时镜像——**无条件**首选 npmmirror，不依赖 GitHub 探测结果：
-    # github.com 可通 ≠ objects.githubusercontent.com 可通（PBS 资产实际托管在后者、境内更易被断；
-    # 沙盒实测：直连探测全过但 uv 拉 Python 3.11 死于此）。本机实证：uv 0.12.10 + npmmirror 装 cpython-3.11.16（24MB，5.4s）。
-    # npmmirror 不可达时镜像链模式内再退加速器；两者皆不成立（海外/有代理）留空 = uv 默认 GitHub。
-    $pbsSource = "default"
-    if ($env:UV_PYTHON_INSTALL_MIRROR) {
-        $pbsSource = "preset"
-    } elseif ($IsOffline) {
-        # 离线：同样不探（不该联网）。uv 会用内嵌的 uv-python，不需要任何镜像。
-        $pbsSource = "offline"
-    } else {
-        $prevEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
-        try {
-            Invoke-WebRequest -Uri "https://registry.npmmirror.com/-/binary/python-build-standalone/" -Method Get -TimeoutSec 10 -UseBasicParsing | Out-Null
-            $env:UV_PYTHON_INSTALL_MIRROR = "https://registry.npmmirror.com/-/binary/python-build-standalone"
-            $pbsSource = "npmmirror"
-        } catch { }
-        $ErrorActionPreference = $prevEAP
-    }
-
-    # ---------- 系统件与镜像链（**无条件执行**；2026-09-17 沙盒实录教训）----------
-    # 之前整块包在 if (-not $ghOk) 里，而 GitHub 探活在代理/沙盒环境会误判为「通」
-    # → 误判时内嵌素材全部不落位，上游转身就连 GitHub → 必然失败
-    #（实录：mode=off pbs=npmmirror，上游 irm github.com 装 uv 报 Unable to connect）。
-    # 教训：**随包素材的落位不能以网络探测为条件**——它在包里，跟网络无关。
-    # 本段所有「有内嵌/已有就跳过」的分支天然幂等；真正依赖 GitHub 的只有
-    # ② 加速器探活与 ③④ 的网络兜底，均已各自带条件。
-        #   git   —— Install-Git：PATH 里有 git 即快速通道，不下载 PortableGit（L1432）
-        #   内核  —— Install-Repository：已有有效仓库走 fetch+checkout，且 fetch 失败即 throw（L2201），
-        #            所以 origin 必须保留加速器前缀；后续 hermes update 同通道，加速器失效可 remote set-url 改回直连
-        #   Python—— uv 官方旋钮 UV_PYTHON_INSTALL_MIRROR（PBS 发行包也在 GitHub）
-        #   uv    —— 预置到 %HERMES_HOME%\bin\uv.exe（上游对已存在的可用 uv 容忍断网，L800 注释实证）；失败不致命（astral.sh 境内通常可达）
-        if (-not $ghOk) { Log "GitHub 直连不可达，切换境内镜像链……" }
-
-        # ①：PortableGit 预置（三源顺试：npmmirror → ghproxy.net → gh-proxy.com；版本随上游 pin v2.54.0.windows.1，上游升级 git pin 时同步此处）。
-        # 沙盒四轮实证：npmmirror 会偶发不可达（上轮同一源可用），单源=单点；加速器直链下载不依赖 git，无鸡生蛋问题。
-        # 下载失败透出内层 SocketException——DNS 解析失败与 TCP 拒连在红字里一眼可分。
-        $gitDir = Join-Path $HermesHome "git"
-        $gitExe = Join-Path $gitDir "cmd\git.exe"
-        if (-not (Test-Path $gitExe)) {
-            if ($IsOffline -and (Test-Path (Join-Path $OfflineDir "portable-git.7z.exe"))) {
-                # **离线优先**：直接从内嵌素材解压，绝不联网。
-                # 2026-09-16 沙盒实录：这里原本无条件下载（三源），被拒后 Die，
-                # 而下面那段「离线系统件预置」在镜像链**之后** —— 永远走不到，
-                # 结果是「离线安装」反而不联网就装不上。
-                Install-OfflinePortableGit
-            } elseif (Get-Command git -ErrorAction SilentlyContinue) {
-                Log "镜像①：系统已有 git，跳过 PortableGit 预置"
-            } else {
-                $pgAsset = "PortableGit-2.54.0-64-bit.7z.exe"
-                $pgRel = "https://github.com/git-for-windows/git/releases/download/v2.54.0.windows.1/$pgAsset"
-                $pgSources = @(
-                    "https://registry.npmmirror.com/-/binary/git-for-windows/v2.54.0.windows.1/$pgAsset",
-                    "https://ghproxy.net/$pgRel",
-                    "https://gh-proxy.com/$pgRel"
-                )
-                $pgTmp = Join-Path $env:TEMP "hm-PortableGit.7z.exe"
-                $pgOk = $false
-                foreach ($pgSrc in $pgSources) {
-                    Log "镜像①：下载 PortableGit 2.54.0（约 65MB，源 $(([uri]$pgSrc).Host)）……"
-                    try {
-                        Invoke-WebRequest -Uri $pgSrc -OutFile $pgTmp -UseBasicParsing
-                        $pgOk = $true; break
-                    } catch {
-                        $why = $_.Exception.Message
-                        if ($_.Exception.InnerException) { $why += " <- $($_.Exception.InnerException.Message)" }
-                        Warn "镜像① 下载失败（$(([uri]$pgSrc).Host)）：$why"
-                        Remove-Item $pgTmp -Force -ErrorAction SilentlyContinue
-                    }
-                }
-                if (-not $pgOk) { Die "PortableGit 三源均不可达（npmmirror / ghproxy.net / gh-proxy.com）。若为 DNS 解析失败，请检查网络；或开启一次代理后重跑（已完成步骤自动跳过）。" }
-                New-Item -ItemType Directory -Force -Path $gitDir | Out-Null
-                $sp = Start-Process -FilePath $pgTmp -ArgumentList "-o`"$gitDir`"", "-y" -NoNewWindow -Wait -PassThru
-                Remove-Item $pgTmp -Force -ErrorAction SilentlyContinue
-                if ($sp.ExitCode -ne 0 -or -not (Test-Path $gitExe)) { Die "PortableGit 解压失败（退出码 $($sp.ExitCode)）。重跑可续装。" }
-            }
-        }
-        if (Test-Path $gitExe) {
-            $env:Path = "$gitDir\cmd;$env:Path"
-            # 持久化用户 PATH：上游 Install-Git 的下载路径会做这件事（快速通道默认已持久）；装后 agent 端也要 git
-            $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
-            if ($userPath -notlike "*$gitDir\cmd*") {
-                [Environment]::SetEnvironmentVariable("Path", ($userPath.TrimEnd(';') + ";$gitDir\cmd"), "User")
-            }
-        }
-        # 登记 bash 路径。上游把 PortableGit 的探测位置**写死**成 %LOCALAPPDATA%\hermes\git
-        # （tools/environments/local.py 的 _hermes_portable_git），不读 HERMES_HOME —— 数据目录选在
-        # 非默认位置的机器上，我们装的 git 它找不到，终端工具全报 "Git Bash not found"。上游自己的
-        # 安装器靠设 HERMES_GIT_BASH_PATH 绕开这一点，而我们预置后 PATH 里已有 git、上游 Stage-Git
-        # 走快速通道跳过，那次设变量也一并被跳过 —— 所以这个洞只有我们能自己补。
-        $bashExe = @(
-            (Join-Path $gitDir "bin\bash.exe"),
-            (Join-Path $gitDir "usr\bin\bash.exe")
-        ) | Where-Object { Test-Path $_ } | Select-Object -First 1
-        if ($bashExe) {
-            $curBash = [Environment]::GetEnvironmentVariable("HERMES_GIT_BASH_PATH", "User")
-            # 用户自己设过、且指着一个真实存在的文件 → 尊重不动；为空或已失效 → 由我们钉上
-            if ([string]::IsNullOrWhiteSpace($curBash) -or (-not (Test-Path $curBash))) {
-                [Environment]::SetEnvironmentVariable("HERMES_GIT_BASH_PATH", $bashExe, "User")
-            }
-            # 进程内再设一次：注册表更新不会传给已经启动的进程，而本次安装起的网关是它的子进程
-            $env:HERMES_GIT_BASH_PATH = $bashExe
-            Ok "bash 解释器已登记：HERMES_GIT_BASH_PATH = $bashExe"
-        } elseif (Test-Path $gitDir) {
-            Warn "$gitDir 存在但没找到 bash.exe。终端工具若报 Git Bash not found，请把 HERMES_GIT_BASH_PATH 手动指向可用的 bash.exe（WSL 的那个不算，它不认 Windows 路径）。"
-        }
-
-        # ②：选可用 git 加速器（ls-remote 轻探针；PS5.1 原生调用需降级 EAP 防 2>$null 炸 NativeCommandError）
-        # **离线模式整段跳过**：离线时不可能有加速器可通，探活只会白等三次超时然后撞上下面那条 Die；
-        # 而离线安装的内核走内嵌素材（见 2.46 段），压根不需要 $GhProxy。
-        # 2026-09-16 沙盒实录：这是离线模式下的第二个必然失败点（第一个是 ① PortableGit 联网下载）。
-        $GhProxy = ""
-        if ((-not $IsOffline) -and (-not $ghOk)) {
-            foreach ($cand in @("https://ghproxy.net/", "https://gh-proxy.com/", "https://ghfast.top/")) {
-                if (-not (Get-Command git -ErrorAction SilentlyContinue)) { break }
-                $prevEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
-                $null = git ls-remote ($cand + $UpstreamRepo) "refs/tags/$Tag" 2>&1
-                $lsOk = ($LASTEXITCODE -eq 0)
-                $ErrorActionPreference = $prevEAP
-                if ($lsOk) { $GhProxy = $cand; break }
-            }
-            if (-not $GhProxy) {
-                # **非致命**（2026-09-16 瘦身）：$GhProxy 只被 ③ 内核 clone 与 ④ uv 下载的**兜底**分支使用，
-                # 而这两件事现在都走随包内嵌素材 —— 加速器不再是必经之路。ghfast.top 实测已 20s 超时，
-                # 三源同时挂是常态；此时仍 Die「请开启一次代理后重跑」会把国内用户直接挡在门外。
-                Warn "GitHub 与全部加速器均不可达；内核源码与 uv 改用随包内嵌版本（不需加速器）。"
-            } else {
-                Ok "镜像加速器：$GhProxy"
-            }
-        }
-
-        # ③：内核源码预置（浅克隆 pin tag；origin 保留加速器前缀——上游 fetch origin 失败即 throw）
-        $kernelDir = Join-Path $HermesHome "hermes-agent"
-        if ($IsOffline) {
-            # 离线：内核由后面的 2.46 段从内嵌 hermes-agent.zip 落位，这里不克隆
-            #（$GhProxy 也是空的，真跑就是 clone 直连 GitHub → Die「内核预克隆失败」）。
-            Log "离线：跳过内核预克隆（改由内嵌素材落位）"
-        } elseif (Test-Path "$kernelDir\.git") {
-            Log "镜像③：内核源码已在，跳过预克隆"
-        } elseif (Test-Path (Join-Path $PSScriptRoot "hermes-agent.zip")) {
-            # 内嵌源码快照（随包，不依赖网络与加速器）。快照里**没有 .git**（省 67 MB），
-            # 而上游 Install-Repository 要求 InstallDir 是「有效 git 仓库」，所以就地现造一个：
-            # init + 一个空提交 + 打上 pin tag。锚定模式下上游跳过全部 fetch/checkout，
-            # 因此这个空仓库只用于通过它的 repoValid 探测，不会被用来更新任何东西。
-            Log "镜像③：落位内嵌内核源码快照（$Tag）……"
-            # 暂存放 $HermesHome 下（与 $kernelDir 同卷）——放 %TEMP% 会让落位变成跨卷移动，
-            # 从而多走一次「删源」，个别机器就死在那一步，见 Move-TreeTo 注释。
-            $tmpK = Join-Path $HermesHome ".hm-stage-kernel"
-            if (Test-Path $tmpK) { Remove-Item -Recurse -Force $tmpK -ErrorAction SilentlyContinue }
-            New-Item -ItemType Directory -Force -Path $tmpK | Out-Null
-            Add-Type -AssemblyName System.IO.Compression.FileSystem
-            [System.IO.Compression.ZipFile]::ExtractToDirectory((Join-Path $PSScriptRoot "hermes-agent.zip"), $tmpK)
-            # 快照若带顶层目录则下沉一层（与 install.ps1 其他落位处的处理保持一致）
-            if (-not (Test-Path (Join-Path $tmpK "pyproject.toml"))) {
-                $innerK = Get-ChildItem $tmpK -Directory | Where-Object { Test-Path (Join-Path $_.FullName "pyproject.toml") } | Select-Object -First 1
-                if ($innerK) {
-                    $tmpK2 = "$tmpK-sink"
-                    Move-Item $innerK.FullName $tmpK2
-                    Remove-Item -Recurse -Force $tmpK -ErrorAction SilentlyContinue
-                    Move-Item $tmpK2 $tmpK
-                }
-            }
-            $prevEAPk = $ErrorActionPreference; $ErrorActionPreference = "Continue"
-            Push-Location $tmpK
-            & git init -q 2>&1 | Out-Null
-            & git -c user.name=HerMemory -c user.email=noreply@localhost commit -q --allow-empty -m ("HerMemory pinned " + $Tag) 2>&1 | Out-Null
-            & git tag -f $Tag 2>&1 | Out-Null
-            Pop-Location
-            $ErrorActionPreference = $prevEAPk
-            if (-not (Move-TreeTo $tmpK $kernelDir)) { Die "内核源码快照落位失败：$kernelDir。请确认数据目录所在磁盘可写、且没有安全软件拦截本次复制。" }
-            if (-not (Test-Path (Join-Path $kernelDir "pyproject.toml"))) { Die "内嵌内核源码快照解压异常（缺 pyproject.toml）。发行包不完整。" }
-            Ok "内核源码快照已落位（pin $Tag，内嵌，无历史）"
-        } else {
-            Log "镜像③：经加速器预置内核源码（$Tag，浅克隆）……"
-            if (Test-Path $kernelDir) { Remove-Item -Recurse -Force $kernelDir -ErrorAction SilentlyContinue }
-            $prevEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
-            $null = git clone --depth 1 --branch $Tag ($GhProxy + $UpstreamRepo) $kernelDir 2>&1
-            $cloneOk = ($LASTEXITCODE -eq 0)
-            $ErrorActionPreference = $prevEAP
-            if (-not $cloneOk -or -not (Test-Path "$kernelDir\.git")) { Die "内核预克隆失败（加速器波动）。重跑可续装。" }
-        }
-
-        # ④：uv 预置（非致命：astral.sh 走 Fastly CDN 境内通常可达，失败则上游自装）
-        $uvExe = Join-Path $HermesHome "bin\uv.exe"
-        # 离线：uv 由「离线系统件预置」从内嵌素材拷入（$OfflineDir\uv.exe），这里不做网络动作。
-        if ((-not (Test-Path $uvExe)) -and (Test-Path (Join-Path $PSScriptRoot "uv.exe"))) {
-            # 内嵌随包：zero-network。uv 官方 release 只在 GitHub，境内不可靠，故随包（压缩后约 17 MB）。
-            Log "镜像④：落位内嵌 uv……"
-            New-Item -ItemType Directory -Force -Path (Join-Path $HermesHome "bin") | Out-Null
-            Copy-Item (Join-Path $PSScriptRoot "uv.exe") $uvExe -Force
-            Ok "uv 已就位（内嵌）"
-        } elseif ((-not (Test-Path $uvExe)) -and (-not $IsOffline)) {
-            Log "镜像④：预置 uv（加速器，官方 release）……"
-            $uvZip = Join-Path $env:TEMP "hm-uv.zip"
-            try {
-                Invoke-WebRequest -Uri ($GhProxy + "https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip") -OutFile $uvZip -UseBasicParsing
-                $uvTmp = Join-Path $env:TEMP "hm-uv-x"
-                Expand-Archive -Path $uvZip -DestinationPath $uvTmp -Force
-                $found = Get-ChildItem $uvTmp -Recurse -Filter uv.exe | Select-Object -First 1
-                if ($found) {
-                    New-Item -ItemType Directory -Force -Path (Join-Path $HermesHome "bin") | Out-Null
-                    Copy-Item $found.FullName $uvExe -Force
-                    Ok "uv 已就位"
-                } else { Warn "uv 预置未找到 uv.exe（非致命，上游将自行安装）" }
-                Remove-Item $uvTmp -Recurse -Force -ErrorAction SilentlyContinue
-            } catch {
-                $whyUv = $_.Exception.Message
-                if ($_.Exception.InnerException) { $whyUv += " <- $($_.Exception.InnerException.Message)" }
-                Warn "uv 预置失败（非致命）：$whyUv"
-            }
-            Remove-Item $uvZip -Force -ErrorAction SilentlyContinue
-        }
-
-        # ⑤：PBS 兜底（npmmirror 已在前面无条件探测首选；仅当其不可达时镜像链内退加速器——ghproxy 大文件不稳，最后手段）
-        # 离线：不设镜像变量（$GhProxy 为空，且 uv 会用内嵌 uv-python，不需要任何镜像）。
-        if ((-not $env:UV_PYTHON_INSTALL_MIRROR) -and (-not $IsOffline)) {
-            $env:UV_PYTHON_INSTALL_MIRROR = $GhProxy + "https://github.com/astral-sh/python-build-standalone/releases/download"
-            $pbsSource = "ghproxy"
-        }
-
-        # ⑥：rg 预置（内嵌随包）。上游按 PATH 探测（Get-Command rg），所以落位后要把 bin 写进
-        # User 注册表 PATH —— 上游每个 Stage 开头都调 Sync-EnvPath() 重读注册表，只改进程内 PATH 会被抹掉。
-        $rgExe = Join-Path $HermesHome "bin\rg.exe"
-        if ((-not (Test-Path $rgExe)) -and (Test-Path (Join-Path $PSScriptRoot "rg.exe"))) {
-            New-Item -ItemType Directory -Force -Path (Join-Path $HermesHome "bin") | Out-Null
-            Copy-Item (Join-Path $PSScriptRoot "rg.exe") $rgExe -Force
-            Ok "rg 已就位（内嵌）"
-        }
-        if (Test-Path (Join-Path $HermesHome "bin\uv.exe")) { Repair-OfflinePath | Out-Null }
-
-        Ok "镜像链就绪：git / 内核 / Python / uv 走国内通道，PyPI / npm / Playwright 走国内源（Node 走 nodejs.org 官方）"
-        # 机器标记行：exe 捕获后随失败红字展示，用于远程定位走了哪条链路（交互模式不输出）
-        # 机器标记行：exe 捕获后随失败红字展示，用于远程定位走了哪条链路（交互模式不输出）。
-        # mode：on=GitHub 不可达走镜像链；off=探测认为 GitHub 直连可达（内嵌素材此时也已无条件落位）。
-        if ($Answers) { Write-Host "##HM-MIRROR## mode=$(if ($ghOk) { 'off' } else { 'on' }) proxy=$GhProxy pbs=$pbsSource" }
-    # ---------- 锚定模式标记（2026-09-16 用户裁决） ----------
-    # HerMemory 0.1.0 只锚定 Hermes 0.21.0，不承担上游更新。随包源码是「无 .git 的工作区快照」，
-    # 落位时现造一个最小 git 仓库顶替上游期望的真仓库；上游读到本标记即跳过 fetch/checkout。
-    # 它同时让下面这段「预清理 stash」失效——那是为更新路径准备的，而这里根本没有更新。
-    $env:HERMEMORY_PINNED = "1"
-
-    # ---------- 内核仓库预清理（无条件 stash） ----------
-    # 七轮实证：既有 %HERMES_HOME%\hermes-agent 存在运行时 churn（uv.lock / website docs），上游更新路径的
-    # 自动 stash 偶发静默失败（失败不中止流程），git checkout tag 当场 abort 整个安装。本脚本先行 stash——
-    # 改动保留进 stash list 可随时恢复，与上游"保留本地修改"语义完全一致，只是提前且无条件。
-    $existingRepo = Join-Path $HermesHome "hermes-agent"
-    # **锚定模式下必须跳过**：随包源码是未跟踪的工作区快照，`stash --include-untracked` 会把
-    # 一万多个文件整个搬走（等于清空源码），而上游随后也不会 checkout 回来（fetch/checkout 已被跳过）。
-    if ((Test-Path "$existingRepo\.git") -and (Get-Command git -ErrorAction SilentlyContinue) -and ($env:HERMEMORY_PINNED -ne "1")) {
-        $prevEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
-        $dirty = git -C $existingRepo status --porcelain 2>&1
-        if (-not [string]::IsNullOrWhiteSpace(($dirty -join ""))) {
-            Log "内核仓库有本地改动，先行 stash（可用 git stash list 恢复）……"
-            $null = git -C $existingRepo stash push --include-untracked -m ("hermemory-install-prestash-" + (Get-Date -Format "yyyyMMddHHmmss")) 2>&1
-            $still = git -C $existingRepo status --porcelain 2>&1
-            if ([string]::IsNullOrWhiteSpace(($still -join ""))) { Ok "内核仓库已清洁（改动已存入 stash）" }
-            else { Warn "stash 后仍不清洁，交由上游处理（其自带 stash/reset 兜底逻辑）" }
-        }
-        $ErrorActionPreference = $prevEAP
-    }
-
-    Log "运行上游官方 install.ps1（pin $Tag）……"
-    # 上游安装器已 vendored：scripts\upstream-install.ps1 = 上游 pin tag v2026.8.31 的 scripts/install.ps1 逐字节副本（SHA256 核对过，纯 ASCII 无编码风险）。
-    # 不再运行时从 raw.githubusercontent/main 拉取——该域境内最常被墙，且 main 会与内核 pin 漂移；MIT 许可允许随发行版分发。
-    # pin 更新时：从上游本地仓库切到对应 tag 重新复制覆盖本文件，并重跑验收线。
     $up = Join-Path $SRC "scripts\upstream-install.ps1"
     if (-not (Test-Path $up)) { Die "缺 vendored 上游安装器：$up（发行包不完整，请重新获取 HerMemory）" }
-    # 境内镜像注入：三个都是对应工具的官方环境变量旋钮，上游脚本零修改；用户/代理环境已自设时尊重不覆盖。
-    # 覆盖安装期大头流量：PyPI 依赖（uv）、npm 包（Node 依赖与浏览器组件）、Playwright 内核；Electron 上游已自带 npmmirror 兜底。
-    if ($IsOffline) {
-        # 离线模式：全部流量改走内嵌 assets-offline（uv/npm 的内容寻址缓存 + 预置二进制），零网络
-        $env:UV_OFFLINE = "1"
-        $env:UV_CACHE_DIR = Join-Path $OfflineDir "uv-cache"
-        $env:npm_config_cache = Join-Path $OfflineDir "npm-cache"
-        $env:npm_config_offline = "true"
-        $env:PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1"
-        Log "离线模式：资源全部取自内嵌 assets-offline，无网络依赖"
-        if ($Answers) { Write-Host "##HM-MIRROR## mode=offline pbs=assets" }
-    } else {
-        if (-not $env:UV_DEFAULT_INDEX)          { $env:UV_DEFAULT_INDEX = "https://pypi.tuna.tsinghua.edu.cn/simple" }
-        if (-not $env:npm_config_registry)       { $env:npm_config_registry = "https://registry.npmmirror.com" }
-        if (-not $env:PLAYWRIGHT_DOWNLOAD_HOST)  { $env:PLAYWRIGHT_DOWNLOAD_HOST = "https://cdn.npmmirror.com/binaries/playwright" }
-        Log "在线镜像：PyPI 走清华 / npm 走 npmmirror / Playwright 走 npmmirror / Python 运行时走 $pbsSource"
-    }
+    if (-not (Test-Path $KernelBundle)) { Die "缺内核包：$KernelBundle（发行包不完整，请重新获取 HerMemory）" }
 
-    # ---------- 2.4 Python 3.11 预置（离线：落位 uv 托管安装） ----------
-    # 关键事实（2026-09-10 本机实证）：上游只用 `uv python find 3.11` 定位解释器，
-    # **它不读 PATH**，只认 uv 自己安装的托管布局（含 .gitignore/.lock 元数据、精确版本+次版本双目录）。
-    # 因此离线包内预置的是「uv 真装出来的托管根目录」（uv-python/），落位后把 UV_PYTHON_INSTALL_DIR 指过去——
-    # uv python find 即刻命中，跳过任何下载。旧方案（解 PBS 到任意目录 + 塞 PATH）VM 实录必然失败。
-    # uv 托管布局落**两个**目录：别名目录 + 精确版本目录。上游创建的 venv 在 pyvenv.cfg 里
-    # 记录的是**精确版本目录**（本机实证：home = ...\uv-python\cpython-3.11.16-windows-x86_64-none）。
-    # 旧实现只校验别名目录 → 精确版本目录缺失/残缺时仍判「已就位，跳过」→ **永不修复**，
-    # 症状：hermes 一律报 No Python at '"...\cpython-3.11.16-windows-x86_64-none\python.exe"'。
-    $pyInstallDir = Join-Path $HermesHome "uv-python"
-    $pyNeeded = @(
-        "cpython-3.11-windows-x86_64-none\python.exe",
-        "cpython-3.11.16-windows-x86_64-none\python.exe"
+    # 让上游 repository 阶段从随包 bundle 取源：零网络、原子落位、pin 可验证。
+    # 已存在的 checkout 也会被先 remote set-url 再 fetch（上游 Stage-Repository 行为），
+    # 所以重装/修复同样会被拉回随包的 pin，而不是漂到 main。
+    $env:HERMES_REPO_URL = $KernelBundle
+
+    $upArgs = @(
+        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $up,
+        '-Commit', $PinCommit, '-Branch', 'main',
+        '-NonInteractive',
+        '-HermesHome', $HermesHome,
+        '-InstallDir', (Join-Path $HermesHome 'hermes-agent')
     )
-    if ($IsOffline) {
-        $pyMissing = @($pyNeeded | Where-Object { -not (Test-Path (Join-Path $pyInstallDir $_)) })
-        if ($pyMissing.Count -eq 0) {
-            Log "Python 预置：已就位，跳过"
-        } else {
-            Log "Python 预置：落位内嵌 uv 托管 Python 3.11……"
-            $pySrc = Join-Path $OfflineDir "uv-python"
-            $srcMissing = @($pyNeeded | Where-Object { -not (Test-Path (Join-Path $pySrc $_)) })
-            if ($srcMissing.Count -gt 0) {
-                Die "离线包内缺 uv-python 托管目录（$($srcMissing -join '; ')）。内嵌资源包不完整，请重新获取 HerMemory 离线版。"
-            }
-            # 先整目录拷到临时位置并校验，再整体换位——避免「删一半 / 拷一半」留下半成品。
-            # Copy-Item 不是原子操作：按字符串序（'-' < '.'）先落别名目录、后落精确版本目录，
-            # 一旦中断恰好留下「别名在、精确版本缺」，正是这次踩到的状态。
-            $pyTmp = "$pyInstallDir.hm-new"
-            if (Test-Path $pyTmp) { Remove-Item $pyTmp -Recurse -Force -ErrorAction SilentlyContinue }
-            Copy-Item $pySrc $pyTmp -Recurse -Force
-            $tmpMissing = @($pyNeeded | Where-Object { -not (Test-Path (Join-Path $pyTmp $_)) })
-            if ($tmpMissing.Count -gt 0) {
-                Remove-Item $pyTmp -Recurse -Force -ErrorAction SilentlyContinue
-                Die "离线 Python 临时落位异常（缺 $($tmpMissing -join '; ')）。请重新获取 HerMemory 离线版。"
-            }
-            $pyOld = "$pyInstallDir.hm-old"
-            if (Test-Path $pyOld) { Remove-Item $pyOld -Recurse -Force -ErrorAction SilentlyContinue }
-            $swapped = $false
-            if (Test-Path $pyInstallDir) {
-                try { Move-Item $pyInstallDir $pyOld -ErrorAction Stop; $swapped = $true } catch { }
-            } else { $swapped = $true }
-            if ($swapped) {
-                try { Move-Item $pyTmp $pyInstallDir -ErrorAction Stop }
-                catch {
-                    try { if (Test-Path $pyOld) { Move-Item $pyOld $pyInstallDir -ErrorAction Stop } } catch { }
-                    $swapped = $false
-                }
-            }
-            if ($swapped) {
-                Remove-Item $pyOld -Recurse -Force -ErrorAction SilentlyContinue
-            } else {
-                # 目录被占用（残留 python/hermes 进程）无法整体换位：退化为「逐个补齐缺失目录」，
-                # 最终仍以校验为准——宁可报错也不留下半成品。
-                Warn "Python 目录被占用，改为逐目录补齐……"
-                foreach ($rel in $pyMissing) {
-                    $sub = Split-Path $rel -Parent
-                    $dst = Join-Path $pyInstallDir $sub
-                    if (Test-Path $dst) { Remove-Item $dst -Recurse -Force -ErrorAction SilentlyContinue }
-                    Copy-Item (Join-Path $pySrc $sub) $dst -Recurse -Force
-                }
-                Remove-Item $pyTmp -Recurse -Force -ErrorAction SilentlyContinue
-            }
-            $stillMissing = @($pyNeeded | Where-Object { -not (Test-Path (Join-Path $pyInstallDir $_)) })
-            if ($stillMissing.Count -gt 0) {
-                Die "离线 Python 落位失败（仍缺 $($stillMissing -join '; ')）。请关闭占用程序后重试，或重新获取 HerMemory 离线版。"
-            }
-            Ok "Python 3.11 已预置（uv 托管）"
+    if ($SkipBrowser)     { $upArgs += '-SkipBrowser' }
+    if ($SkipComputerUse) { $upArgs += '-SkipComputerUse' }
+
+    Log "运行上游安装器（pin $PinTag / $($PinCommit.Substring(0,12))）……"
+    if ($SkipBrowser)     { Log "按安装选项：不安装浏览器工具（agent-browser + Chromium）" }
+    if ($SkipComputerUse) { Log "按安装选项：不安装电脑操作驱动（cua-driver）" }
+
+    # 独立子进程跑：上游以 exit 码表达成败（-File 形态 RunAsFile=true）。
+    # 直接 `& $up` 不行——它正常结束时**不 exit 0**，$LASTEXITCODE 会留着最后一条
+    # 原生命令的残值，失败也可能被读成 0。子进程退出码是唯一可靠的判据。
+    # 输出实时转发（exe 逐行解析显示），同时留尾部用于失败诊断。
+    $upTail = New-Object System.Collections.Generic.List[string]
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"   # 原生命令的 stderr 在 Stop 下会变成终止性错误
+    $upExit = -1
+    try {
+        & powershell.exe @upArgs 2>&1 | ForEach-Object {
+            $ln = "$_"
+            [void]$upTail.Add($ln)
+            if ($upTail.Count -gt 300) { $upTail.RemoveAt(0) }
+            Write-Host $ln
         }
-        # 指向上游：uv 通过该环境变量定位托管解释器（上游 Install-Python 第一步即 uv python find）
-        $env:UV_PYTHON_INSTALL_DIR = $pyInstallDir
-    } elseif ($pbsSource -in @("npmmirror", "ghproxy")) {
-        # 在线镜像场景：仍用 uv 自己装（配 UV_PYTHON_INSTALL_MIRROR），不再手工解 PBS
-        $env:UV_PYTHON_INSTALL_DIR = $pyInstallDir
-        $pyMissing = @($pyNeeded | Where-Object { -not (Test-Path (Join-Path $pyInstallDir $_)) })
-        if ($pyMissing.Count -eq 0) {
-            Log "Python 预置：已就位，跳过"
-        } else {
-            Log "Python 预置：uv 下载 CPython 3.11（镜像 $pbsSource）……"
-            if (-not $env:UV_PYTHON_INSTALL_MIRROR) {
-                $env:UV_PYTHON_INSTALL_MIRROR = if ($pbsSource -eq "npmmirror") {
-                    "https://registry.npmmirror.com/-/binary/python-build-standalone"
-                } else { $GhProxy + "https://github.com/astral-sh/python-build-standalone/releases/download" }
-            }
-            New-Item -ItemType Directory -Force -Path $pyInstallDir | Out-Null
-            $prevEapPy = $ErrorActionPreference; $ErrorActionPreference = "Continue"
-            $uvPyOut = & (Join-Path $HermesHome "bin\uv.exe") python install 3.11 2>&1
-            $ErrorActionPreference = $prevEapPy
-            # 同样校验**两个**目录（与离线段一致）：只要缺一个就算未就绪，走回落
-            $afterMissing = @($pyNeeded | Where-Object { -not (Test-Path (Join-Path $pyInstallDir $_)) })
-            if ($afterMissing.Count -eq 0) {
-                Ok "Python 3.11 已由 uv 安装"
-            } else {
-                Warn "Python 预置未完整（仍缺 $($afterMissing -join '; ')），回落 uv 默认流程（镜像已配）"
-                Warn ($uvPyOut | Select-Object -Last 3 | Out-String)
-            }
-        }
+        $upExit = $LASTEXITCODE
+    } finally { $ErrorActionPreference = $prevEap }
+
+    if ($upExit -ne 0) {
+        $tailText = (($upTail | Select-Object -Last 12) -join [Environment]::NewLine)
+        Die ("上游内核安装失败（退出码 $upExit）。" + [Environment]::NewLine + $tailText +
+             [Environment]::NewLine + "已完成步骤会自动跳过；排除问题后点「重新安装」继续。")
     }
 
-    # ---------- 2.45 Node.js 22 预置（境内实测：上游 Stage-Node 直连 nodejs.org/dist 且 Invoke-WebRequest 无超时，常无限挂起） ----------
-    # 与 Python 预置同思路：把真的 Node 22 提前放进上游探测位 $HermesHome\node\node.exe——
-    # 上游 Test-Node 见位即用（自带 npm 满足其版本下限），整体跳过 nodejs.org 下载，钉死在 npmmirror。
-    # 仅镜像场景执行（pbs=npmmirror/ghproxy）；海外直连场景维持上游默认（nodejs.org 本就快）。
-    # x64 写死与 Python 预置同取舍；ARM 上游会自行下载正确架构（探测失败回落上游流程）。
-    if ($IsOffline) {
-        # 离线：Node 直接取自内嵌 assets（版本以离线包为准）
-        $ndDir = Join-Path $HermesHome "node"
-        $ndExe = Join-Path $ndDir "node.exe"
-        if (Test-Path $ndExe) {
-            Log "Node 预置：已就位，跳过"
-        } else {
-            Log "Node 预置：解压内嵌 Node.js……"
-            New-Item -ItemType Directory -Force -Path $ndDir | Out-Null
-            # 文件名含版本号（node-v22.23.0-win-x64.zip）——通配定位，勿硬编码 "node.zip"（2026-09-10 实录：硬编码致 FileNotFound）
-            $ndZip = Get-ChildItem $OfflineDir -File -Filter "node-v*.zip" | Select-Object -First 1
-            if (-not $ndZip) { Die "离线包内未找到 node-v*.zip。内嵌资源包不完整，请重新获取 HerMemory 离线版。" }
-            # 标准 zip 解压器（tar 不解 zip，见段 0 注释）
-            Add-Type -AssemblyName System.IO.Compression.FileSystem
-            $ndTmp = Join-Path $env:TEMP "hm-node-unzip"
-            Remove-Item $ndTmp -Recurse -Force -ErrorAction SilentlyContinue
-            [System.IO.Compression.ZipFile]::ExtractToDirectory($ndZip.FullName, $ndTmp)
-            $ndInner = Get-ChildItem $ndTmp -Directory -Filter "node-v*" | Select-Object -First 1
-            if ($ndInner) {
-                Copy-Item -Path (Join-Path $ndInner.FullName "*") -Destination $ndDir -Recurse -Force
-            }
-            Remove-Item $ndTmp -Recurse -Force -ErrorAction SilentlyContinue
-            if (Test-Path $ndExe) { Ok "Node.js $(((& $ndExe --version) | Out-String).Trim()) 已预置" }
-            else { Die "离线 Node 解压异常。内嵌资源包不完整，请重新获取 HerMemory 离线版。" }
-        }
-    } elseif ($pbsSource -in @("npmmirror", "ghproxy")) {
-        $ndDir = Join-Path $HermesHome "node"
-        $ndExe = Join-Path $ndDir "node.exe"
-        if (Test-Path $ndExe) {
-            Log "Node 预置：已就位，跳过"
-        } else {
-            # 版本实测钉死（2026-09-10 npmmirror HTTP 200 验证），不做任何列表解析——PS5.1 下列表 API 行为不可靠。
-            # 版本须满足上游 engines ^22.22.0（npm ci EBADENGINE 教训）
-            $ndVer = "22.23.0"
-            $ndTmp = Join-Path $env:TEMP "hm-node22"
+    $workingCli = Get-WorkingHermesCli
+    if (-not $workingCli) { Die (Format-CliBroken $HermesCli) }
+    Ok "hermes CLI 就绪"
+    Mark-Done "upstream"
+}
+
+$HermesCli = Get-WorkingHermesCli
+if (-not $HermesCli) { Die "找不到可运行的 hermes CLI（期望 $HermesHome\bin\hermes.exe）。内核没装好就删掉 $StateFile 后重跑。" }
+
+# ---------- 2.45 微信通道依赖（PM 的 messaging extra） ----------
+# v0.22 政策：平台 SDK 不进 [all]，缺了只给一句「hermes pm install --extra messaging」
+# 的提示（pm/extras.py install_hint）。这里替用户执行那条提示——否则「扫码即用」不成立。
+# 早期版本是往 venv 里 uv pip install aiohttp/qrcode，v0.22 的 venv 由 PM 托管，
+# 只能走 extra 这一条受支持的口子。
+$prevEapWx = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+try {
+    $wxDepOut = & $HermesCli pm install --extra messaging 2>&1
+    if ($LASTEXITCODE -eq 0) { Ok "微信通道依赖已就位（messaging extra）" }
+    else {
+        Warn "messaging extra 安装失败：扫码可能不可用。uv/pm 输出末尾："
+        ($wxDepOut | Select-Object -Last 3) | ForEach-Object { Warn "  $_" }
+    }
+} catch {
+    Warn "messaging extra 安装异常：$($_.Exception.Message)"
+} finally { $ErrorActionPreference = $prevEapWx }
+
+# 「浏览器与电脑操作」的勾选如果与既有安装不同（修复安装时改了勾选），这里补一次：
+# 内核已经装好时上游那一步不会重跑，declined 记录也不会更新——不补就等于勾选无效。
+# 只在「确实还没记录」时才调 pm（那是几十秒的 sync），常规安装走不到。
+function Get-DeclinedPackages {
+    $names = @()
+    try {
+        foreach ($f in @(Get-ChildItem (Join-Path $HermesHome "installs\*\declined-packages.json") -ErrorAction SilentlyContinue)) {
             try {
-                Log "Node 预置：下载 v$ndVer（约 34MB，源 npmmirror）……"
-                Invoke-WebRequest -Uri "https://registry.npmmirror.com/-/binary/node/v$ndVer/node-v$ndVer-win-x64.zip" -OutFile "$ndTmp.zip" -UseBasicParsing -TimeoutSec 600
-                if (Test-Path $ndTmp) { Remove-Item -Recurse -Force $ndTmp }
-                Expand-Archive -Path "$ndTmp.zip" -DestinationPath $ndTmp -Force
-                $ndInner = Get-ChildItem $ndTmp -Directory | Select-Object -First 1
-                if ($ndInner) {
-                    New-Item -ItemType Directory -Force -Path $ndDir | Out-Null
-                    Copy-Item -Path (Join-Path $ndInner.FullName "*") -Destination $ndDir -Recurse -Force
-                }
-                if (Test-Path $ndExe) { Ok "Node.js $(((& $ndExe --version) | Out-String).Trim()) 已预置" }
-                else { Warn "Node 预置解压异常，回落上游默认流程（nodejs.org 直连）" }
-            } catch {
-                $whyNd = $_.Exception.Message
-                if ($_.Exception.InnerException) { $whyNd += " <- $($_.Exception.InnerException.Message)" }
-                Warn "Node 预置失败（$whyNd），回落上游默认流程。若仍失败：开启代理后重跑，或手动安装 Node 22 后重跑。"
-            } finally {
-                Remove-Item "$ndTmp.zip" -Force -ErrorAction SilentlyContinue
-                Remove-Item $ndTmp -Recurse -Force -ErrorAction SilentlyContinue
-            }
+                $d = Get-Content $f.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
+                if ($d.declined) { $names += @($d.declined) }
+            } catch { }
         }
-    }
-
-    if ($IsOffline) {
-        # 离线：系统件预置（PortableGit / uv / rg / ffmpeg）——放在仓库落位之前，后续 git 操作直接可用。
-        # 上游各 Stage 全是 PATH 探测（Get-Command git/rg/ffmpeg；uv 看 $HermesHome\bin\uv.exe），预置即命中。
-        if (-not (Test-Path (Join-Path $HermesHome "git\bin\git.exe"))) { Install-OfflinePortableGit }
-        $hmBinDir  = Join-Path $HermesHome "bin"
-        # **写 User 注册表 PATH**（否则被上游 Sync-EnvPath 抹掉，见函数注释）——Repair-OfflinePath 幂等。
-        Repair-OfflinePath | Out-Null
-        New-Item -ItemType Directory -Force -Path $hmBinDir | Out-Null
-        foreach ($f in @("uv.exe", "rg.exe", "ffmpeg.exe", "ffprobe.exe")) {
-            $srcF = Join-Path $OfflineDir $f
-            $dstF = Join-Path $hmBinDir "$f"
-            if ((Test-Path $srcF) -and -not (Test-Path $dstF)) { Copy-Item $srcF $dstF -Force }
-        }
-        Copy-Item (Join-Path $OfflineDir "THIRD-PARTY-NOTICES.txt") (Join-Path $HermesHome "THIRD-PARTY-NOTICES.txt") -Force -ErrorAction SilentlyContinue
-        if (Test-Path (Join-Path $HermesHome "git\bin\git.exe")) { Ok "离线系统件就位：PortableGit / uv / rg / ffmpeg" }
-        else { Die "离线 PortableGit 解压异常。内嵌资源包不完整，请重新获取 HerMemory 离线版。" }
-    }
-
-    # ---------- 2.46 内核仓库预 clone（原子落位；境内 clone 慢且易被 AV 打断，半成品会让上游 heal 撞锁死循环） ----------
-    # 上游对"存在但非 valid git repo"的目录是挪 broken 后重 clone——AV 锁住半成品时挪失败直接 throw，
-    # 用户重试再撞锁（2026-09-10 00:05 实测两连败）。这里把 clone 重活自己做：临时目录 + 重试 3 次 +
-    # 完成后同盘原子 Move，上游见完好仓库走增量路径（fetch 小流量）。残缺半成品直接删——无保留价值。
-    $repoDir = Join-Path $HermesHome "hermes-agent"
-
-    # 判定「这个目录是不是完好的 git 仓库」。**必须临时降 EAP**：PS 5.1 在 EAP=Stop 下会把原生命令的
-    # stderr 升级成终止性错误（NativeCommandError），而残缺仓库上 rev-parse 恰恰会往 stderr 写
-    # `fatal: Needed a single revision` —— 不降的话脚本在**判定这一行**就崩了，永远走不到下面
-    # 「清除残缺目录后重新落位」的分支（2026-09-15 用户实录：hermes-agent 下只剩一个空的 .git）。
-    function Test-GitRepoHealthy([string]$dir) {
-        if (-not (Test-Path (Join-Path $dir ".git"))) { return $false }
-        $prevEap = $ErrorActionPreference
+    } catch { }
+    return @($names | Select-Object -Unique)
+}
+if ($SkipBrowser -or $SkipComputerUse) {
+    $declined = Get-DeclinedPackages
+    $need = @()
+    if ($SkipBrowser -and ($declined -notcontains 'agent-browser')) { $need += 'agent-browser' }
+    if ($SkipComputerUse -and ($declined -notcontains 'cua-driver')) { $need += 'cua-driver' }
+    if ($need.Count -gt 0) {
+        $withoutArgs = @('pm', 'install')
+        foreach ($n in $need) { $withoutArgs += '--without'; $withoutArgs += $n }
+        $prevEapDecl = $ErrorActionPreference
         $ErrorActionPreference = "Continue"
         try {
-            $inTree  = (& git -c windows.appendAtomically=false -C $dir rev-parse --is-inside-work-tree 2>$null)
-            $hasHead = (& git -c windows.appendAtomically=false -C $dir rev-parse --verify HEAD 2>$null)
-            return ("$inTree" -eq "true" -and [bool]$hasHead)
-        } catch { return $false }
-        finally { $ErrorActionPreference = $prevEap }
+            & $HermesCli @withoutArgs 2>&1 | Out-Null
+            if ($LASTEXITCODE -eq 0) { Ok ("已记录不安装：" + ($need -join '、')) }
+            else { Warn ("记录不安装失败（" + ($need -join '、') + "）：可稍后手动执行 hermes pm install --without <name>") }
+        } catch {
+            Warn "记录不安装异常：$($_.Exception.Message)"
+        } finally { $ErrorActionPreference = $prevEapDecl }
     }
-    $repoOk = $false
-    if (Test-Path $repoDir) {
-        if (Test-GitRepoHealthy $repoDir) {
-            $repoOk = $true
-            Log "内核仓库已就位，跳过 clone"
-        } else {
-            Log "发现残缺的 hermes-agent（非有效 git 仓库或没有 HEAD），清除后重新落位……"
-            Remove-Item -Recurse -Force $repoDir -ErrorAction SilentlyContinue
-            if (Test-Path $repoDir) {
-                # 删不掉（多为文件被占用）时**改为挪走**：让它让出位置继续装，比直接 Die
-                # 让用户"重试也过不去"要好——残骸留待用户自行清理。
-                $broken = "$repoDir.broken-$(Get-Date -Format yyyyMMdd-HHmmss)"
-                try {
-                    Move-Item $repoDir $broken -ErrorAction Stop
-                    Warn "残缺目录被占用、已挪到 $broken（可稍后手动删除）"
-                } catch { }
-            }
-            if (Test-Path $repoDir) { Die "残缺目录既删不掉也挪不动：$repoDir。请关闭占用它的程序（含后台 git / python 进程）后重新安装。" }
-        }
-    }
-    if ($IsOffline) {
-        # 离线：仓库从内嵌 zip 落位；origin 指向内嵌 bundle——上游 update 的 fetch 命中本地，零网络
-        if (-not (Test-Path $repoDir)) {
-            Log "离线：落位内嵌 hermes-agent 源码树（pin $Tag）……"
-            $tmpOff = Join-Path $HermesHome ".hm-stage-offline"
-            if (Test-Path $tmpOff) { Remove-Item -Recurse -Force $tmpOff }
-            New-Item -ItemType Directory -Force -Path $tmpOff | Out-Null
-            # 标准 zip 解压器（tar 不解 zip，见段 0 注释）
-            Add-Type -AssemblyName System.IO.Compression.FileSystem
-            [System.IO.Compression.ZipFile]::ExtractToDirectory((Join-Path $OfflineDir "hermes-agent.zip"), $tmpOff)
-            # zip 内可能带 hermes-agent/ 顶层目录——找到含 .git 的那层作为仓库根
-            $repoSrc = $tmpOff
-            if (-not (Test-Path (Join-Path $tmpOff ".git"))) {
-                $inner = Get-ChildItem $tmpOff -Directory | Where-Object { Test-Path (Join-Path $_.FullName ".git") } | Select-Object -First 1
-                if ($inner) { $repoSrc = $inner.FullName }
-            }
-            if (-not (Move-TreeTo $repoSrc $repoDir)) { Die "离线内核仓库落位失败：$repoDir。内嵌资源包不完整，或目标磁盘不可写。" }
-            if ($repoSrc -ne $tmpOff -and (Test-Path $tmpOff)) { Remove-Item -Recurse -Force $tmpOff -ErrorAction SilentlyContinue }
-        }
-        # remote set-url 同样要降 EAP：仓库一旦不完整，git 会往 stderr 写东西，EAP=Stop 下会直接崩
-        $prevEapSet = $ErrorActionPreference; $ErrorActionPreference = "Continue"
-        & git -C $repoDir remote set-url origin (Join-Path $OfflineDir "hermes-agent.bundle") 2>$null
-        $ErrorActionPreference = $prevEapSet
-        if (Test-GitRepoHealthy $repoDir) {
-            $repoOk = $true
-            Ok "内核仓库已离线落位（pin $Tag，origin 指向内嵌 bundle）"
-        } else { Die "离线仓库落位异常（非有效 git repo）。内嵌资源包不完整，请重新获取 HerMemory 离线版。" }
-    } elseif (-not $repoOk -and (Get-Command git -ErrorAction SilentlyContinue)) {
-        $repoUrl = "https://github.com/NousResearch/hermes-agent.git"
-        if ($GhProxy) { $repoUrl = $GhProxy + $repoUrl }
-        $tmpRepo = Join-Path $HermesHome ".hm-stage-clone"
-        $prevEapRepo = $ErrorActionPreference; $ErrorActionPreference = "Continue"
-        for ($i = 1; $i -le 3 -and -not $repoOk; $i++) {
-            Log "预 clone 内核仓库（第 $i/3 次，pin $Tag，源 $(([uri]$repoUrl).Host)）……"
-            try {
-                if (Test-Path $tmpRepo) { Remove-Item -Recurse -Force $tmpRepo -ErrorAction SilentlyContinue }
-                & git -c windows.appendAtomically=false clone --depth 1 --branch $Tag $repoUrl $tmpRepo 2>&1 | ForEach-Object { "$_" }
-                if ($LASTEXITCODE -eq 0 -and (Test-Path (Join-Path $tmpRepo ".git"))) {
-                    # Move-TreeTo 的成功判据只是「目标存在」，被占用时它会留下一个空目录，
-                    # 所以这里必须自己验哨兵：没有 .git 就当作没落位，走下一轮重试。
-                    if ((Move-TreeTo $tmpRepo $repoDir) -and (Test-Path (Join-Path $repoDir ".git"))) {
-                        $repoOk = $true
-                        Ok "内核仓库已预 clone（pin $Tag）"
-                    } else {
-                        Warn "预 clone 第 $i 次落位失败（移动与复制都没能建出完整仓库）"
-                        if (Test-Path $repoDir) { Remove-Item -Recurse -Force $repoDir -ErrorAction SilentlyContinue }
-                    }
-                } else {
-                    Warn "预 clone 第 $i 次未成功（git 退出码 $LASTEXITCODE）"
-                }
-            } catch {
-                Warn "预 clone 第 $i 次失败：$($_.Exception.Message)"
-            }
-            if (-not $repoOk -and (Test-Path $tmpRepo)) { Remove-Item -Recurse -Force $tmpRepo -ErrorAction SilentlyContinue }
-        }
-        $ErrorActionPreference = $prevEapRepo
-        if (-not $repoOk) { Warn "预 clone 未成功，回落上游默认流程（SSH / HTTPS / ZIP 逐级尝试）" }
-    }
-
-    # ---------- 上游调用前置：把离线系统件目录补进「User 注册表 PATH」 ----------
-    # 上游每个 Stage 进 Invoke-Stage 都先跑 Sync-EnvPath()，把 $env:Path 整体替换为「User+Machine 注册表 PATH」
-    # （scripts/install.ps1 Sync-EnvPath）。所以**任何**只改进程内 $env:Path 的注入都会被当场抹掉。
-    # 调用上游前兜底再写一次 User PATH（幂等）：覆盖「upstream 已装被跳过、离线预置段没跑」等分支，
-    # 确保 Stage-Git / Stage-SystemPackages 的 Get-Command 探测命中内嵌 PortableGit / rg / ffmpeg。
-    if ($IsOffline -and (Test-Path (Join-Path $HermesHome "git\bin\git.exe"))) {
-        if (Repair-OfflinePath) { Log "离线：User PATH 已补齐（git\bin + hermes\bin）" }
-    }
-
-    # 显式传 -HermesHome：不依赖"上游 param 默认值恰好也取 $env:HERMES_HOME"这个巧合。
-    # 上游据 $HermesHome 派生 $InstallDir 并持久化 User 环境变量，故必须显式对齐。
-    & ([scriptblock]::Create((Get-Content $up -Raw))) -Tag $Tag -SkipSetup -HermesHome $HermesHome
-    # 编码归位：上游安装脚本开头执行 [Console]::OutputEncoding=UTF8（scriptblock 同会话运行，会“传染”本脚本后续输出）。
-    # exe 端已按行自适应解码（UTF-8 严格优先、失败退 GBK），流内切换不再乱码；此处归位主要惠及 install.bat 交互用户的肉眼输出
-    #（重定向场景下该 setter 实测不回退、无害保留；交互控制台场景有效）。
-    try { [Console]::OutputEncoding = [System.Text.Encoding]::GetEncoding(936) } catch { Run-Quiet chcp.com 936 }
-    if (-not (Get-Command hermes -ErrorAction SilentlyContinue)) {
-        Warn "hermes 未进入当前会话 PATH。请刷新后重试，或确认 %LOCALAPPDATA%\hermes\bin 是否已加入 PATH。"
-        $env:Path += ";$HermesHome\bin"
-    }
-    if (Get-Command hermes -ErrorAction SilentlyContinue) {
-        Ok "hermes CLI 就绪"
-        Mark-Done "upstream"
-    } else {
-        Die "hermes CLI 安装未成功。排除问题后重跑，已完成步骤将自动跳过。"
-    }
-}
-
-# ---------- 2.45 微信通道依赖补齐（2026-09-17 沙盒实录）----------
-# aiohttp 只存在于 [messaging] extra，而上游 Install-Dependencies 用的是 curated 的
-# `--extra all`（其注释明确：是 [all] 这一个 extra，不是 --all-extras），**不含** messaging。
-# 后果：gateway.platforms.weixin.check_weixin_requirements() 判 aiohttp 缺失 → 恒 False，
-# weixin_qr_login.py 直接 `##HM-QR## fail deps` 退出，扫码页既没有链接也不弹浏览器，
-# 只显示"二维码已超时"。这里按上游 pin 精确补装（缺失才装，走已配好的国内索引）。
-$wxVenvPy = Join-Path $HermesHome "hermes-agent\venv\Scripts\python.exe"
-# uv 可能有三处来源：随包落位（bin\）、上游 Install-Uv 装的、或系统 PATH 上的。逐个探测，
-# 全都找不到就明确告警——早期版本一旦 uv 不在预期路径，整个补齐被静默跳过。
-# 注意：venv 是 uv 建的精简环境，**没有 pip**，`python -m pip` 必然失败（本机实证）。
-$uvForPip = Join-Path $HermesHome "bin\uv.exe"
-if (-not (Test-Path $uvForPip)) { $uvForPip = Join-Path $HermesHome "uv.exe" }
-if (-not (Test-Path $uvForPip)) { $uvForPip = (Get-Command uv -ErrorAction SilentlyContinue).Source }
-if ((Test-Path $wxVenvPy) -and $uvForPip -and (Test-Path $uvForPip)) {
-    $prevEAPwx = $ErrorActionPreference; $ErrorActionPreference = "Continue"
-    $pipIdx = "https://pypi.tuna.tsinghua.edu.cn/simple"   # 显式传，pip/uv 都不依赖环境变量
-    foreach ($pkg in @("aiohttp==3.14.3", "qrcode==7.4.2")) {
-        $mod = ($pkg -replace "==.*", "")
-        & $wxVenvPy -c "import $mod" 2>$null
-        if ($LASTEXITCODE -eq 0) { continue }
-        Log "补齐微信通道依赖 $pkg ……"
-        $pipOut = & $uvForPip pip install --python $wxVenvPy --index-url $pipIdx $pkg 2>&1
-        & $wxVenvPy -c "import $mod" 2>$null
-        if ($LASTEXITCODE -eq 0) { Ok "$mod 已补齐" }
-        else {
-            Warn "$mod 补齐失败：微信扫码可能不可用。uv 输出：$(($pipOut | Select-Object -Last 3) -join ' | ')"
-        }
-    }
-    # 最终自检：三者齐备才算通（certifi 通常随核心依赖进来，一并确认）
-    & $wxVenvPy -c "import aiohttp, cryptography, certifi" 2>$null
-    if ($LASTEXITCODE -eq 0) { Ok "微信通道依赖自检通过" }
-    else { Warn "微信通道依赖自检未通过：扫码可能失败（见上方补装输出）" }
-    $ErrorActionPreference = $prevEAPwx
-}
-else {
-    Warn "未找到 venv python 或 uv，跳过微信通道依赖补齐（扫码可能失败）"
 }
 
 # ---------- 2.5 内核 UX 补丁（发行版自有，幂等）：微信二维码改为链接+浏览器提示 ----------
 $wxPy = Join-Path $HermesHome "hermes-agent\gateway\platforms\weixin.py"
 $wxPatch = Join-Path $PSScriptRoot "scripts\patch_weixin_qr.py"
-$wxBin = Join-Path $HermesHome "hermes-agent\venv\Scripts\python.exe"
-if ((Test-Path $wxPy) -and (Test-Path $wxPatch) -and (Test-Path $wxBin)) {
-    & $wxBin $wxPatch $wxPy
+$wxPython = Get-HermesPython
+if ((Test-Path $wxPy) -and (Test-Path $wxPatch) -and $wxPython) {
+    & $wxPython $wxPatch $wxPy
 }
 Progress "upstream"
 
@@ -1563,12 +883,10 @@ Progress "gateway"
 
 }   # end of 配置阶段（9~11 段）
 
-# ---------- 12~14. 收尾：完成提示与素材清理 ----------
+# ---------- 12~13. 收尾：完成提示 ----------
 # **只在最终阶段执行**（与 9~11 段同一条件）。分阶段安装下，阶段 1 跑完时 AI 还没配置，
-# 若此刻就执行 §14 清理，阶段 2 要付两笔重复 I/O：
-#   ① exe 侧 ExtractPayload 见 payload 里的 zip 不在，会把 723 MB 的 zip 整包重新解出来；
-#   ② 本脚本 §0 见解压目录不在，会把 1.5 GB 的 assets-offline 整目录重新解一遍。
-# 白耗几分钟；而 ② 在系统盘空间紧张时会解压失败 → `Die`，阶段 2 直接报「配置未成功」。
+# 完成提示应留到用户填完参数、微信接好之后再说。
+# v0.22 起随包素材只剩内核 bundle 与 uv（都不需要安装后清理），所以这里不再有素材清理段。
 # 交互模式（无 -AnswersFile）$HasAiConfig 恒为 true，行为与从前完全一致。
 if (-not $HasAiConfig) {
     Log "安装阶段：跳过完成提示与素材清理（向导收集完参数后会再运行一次本脚本执行）。"
@@ -1580,7 +898,7 @@ if (-not $HasAiConfig) {
 
 # ---------- 13. 完成提示 ----------
 Write-Host ""
-Log "HerMemory v0.1.0 安装完成。使用说明见 $VaultDir\HerMemory\docs\GUIDE.md。"
+Log "HerMemory v0.2.0 安装完成。使用说明见 $VaultDir\HerMemory\docs\GUIDE.md。"
 Write-Host ""
 Write-Host "  注意事项"
 Write-Host "  1. AGENTS.md 可自由编辑。上游 Hermes 对其执行威胁扫描，含触发词的内容会被整体拦截。"
@@ -1596,40 +914,7 @@ Log "文档修改：编辑 $VaultDir\HerMemory\memory\ 内文件，开启新对�
 Log "文档：docs\INSTALL.md 部署｜docs\GUIDE.md 使用｜docs\README_REBORN.md 恢复指引"
 Progress "done"
 
-# ---------- 14. 清理安装素材（约 1.5 GB） ----------
-# 只在**走到这里（安装成功）**才清：中途失败时素材必须留着，否则重跑会静默退化成在线安装。
-# 唯一需要保留的"副本"就是用户下载的那个安装包 exe——需要修复或重装时重新运行它即可。
-# 保留 install.ps1 等小 payload（1 MB 量级，微信扫码脚本与修复安装都靠它），只清离线素材。
-#
-# **只清 payload 目录里我们自己释放出来的那几样**。开发机在仓库目录内跑 exe 时走的是仓库模式，
-# 此时 $OfflineZip 指向 build\offline\ —— 那是 build-offline.ps1 的**构建素材**，
-# 删掉下次 build-release.ps1 会直接失败、重建又要几十分钟。判据 = zip 是否就位于脚本同目录。
-$freedBytes = 0
-$payloadZip = Join-Path $PSScriptRoot "assets-offline.zip"
-$cleanTargets = @()
-if ($RepoOfflineReady) {
-    # 复用 build\offline\assets-offline\：那是构建素材，本次没有产生任何副本，无需清理
-} else {
-    # 解压目录与指纹始终由本脚本建在脚本同目录下（zip 内若带顶层目录，$OfflineDir 会被改写成嵌套层，
-    # 故外层路径也一并列出）；仓库模式下 zip 就位于脚本同目录时也要清掉那份副本。
-    $cleanTargets += @($OfflineDir, "$OfflineDir.stamp",
-                       (Join-Path $PSScriptRoot "assets-offline"), (Join-Path $PSScriptRoot "assets-offline.stamp"))
-    if ($OfflineZip -and ($OfflineZip -eq $payloadZip)) { $cleanTargets += $payloadZip }
-}
-foreach ($t in $cleanTargets) {
-    if (-not $t) { continue }
-    try {
-        if (-not (Test-Path $t)) { continue }
-        $sz = 0
-        try { $sz = (Get-ChildItem $t -Recurse -File -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum } catch { }
-        if (-not $sz) { try { $sz = (Get-Item $t -Force -ErrorAction SilentlyContinue).Length } catch { } }
-        Remove-Item $t -Recurse -Force -ErrorAction SilentlyContinue
-        if (-not (Test-Path $t)) { $freedBytes += [double]$sz }
-    } catch { }
-}
-if ($freedBytes -gt 0) { Log ("已清理安装素材，释放约 {0:N0} MB。" -f ($freedBytes / 1MB)) }
-
-}   # end of 收尾（12~14 段）
+}   # end of 收尾（12~13 段）
 
 # ---------- 进度契约：两个阶段都必须报 done ----------
 # `Progress "done"` 原本由 §13 发出；§13 移进"最终阶段"后，阶段 1 就没人发了 → 进度条停在上一格。

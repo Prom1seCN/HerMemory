@@ -9,19 +9,20 @@
   为什么必须分两次发布：安装器要把「程序本体」当资源嵌进自己里面（csproj 的 app/ 逻辑名），
   所以程序本体必须先存在。反过来程序本体不能带任何随包素材（否则又变回几百 MB 的巨物）。
 
-  随包素材为什么只有三件（2026-09-16 瘦身）：只带「国内没有可靠直连源」的东西——
-  内核源码快照 / uv / rg。其余大头（PortableGit 60 MB、Node 33 MB、Python 运行时 50 MB、
-  PyPI 与 npm 依赖 276 MB）安装时从国内镜像取（npmmirror / 清华 PyPI），装不上才怪。
-  这也是 Setup 从 861.6 MB 降到约 230 MB 的原因。
+  随包素材为什么只有两件（v0.22 架构）：上游把重依赖整体交给 PM（pm/lock.json 逐件
+  sha256 钉死），随包只需要「内核本身」与「引导 PM 的 uv」——
+    hermes-agent.bundle  约 80 MB（含 refs/heads/main = pin commit）
+    uv.exe               约 35 MB（版本取上游 pm/lock.json）
+  Python 3.14 / Node 26 / Chromium / PyPI 依赖都在安装时由 PM 从官方 sha256 镜像
+  （hermes-assets.nousresearch.com）与国内索引取。
 
   用法：
-    powershell -ExecutionPolicy Bypass -File build-release.ps1 [-Version 0.1.0]
+    powershell -ExecutionPolicy Bypass -File build-release.ps1 [-Version 0.2.0]
   前置：
-    build\minimal\{hermes-agent.zip,uv.exe,rg.exe} 必须已存在
-    （由 scripts\make-minimal-bundle.py 从 build\offline\assets-offline\ 派生）。
+    build\minimal\{hermes-agent.bundle,uv.exe} 必须已存在（由 build-offline.ps1 产出）。
 #>
 param(
-    [string]$Version = "0.1.0",
+    [string]$Version = "0.2.0",
     [string]$Configuration = "Release",
     [switch]$SkipApp,         # 跳过程序本体发布。仅在「程序本体未改动」时可用；改过 C# 就一定要重发。
     [switch]$SkipPrivacyGate  # 仅当闸门误报、且你已确认那是误报时才用。别拿它当常规开关。
@@ -96,11 +97,10 @@ if (-not $SkipApp) {
 
 # ---- 2. 安装器 ----
 Step "3/3 发布安装器（内嵌程序本体 + 最小素材）"
-# 2026-09-16 瘦身：不再内嵌 assets-offline.zip（那是 860 MB 的唯一原因）。
-# 只随包带「国内没有可靠直连源」的几件：内核源码快照 / uv / rg，由 scripts\make-minimal-bundle.py 产出。
-# 其余素材安装时从国内镜像取（npmmirror / 清华 PyPI），见 install.ps1 的镜像链。
-$kernelZip = Join-Path $Root "build\minimal\hermes-agent.zip"
-if (-not (Test-Path $kernelZip)) { throw "缺少内核源码快照：$kernelZip。请先运行 scripts\make-minimal-bundle.py（依赖 build\offline\assets-offline 里的完整素材）。" }
+# v0.22：随包只有内核 bundle + uv 两件（build-offline.ps1 产出）。
+# 其余重依赖由 PM 在安装时从官方 sha256 镜像与国内索引取，见 install.ps1 的镜像链。
+$kernelBundle = Join-Path $Root "build\minimal\hermes-agent.bundle"
+if (-not (Test-Path $kernelBundle)) { throw "缺少内核 bundle：$kernelBundle。请先运行 build-offline.ps1 -Tag v0.22.2。" }
 
 & $dotnet publish $Shell @common "-p:SetupMode=true" "-p:AssemblyName=HerMemorySetup" "-o" "$SetupDir"
 if ($LASTEXITCODE -ne 0) { throw "安装器发布失败（exit $LASTEXITCODE）" }
