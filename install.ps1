@@ -107,7 +107,8 @@ function Show-Tail([string]$s, [int]$n = 8) {
     return [Environment]::NewLine + "输出末尾：" + [Environment]::NewLine + (($ls | ForEach-Object { "  " + $_ }) -join [Environment]::NewLine)
 }
 
-# 从 uv trampoline 的 exe 里读出它内嵌的解释器绝对路径（诊断用）。
+# 从 launcher 的 exe 里读出它内嵌的解释器绝对路径（诊断用；v0.22 的启动器可能是
+# 运行时解析而非内嵌，读不到就由 Format-CliBroken 走「未读出」分支）。
 function Get-EmbeddedPython([string]$exe) {
     $found = @()
     try {
@@ -126,7 +127,7 @@ function Format-CliBroken([string]$exe) {
     $emb = @(Get-EmbeddedPython $exe)
     if ($emb.Count -gt 0) {
         foreach ($t in $emb) {
-            [void]$L.Add("  该 exe 是 uv 造的启动器，内嵌解释器：$t")
+            [void]$L.Add("  该 exe 里写死的解释器路径：$t")
             [void]$L.Add("    该解释器存在？ " + (Test-Path -LiteralPath $t))
         }
     } else {
@@ -229,8 +230,17 @@ $StateFile = Join-Path $HermesHome "hermemory-install.state"
 #   uv.exe               PM 的引导器（上游 Get-Uv 会优先复用运行期目录里的同版本 uv）
 # 其余（CPython 3.14 / Node 26 / Chromium / PyPI 依赖）安装时由 PM 从官方 sha256 镜像
 # 与国内索引取——不再有 assets-offline 那一套 1.5 GB 的随包素材。
-$PinCommit = "d923a5eb487a17c0a68801bba9ef0f56c81040a8"
-$PinTag    = "v0.22.2"
+# 上游 v0.22 的安装器只认 commit（没有 -Tag 参数），且要求它是 origin/main 的祖先。
+# 随包内核是「快照仓库」：pin 的工作树重做成单提交仓库（树字节与 pin 一致、带 pin tag，
+# 见 build-offline.ps1 的说明），所以这里的 commit 指的是**那个快照提交**，由构建时写进
+# hermes-agent.commit。真实上游 commit 另存 hermes-agent.upstream-commit（仅审计）。
+$PinTag = "v0.22.2"
+$PinCommit = ""
+$commitStamp = Join-Path $PSScriptRoot "hermes-agent.commit"
+if (Test-Path $commitStamp) {
+    $c = (Get-Content $commitStamp -Raw -ErrorAction SilentlyContinue)
+    if ($c) { $PinCommit = $c.Trim() }
+}
 $KernelBundle = Join-Path $PSScriptRoot "hermes-agent.bundle"
 $ShippedUv    = Join-Path $PSScriptRoot "uv.exe"
 
@@ -329,15 +339,19 @@ if ($workingCli) {
 
     $upArgs = @(
         '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $up,
-        '-Commit', $PinCommit, '-Branch', 'main',
+        '-Branch', 'main',
         '-NonInteractive',
         '-HermesHome', $HermesHome,
         '-InstallDir', (Join-Path $HermesHome 'hermes-agent')
     )
+    # 快照 commit 在场才做 -Commit 钉住；缺戳时退回「按 main 落位」——宁可少验一层，
+    # 也好过把错 sha 传进去让上游在 merge-base 处硬失败。
+    if ($PinCommit) { $upArgs += @('-Commit', $PinCommit) }
     if ($SkipBrowser)     { $upArgs += '-SkipBrowser' }
     if ($SkipComputerUse) { $upArgs += '-SkipComputerUse' }
 
-    Log "运行上游安装器（pin $PinTag / $($PinCommit.Substring(0,12))）……"
+    if ($PinCommit) { Log "运行上游安装器（pin $PinTag / $($PinCommit.Substring(0,12))）……" }
+    else { Log "运行上游安装器（pin $PinTag，按 main 落位）……" }
     if ($SkipBrowser)     { Log "按安装选项：不安装浏览器工具（agent-browser + Chromium）" }
     if ($SkipComputerUse) { Log "按安装选项：不安装电脑操作驱动（cua-driver）" }
 

@@ -11,7 +11,7 @@
 
   随包素材为什么只有两件（v0.22 架构）：上游把重依赖整体交给 PM（pm/lock.json 逐件
   sha256 钉死），随包只需要「内核本身」与「引导 PM 的 uv」——
-    hermes-agent.bundle  约 80 MB（含 refs/heads/main = pin commit）
+    hermes-agent.bundle  约 83 MB（快照仓库：main = 快照提交，带 pin tag）
     uv.exe               约 35 MB（版本取上游 pm/lock.json）
   Python 3.14 / Node 26 / Chromium / PyPI 依赖都在安装时由 PM 从官方 sha256 镜像
   （hermes-assets.nousresearch.com）与国内索引取。

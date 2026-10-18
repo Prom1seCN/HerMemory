@@ -28,11 +28,20 @@ Hermes Agent 的发行版：三层壳。
 
 ## 随包策略（发行版决策）
 
-只随包两件（`build-offline.ps1` 产出到 `build/minimal/`）：
-- `hermes-agent.bundle` —— 上游源码 git bundle，`refs/heads/main` **指向 pin commit**、含 pin tag
-- `uv.exe`（+ `uv.version`）—— 版本与 sha256 直接从上游 `pm/lock.json` 抄
+只随包两件 + 两个戳（`build-offline.ps1` 产出到 `build/minimal/`）：
+- `hermes-agent.bundle` —— **快照仓库**的 git bundle：pin 的工作树重做成单提交仓库，
+  `refs/heads/main` 指向该提交、带 `v0.22.2` tag；`* -text` 关掉行尾转换保证字节与 pin 一致
+- `hermes-agent.commit` —— 上述快照提交的 sha（安装器用它做 `-Commit`）
+- `uv.exe` + `uv.version` —— 版本与 sha256 直接从上游 `pm/lock.json` 抄
 
-安装时 `HERMES_REPO_URL=<bundle 路径>`，上游 `Stage-Repository` 从本地 bundle 克隆后 `-Commit` 钉住；零网络。
+为什么是快照仓库而不是上游真仓库（实测结论）：
+- 浅克隆打的 bundle **不可克隆**（bundle 不带 shallow 信息 → `Failed to traverse parents`）
+- 完整历史 **1.1 GB / 54,454 提交**，随包不现实
+
+安装时 `HERMES_REPO_URL=<bundle 路径>` + `-Commit <快照 sha>`，上游 `Stage-Repository`
+克隆后钉住；零网络（实测 4.6 秒落位，`git describe --tags` = v0.22.2）。
+代价：安装戳与 `hermes --version` 末尾显示快照 sha，与上游 sha 不同。
+
 其余（CPython / Node / Chromium / PyPI 依赖）由 PM 从官方 sha256 镜像
 `hermes-assets.nousresearch.com/upstream/sha256/<sha>` 与国内索引取。
 
@@ -45,6 +54,7 @@ Hermes Agent 的发行版：三层壳。
 | 位置 | 契约 |
 |---|---|
 | `$HERMES_HOME/bin/hermes.exe` | Windows 由上游 `Publish-UserCommand` 发布到这里；`HermesCtl.HermsExe` 依赖它 |
+| `scripts/upstream-install.{ps1,sh}` | vendored 上游安装器；升级 pin 时整份替换（SHA256 记在提交里） |
 | `hermes-agent/gateway/platforms/weixin.py` | 微信补丁锚点；`_print_qr()` 里 `try: import qrcode ... print_ascii` 段 |
 | `qr_login(hermes_home, *, bot_type, timeout_seconds)` | `scripts/weixin_qr_login.py` 直调 |
 | `get_hermes_home()/"memories"` | `agent/learning_mutations.py` 硬编码，vault 注入靠它 |

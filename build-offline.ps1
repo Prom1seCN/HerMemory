@@ -1,23 +1,30 @@
 #requires -Version 5.1
 <#
-  HerMemory 随包素材构建（v0.22 架构：只产两件）
+  HerMemory 随包素材构建（v0.22 架构：只产两件 + 两个戳）
 
   用法（打包机 = 有网络的 Windows；GitHub 走系统代理）：
     powershell -ExecutionPolicy Bypass -File build-offline.ps1 [-Tag v0.22.2] [-OutDir build\minimal]
 
   产出（默认 build\minimal\）：
-    hermes-agent.bundle   上游源码的 git bundle：refs/heads/main 指向 pin commit，并带 pin tag
-    uv.exe                PM 的引导器（版本/哈希直接取自上游 pm\lock.json，不手抄）
-    uv.version            uv 的版本号（install.ps1 用它算 PM store 槽位名，保证与随包 exe 一致）
+    hermes-agent.bundle          上游 pin 工作树的 git bundle（快照仓库，约 83 MB）
+    hermes-agent.commit          该 bundle 里 main 指向的 commit（install.ps1 用它做 -Commit 钉住）
+    hermes-agent.upstream-commit 上游真实的 pin commit（审计用，不参与安装）
+    uv.exe                       PM 的引导器（版本/哈希直接取自上游 pm/lock.json）
+    uv.version                   uv 版本（install.ps1 用它算 PM store 槽位名）
 
-  为什么只剩这两件：上游 v0.22 把重依赖整体交给 PM（pm/lock.json 逐件 sha256 钉死）。
-  Python 3.14 / Node 26 / Chromium / PyPI 依赖都在安装时由 PM 从官方 sha256 镜像
-  （hermes-assets.nousresearch.com）与国内索引取，随包只需要「内核本身」和「引导 PM 的 uv」。
-  旧的 assets-offline（1.2 GB）与 scripts\make-minimal-bundle.py 随之作废。
+  为什么是「快照仓库」而不是上游真仓库：
+    上游 v0.22 的 Stage-Repository 只认真正的 git 仓库（clone --filter=blob:none --branch main，
+    并用 merge-base 校验 -Commit 属于 origin/main）。而：
+      · 浅克隆（--depth 1）打出的 bundle **无法被克隆**（父提交不在包里，git 报
+        "Failed to traverse parents"）——bundle 不携带 shallow 信息；
+      · 完整历史实测 1.1 GB（54,454 个提交），随包不现实。
+    所以把 pin 的工作树重新做成一个**单提交仓库**（树字节与 pin 完全一致、带 vX.Y.Z tag），
+    用 `* -text` 关掉行尾转换以保证字节不变，再打包。安装时 -Commit 指向这个合成提交，
+    `git describe --tags` 仍是 v0.22.2，版本号显示正确；代价是 commit sha 与上游不同
+    （安装戳与 `hermes --version` 末尾会显示合成 sha，属已知取舍）。
 
-  为什么用 bundle 而不是源码 zip：上游 v0.22 的 Stage-Repository 只认真正的 git 仓库
-  （clone --filter=blob:none --branch main，并校验 -Commit 是 origin/main 的祖先）。
-  把 main 指到 pin 提交再打包，安装时 HERMES_REPO_URL 指向这个 bundle 即零网络落位。
+  其余重依赖（CPython 3.14 / Node 26 / Chromium / PyPI 依赖）安装时由 PM 从官方 sha256
+  镜像（hermes-assets.nousresearch.com）与国内索引取。
 #>
 param(
     [string]$Tag = "v0.22.2",
@@ -39,12 +46,14 @@ function Step([string]$n) { Write-Host ""; Write-Host "=== $n ===" -ForegroundCo
 function Ok([string]$m)   { Write-Host "[完成] $m" -ForegroundColor Green }
 function Fail([string]$m) { Write-Host "[错误] $m" -ForegroundColor Red; exit 1 }
 
-$Bundle = Join-Path $Out "hermes-agent.bundle"
+$Bundle    = Join-Path $Out "hermes-agent.bundle"
+$CommitTxt = Join-Path $Out "hermes-agent.commit"
+$UpTxt     = Join-Path $Out "hermes-agent.upstream-commit"
 $Src = Join-Path $Work "pin-src"
 
-# ---------- 1/2. 取上游源码并打 bundle ----------
-Step "1/4 获取上游源码并打 bundle（$Tag）"
-if ((Test-Path $Bundle) -and -not $Force) {
+# ---------- 1. 取上游 pin 工作树 ----------
+Step "1/5 获取上游 pin 工作树（$Tag）"
+if ((Test-Path $Bundle) -and (Test-Path $CommitTxt) -and -not $Force) {
     Ok "已存在，跳过：$Bundle（要重建加 -Force）"
 } else {
     if (-not (Get-Command git -ErrorAction SilentlyContinue)) { Fail "需要 git（PATH 里没有）" }
@@ -54,41 +63,81 @@ if ((Test-Path $Bundle) -and -not $Force) {
     try { & git clone --depth 1 --branch $Tag $RepoUrl $Src 2>&1 | Out-String | Write-Host } finally { $ErrorActionPreference = $prev }
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path (Join-Path $Src ".git"))) { Fail "git clone 失败（网络/GitHub 限流？换时间或挂代理重试）" }
 
-    Step "2/4 打包 git bundle"
-    # 浅克隆 + --branch <tag> 是分离 HEAD，仓库里没有分支引用。上游 Stage-Repository 要
-    # `git clone --branch main`，并用 merge-base 校验 pin 属于 origin/main，所以显式造 main。
+    $upstreamCommit = (& git -C $Src rev-parse HEAD).Trim()
+    Write-Host "upstream pin: $upstreamCommit"
+    if (-not (Test-Path (Join-Path $Src "pm\lock.json"))) { Fail "工作树里没有 pm\lock.json —— 这不是 v0.22+ 的树，检查 -Tag" }
+    if (-not (Test-Path (Join-Path $Src "pyproject.toml"))) { Fail "工作树里没有 pyproject.toml" }
+
+    # ---------- 2. 重做成快照仓库（单提交 + tag） ----------
+    Step "2/5 重建为快照仓库"
+    Remove-Item (Join-Path $Src ".git") -Recurse -Force
     $prev = $ErrorActionPreference; $ErrorActionPreference = "Continue"
-    try { & git -C $Src branch -f main HEAD 2>&1 | Out-String | Write-Host } finally { $ErrorActionPreference = $prev }
-    if ($LASTEXITCODE -ne 0) { Fail "git branch -f main HEAD 失败（bundle 会缺 refs/heads/main）" }
+    try {
+        & git -C $Src init -q -b main 2>&1 | Out-String | Write-Host
+        # 关掉一切行尾/编码转换：随包树必须与 pin 的 checkout 字节完全一致
+        & git -C $Src config core.autocrlf false 2>&1 | Out-Null
+        & git -C $Src config core.safecrlf false 2>&1 | Out-Null
+        Set-Content -Path (Join-Path $Src ".git\info\attributes") -Value "* -text`n" -Encoding ASCII
+        & git -C $Src -c user.name="HerMemory Release" -c user.email="noreply@hermemory.local" add -A 2>&1 | Out-String | Write-Host
+        if ($LASTEXITCODE -ne 0) { Fail "git add 失败" }
+        & git -C $Src -c user.name="HerMemory Release" -c user.email="noreply@hermemory.local" `
+            commit -q -m "Hermes Agent $Tag (source snapshot; tree identical to upstream $upstreamCommit)" 2>&1 | Out-String | Write-Host
+        if ($LASTEXITCODE -ne 0) { Fail "git commit 失败" }
+        & git -C $Src -c user.name="HerMemory Release" -c user.email="noreply@hermemory.local" `
+            tag -a $Tag -m "Hermes Agent $Tag" 2>&1 | Out-String | Write-Host
+        if ($LASTEXITCODE -ne 0) { Fail "git tag 失败" }
+    } finally { $ErrorActionPreference = $prev }
 
-    $pinSha = (& git -C $Src rev-parse HEAD).Trim()
-    Write-Host "pin commit: $pinSha"
+    $snapshotCommit = (& git -C $Src rev-parse HEAD).Trim()
+    Write-Host "snapshot commit: $snapshotCommit"
 
+    # ---------- 3. 打 bundle 并做克隆冒烟测试 ----------
+    Step "3/5 打 bundle + 克隆冒烟测试"
     if (Test-Path $Bundle) { Remove-Item $Bundle -Force }
     $prev = $ErrorActionPreference; $ErrorActionPreference = "Continue"
-    try { & git -C $Src bundle create $Bundle main --tags 2>&1 | Out-String | Write-Host } finally { $ErrorActionPreference = $prev }
+    try { & git -C $Src bundle create $Bundle main "refs/tags/$Tag" 2>&1 | Out-String | Write-Host } finally { $ErrorActionPreference = $prev }
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path $Bundle)) { Fail "git bundle create 失败" }
 
-    # 引用校验：少了 main 安装时必失败；少了 tag 则 pin 不可审计
     $heads = (& git bundle list-heads $Bundle) -join "`n"
     if ($heads -notmatch "refs/heads/main") { Fail "bundle 缺 refs/heads/main —— 上游 clone --branch main 会直接失败" }
     if ($heads -notmatch [regex]::Escape("refs/tags/$Tag")) { Fail "bundle 缺 refs/tags/$Tag" }
-    Ok ("bundle 引用校验通过（main + $Tag，pin $($pinSha.Substring(0,12))）")
 
-    # 给发布者一个可核对的 pin 摘要（不进包，只留作构建台账）
-    @{ tag = $Tag; commit = $pinSha; created = (Get-Date).ToUniversalTime().ToString("o") } |
-        ConvertTo-Json | Set-Content (Join-Path $Work "pin.json") -Encoding UTF8
+    # 冒烟：用上游完全相同的参数真实克隆一次。浅克隆打包 / 缺对象等问题都在这里暴露，
+    # 而不是等到用户装到一半。
+    $smoke = Join-Path $Work "smoke-clone"
+    if (Test-Path $smoke) { Remove-Item $smoke -Recurse -Force -ErrorAction SilentlyContinue }
+    $prev = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+    try { & git clone --filter=blob:none --branch main $Bundle $smoke 2>&1 | Out-String | Write-Host } finally { $ErrorActionPreference = $prev }
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path (Join-Path $smoke ".git"))) {
+        Fail "bundle 无法用上游参数克隆（这一定会让安装失败）——检查是否又用了浅克隆"
+    }
+    $prev = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+    & git -C $smoke merge-base --is-ancestor $snapshotCommit origin/main 2>&1 | Out-Null
+    $ancestorOk = ($LASTEXITCODE -eq 0)
+    $describe = (& git -C $smoke describe --tags 2>$null) -join ""
+    $ErrorActionPreference = $prev
+    if (-not $ancestorOk) { Fail "快照 commit 不是 origin/main 的祖先 —— 上游的 pin 校验会失败" }
+    if ($describe -notmatch [regex]::Escape($Tag)) { Fail "克隆后 git describe 不是 $Tag（实际：$describe）" }
+    Remove-Item $smoke -Recurse -Force -ErrorAction SilentlyContinue
+    Ok "bundle 校验通过（main = $($snapshotCommit.Substring(0,12))，describe=$describe）"
+
+    Set-Content -Path $CommitTxt -Value $snapshotCommit -Encoding ASCII -NoNewline
+    Set-Content -Path $UpTxt -Value $upstreamCommit -Encoding ASCII -NoNewline
 }
 
-# ---------- 3. uv（版本与哈希取上游 pm/lock.json，不手抄） ----------
-Step "3/4 取 uv 引导器"
+# ---------- 4. uv（版本与哈希取上游 pm/lock.json，不手抄） ----------
+Step "4/5 取 uv 引导器"
 $UvExe = Join-Path $Out "uv.exe"
 $UvVerFile = Join-Path $Out "uv.version"
+if ((Test-Path $UvExe) -and -not (Test-Path $UvVerFile)) {
+    # 旧产物没有版本戳：删掉重取，避免槽位名与 exe 不一致
+    Remove-Item $UvExe -Force -ErrorAction SilentlyContinue
+}
 if ((Test-Path $UvExe) -and -not $Force) {
     Ok "已存在，跳过 uv 获取：$UvExe（要重建加 -Force）"
 } else {
     $lockPath = Join-Path $Src "pm\lock.json"
-    if (-not (Test-Path $lockPath)) { Fail "读不到上游 pm\lock.json（源码没取到？）" }
+    if (-not (Test-Path $lockPath)) { Fail "读不到上游 pm\lock.json（源码没取到？用 -Force 重跑）" }
     $lock = Get-Content $lockPath -Raw -Encoding UTF8 | ConvertFrom-Json
     $uvPin = $lock.packages.uv
     $art = $uvPin.artifacts.'win32-x64'
@@ -118,18 +167,17 @@ if ((Test-Path $UvExe) -and -not $Force) {
     Remove-Item $tmpZip -Force -ErrorAction SilentlyContinue
     Remove-Item $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
 
-    # 版本戳：install.ps1 用它算 PM store 槽位（uv-<版本>-win32-x64），必须与 exe 本身一致
     Set-Content -Path $UvVerFile -Value $uvVer -Encoding ASCII -NoNewline
     $verOut = (& $UvExe --version) -join ""
     if ($verOut -notmatch [regex]::Escape($uvVer)) { Fail "uv 版本不符：期望 $uvVer，实际 $verOut" }
     Ok "uv $uvVer 就绪"
 }
 
-# ---------- 4. 汇总 ----------
-Step "4/4 汇总"
+# ---------- 5. 汇总 ----------
+Step "5/5 汇总"
 $items = Get-ChildItem $Out -File | Sort-Object Name
 foreach ($f in $items) {
-    Write-Host ("  {0,-26} {1,10:N1} MB" -f $f.Name, ($f.Length / 1MB))
+    Write-Host ("  {0,-30} {1,10:N1} MB" -f $f.Name, ($f.Length / 1MB))
 }
 $total = ($items | Measure-Object Length -Sum).Sum / 1MB
 Write-Host ""

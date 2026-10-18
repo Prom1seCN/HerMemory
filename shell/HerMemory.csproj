@@ -59,14 +59,19 @@
   <ItemGroup Condition="'$(SetupMode)' == 'true'">
     <SetupApp Include="..\build\app\HerMemory.exe" Condition="Exists('..\build\app\HerMemory.exe')" />
     <EmbeddedResource Include="@(SetupApp)" LogicalName="app/%(Filename)%(Extension)" />
-    <!-- 随包只带两件（v0.22 架构）：
-           hermes-agent.bundle  上游源码的 git bundle（refs/heads/main = pin commit + pin tag）
-           uv.exe               PM 的引导器（版本必须等于 pm/lock.json 的 uv pin）
+    <!-- 随包四件（v0.22 架构）：
+           hermes-agent.bundle   快照仓库的 git bundle（main = 快照提交，含 pin tag）
+           hermes-agent.commit   该 bundle 的 main commit（install.ps1 用它做 -Commit 钉住）
+           uv.exe                PM 的引导器（版本必须等于 pm/lock.json 的 uv pin）
+           uv.version            uv 版本（install.ps1 用它算 PM store 槽位名）
          Python 3.14 / Node 26 / Chromium / PyPI 依赖全部由 PM 在安装时从官方 sha256 镜像
          与国内索引取——不再有 assets-offline 那一套 1.5 GB 素材。
+         两个 .version/.commit 戳必须随包，否则安装时读不到、pin 校验与 uv 槽位都会退化。
          产出方：build-offline.ps1。 -->
     <BundledAsset Include="..\build\minimal\hermes-agent.bundle" Condition="Exists('..\build\minimal\hermes-agent.bundle')" />
+    <BundledAsset Include="..\build\minimal\hermes-agent.commit" Condition="Exists('..\build\minimal\hermes-agent.commit')" />
     <BundledAsset Include="..\build\minimal\uv.exe" Condition="Exists('..\build\minimal\uv.exe')" />
+    <BundledAsset Include="..\build\minimal\uv.version" Condition="Exists('..\build\minimal\uv.version')" />
     <EmbeddedResource Include="@(BundledAsset)" LogicalName="payload/%(Filename)%(Extension)" />
   </ItemGroup>
 
@@ -77,8 +82,12 @@
            Text="安装器缺少程序本体：build\app\HerMemory.exe 不存在。请用 build-release.ps1 构建（它会先发布程序本体）。" />
     <Error Condition="!Exists('$(MSBuildThisFileDirectory)..\build\minimal\hermes-agent.bundle')"
            Text="安装器缺少内核 bundle：build\minimal\hermes-agent.bundle 不存在。请先运行 build-offline.ps1 -Tag v0.22.2。" />
+    <Error Condition="!Exists('$(MSBuildThisFileDirectory)..\build\minimal\hermes-agent.commit')"
+           Text="安装器缺少内核 commit 戳：build\minimal\hermes-agent.commit 不存在。请先运行 build-offline.ps1 -Tag v0.22.2。" />
     <Error Condition="!Exists('$(MSBuildThisFileDirectory)..\build\minimal\uv.exe')"
            Text="安装器缺少 uv：build\minimal\uv.exe 不存在。请先运行 build-offline.ps1 -Tag v0.22.2。" />
+    <Error Condition="!Exists('$(MSBuildThisFileDirectory)..\build\minimal\uv.version')"
+           Text="安装器缺少 uv 版本戳：build\minimal\uv.version 不存在。请先运行 build-offline.ps1 -Tag v0.22.2。" />
   </Target>
 
 </Project>

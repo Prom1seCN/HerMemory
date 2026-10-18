@@ -51,7 +51,7 @@ bash install.sh
 
 | 步骤 | 动作 | 你需要做 |
 | --- | --- | --- |
-| 1 | 落位 Hermes 官方内核（锁定 v0.22.2 / commit d923a5e）：从随包 git bundle 检出，零网络 | 等待 |
+| 1 | 落位 Hermes 官方内核（锁定 v0.22.2，上游 d923a5e 的工作树）：从随包 git bundle 检出，零网络 | 等待 |
 | 2 | 由上游 PM 装运行环境：Python 3.14、Node、工具二进制与 Python 依赖（全部按 `pm/lock.json` 的 sha256 校验） | 等待，需联网 |
 | 3 | 建立同步库 `~/vault`：普通文件夹，用户文档与 AI 记忆都在其中 | 无 |
 | 4 | 铺出厂五文件：MEMORY / USER / SOUL / AGENTS / AUTOMATION。已存在的文件一律跳过，不覆盖 | 无 |

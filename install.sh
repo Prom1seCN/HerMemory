@@ -20,8 +20,10 @@ set -euo pipefail
 HERMEMORY_VERSION="0.2.0"
 PINNED_HERMES_TAG="v0.22.2"
 # 上游 v0.22 的安装器只认 commit（没有 -Tag 参数），且要求它是 origin/main 的祖先。
-# 这个 sha 就是 tag v0.22.2 指向的 release commit（已在 main 上，实测落后 main 1659 个提交）。
-PINNED_HERMES_COMMIT="d923a5eb487a17c0a68801bba9ef0f56c81040a8"
+# 随包内核是「快照仓库」：pin 的工作树重做成单提交仓库（树字节与 pin 一致、带 pin tag，
+# 见 build-offline.ps1）。这里的 commit 是**那个快照提交**，由 hermes-agent.commit 提供；
+# 没有戳时退回「按 main 落位」。真实上游 commit = d923a5eb487a17c0a68801bba9ef0f56c81040a8。
+PINNED_HERMES_COMMIT=""   # 由随包 hermes-agent.commit 填充（见下方内核段）
 UPSTREAM_REPO="https://github.com/NousResearch/hermes-agent.git"
 UPSTREAM_DIR="$HOME/hermes-agent"
 # 内核 git bundle 直链（由 build-offline.ps1 产出，上传到自己的服务器）。
@@ -142,14 +144,24 @@ else
         log "内核来源：GitHub（$UPSTREAM_REPO）"
     fi
 
+    # 快照 commit 戳（build-offline.ps1 产出）：有就做 -Commit 钉住，没有就按 main 落位。
+    if [ -z "$PINNED_HERMES_COMMIT" ] && [ -f "$SRC/hermes-agent.commit" ]; then
+        PINNED_HERMES_COMMIT="$(tr -d '[:space:]' < "$SRC/hermes-agent.commit" 2>/dev/null || true)"
+    fi
+
     # 浏览器与电脑操作：默认装。设 HERMEMORY_SKIP_BROWSER=1 / HERMEMORY_SKIP_COMPUTER_USE=1 可跳过
     # （上游会把选择记进 declined-packages.json，之后 hermes update 也不会加回来）。
-    inst_args=(--non-interactive --commit "$PINNED_HERMES_COMMIT" --branch main
+    inst_args=(--non-interactive --branch main
                --dir "$UPSTREAM_DIR" --hermes-home "$HERMES_HOME")
+    [ -n "$PINNED_HERMES_COMMIT" ] && inst_args+=(--commit "$PINNED_HERMES_COMMIT")
     [ "${HERMEMORY_SKIP_BROWSER:-0}" = "1" ]      && inst_args+=(--skip-browser)
     [ "${HERMEMORY_SKIP_COMPUTER_USE:-0}" = "1" ] && inst_args+=(--skip-computer-use)
 
-    log "运行官方安装器（pin $PINNED_HERMES_TAG / ${PINNED_HERMES_COMMIT:0:12}）……"
+    if [ -n "$PINNED_HERMES_COMMIT" ]; then
+        log "运行官方安装器（pin $PINNED_HERMES_TAG / ${PINNED_HERMES_COMMIT:0:12}）……"
+    else
+        log "运行官方安装器（pin $PINNED_HERMES_TAG，按 main 落位）……"
+    fi
     bash "$UPSTREAM_INSTALLER" "${inst_args[@]}" || die "上游安装失败，见上方输出。重跑可续装。"
 
     export PATH="$HOME/.local/bin:$PATH"
