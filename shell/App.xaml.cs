@@ -7,6 +7,7 @@ namespace HerMemory
     {
         private TrayService? _tray;
         private MainWindow? _wizard;
+        private MemoryEditorWindow? _editor;
         private static Mutex? _single;
 
         public static void RequestExit()
@@ -47,6 +48,7 @@ namespace HerMemory
             // 托盘不再提供「安装向导」入口（2026-09-16 用户裁决）：主界面第三行已经有这个按钮，
             // 托盘里再来一个是重复的；而且它容易让人误以为"安装包还常驻着"。
             _tray.OpenMain += () => SafeDispatch(ShowMain);
+            _tray.OpenEditor += () => SafeDispatch(ShowEditor);
             _tray.OpenUninstall += () => SafeDispatch(ShowUninstall);
             _tray.OpenWeixin += () => SafeDispatch(ShowWeixinFromTray);
             _tray.StatusChanged += (state, _) => SafeDispatch(() => _wizard?.UpdateHomeStatus(state));
@@ -214,6 +216,20 @@ namespace HerMemory
             _wizard = new MainWindow { HomeMode = true };
             _wizard.Closed += (_, _) => _wizard = null;
             _wizard.Show();
+        }
+
+        /// <summary>托盘 → 记忆编辑器。窗口自己管理脏数据与保存，这里只负责单实例复用。</summary>
+        private void ShowEditor()
+        {
+            try
+            {
+                if (_editor != null) { _editor.Activate(); return; }
+                var w = new MemoryEditorWindow();
+                _editor = w;
+                w.Closed += (_, _) => _editor = null;
+                w.Show();
+            }
+            catch { }
         }
 
         private void ShowUninstall()

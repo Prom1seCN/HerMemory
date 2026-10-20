@@ -34,6 +34,8 @@ namespace HerMemory
         public event Action? OpenUninstall;
         /// <summary>菜单点"微信绑定…"。</summary>
         public event Action? OpenWeixin;
+        /// <summary>菜单点"编辑记忆…"（应用内嵌 Markdown 编辑器）。</summary>
+        public event Action? OpenEditor;
 
         private string LogsDir => HermesCtl.LogsDir;
 
@@ -59,6 +61,7 @@ namespace HerMemory
                     Process.Start(new ProcessStartInfo("explorer.exe", $"\"{LogsDir}\"") { UseShellExecute = true });
             });
             var miMain = new System.Windows.Forms.ToolStripMenuItem("打开主界面", null, (_, _) => OpenMain?.Invoke());
+            var miEditor = new System.Windows.Forms.ToolStripMenuItem("编辑记忆…", null, (_, _) => OpenEditor?.Invoke());
             var miWeixin = new System.Windows.Forms.ToolStripMenuItem("微信绑定…", null, (_, _) => OpenWeixin?.Invoke());
             var miUnins = new System.Windows.Forms.ToolStripMenuItem("卸载…", null, (_, _) => OpenUninstall?.Invoke());
             var miAuto = new System.Windows.Forms.ToolStripMenuItem("开机自启", null, (_, _) => ToggleAutostart())
@@ -90,6 +93,7 @@ namespace HerMemory
             _menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
             _menu.Items.Add(miLogs);
             _menu.Items.Add(miMain);
+            _menu.Items.Add(miEditor);
             _menu.Items.Add(miWeixin);
             _menu.Items.Add(miUnins);
             _menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());

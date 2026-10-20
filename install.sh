@@ -118,7 +118,20 @@ if hermes_works && [ "$(hermes_version)" = "$HERMES_WANT_VERSION" ]; then
     mark_done upstream
 else
     if hermes_works; then
-        warn "检测到 Hermes v$(hermes_version)（本发行版锁定 v$HERMES_WANT_VERSION），将升级内核与运行环境。"
+        HAVE_VERSION="$(hermes_version)"
+        # 已有安装比本发行版新就不降级：会动到用户正在用的内核与会话库 schema，且没有回滚保证。
+        NEWEST="$(printf '%s\n%s\n' "$HAVE_VERSION" "$HERMES_WANT_VERSION" | sort -V | tail -1)"
+        if [ -n "$HAVE_VERSION" ] && [ "$NEWEST" = "$HAVE_VERSION" ] && [ "$HAVE_VERSION" != "$HERMES_WANT_VERSION" ]; then
+            die "检测到已有的 Hermes v$HAVE_VERSION 比本发行版锁定的 v$HERMES_WANT_VERSION 更新。为避免降级损坏数据，安装已中止。可选：换更新版的 HerMemory、先卸载现有 Hermes，或改数据目录（HERMES_HOME）做并存。"
+        fi
+        warn "检测到 Hermes v${HAVE_VERSION:-未知}（本发行版锁定 v$HERMES_WANT_VERSION），将升级内核与运行环境。"
+        # 接管已有安装：先备份配置与凭据，给用户一个就地回滚点
+        TS="$(date +%Y%m%d-%H%M%S)"
+        for f in config.yaml .env; do
+            [ -f "$HERMES_HOME/$f" ] && cp "$HERMES_HOME/$f" "$HERMES_HOME/$f.pre-hermemory-$TS" 2>/dev/null || true
+        done
+        log "已备份现有配置：config.yaml / .env（.pre-hermemory-$TS）"
+        KERNEL_UPGRADED=1
     fi
     UPSTREAM_INSTALLER="$SRC/scripts/upstream-install.sh"
     [ -f "$UPSTREAM_INSTALLER" ] || die "缺 vendored 上游安装器：$UPSTREAM_INSTALLER（发行包不完整，请重新 git clone 本仓库）"
@@ -198,6 +211,15 @@ if [ -f "$WX_PY" ] && [ -f "$WX_PATCH" ]; then
     else
         warn "找不到 PM 托管的解释器，跳过内核补丁（不影响扫码，只是终端多一坨字符画）"
     fi
+fi
+
+# ---------- 2.6 每日新对话脚本 ----------
+# 设置页「每日新对话」用 cron 的 --script X --no-agent 执行它；cron 只认
+# $HERMES_HOME/scripts/ 下的文件。默认不创建定时任务（自动化默认关闭）。
+if [ -f "$SRC/scripts/hermemory_daily_new.py" ]; then
+    mkdir -p "$HERMES_HOME/scripts"
+    cp "$SRC/scripts/hermemory_daily_new.py" "$HERMES_HOME/scripts/hermemory_daily_new.py"
+    ok "每日新对话脚本已就位：$HERMES_HOME/scripts"
 fi
 
 # ---------- 3. vault 结构 ----------
@@ -526,6 +548,14 @@ print(json.load(open(files[-1])).get('user_id', '') if files else '')" 2>/dev/nu
 fi
 
 # ---------- 11. gateway 服务（消息通道 + cron） ----------
+if [ "${KERNEL_UPGRADED:-0}" = "1" ]; then
+    # 内核换了版本：旧 systemd 单元里的解释器/工作目录都是旧的，留着它网关就起不来。
+    # 先停掉并删单元，让下面那段老老实实重装。
+    log "内核已升级：重建 gateway 服务单元"
+    hermes gateway stop >/dev/null 2>&1 || true
+    rm -f "$HOME/.config/systemd/user/"*hermes*.service 2>/dev/null || true
+    systemctl --user daemon-reload 2>/dev/null || true
+fi
 log "安装 gateway 服务……"
 # 上游 CLI 以 sys.stdin.isatty() 判定交互性
 #（hermes_cli/gateway.py：non_interactive = not sys.stdin.isatty()）：从终端运行时为交互态，

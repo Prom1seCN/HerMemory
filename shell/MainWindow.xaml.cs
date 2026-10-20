@@ -1026,6 +1026,103 @@ namespace HerMemory
                 Process.Start(new ProcessStartInfo("explorer.exe", $"\"{VaultDir}\"") { UseShellExecute = true });
         }
 
+        // ================= 编辑记忆（应用内嵌 Markdown 编辑器） =================
+
+        private void BtnEditor_Click(object sender, RoutedEventArgs e)
+        {
+            // 安装器形态没有「记忆编辑器」这一职责（那是已装好之后的事），安装阶段也不该打开它
+            if (AppPaths.IsSetup) return;
+            try
+            {
+                new MemoryEditorWindow { Owner = this }.ShowDialog();
+            }
+            catch (Exception ex) { ReportUiError("打开记忆编辑器", ex); }
+        }
+
+        // ================= 设置页（每日新对话） =================
+
+        private bool _settingsLoading;
+
+        private void LinkSettings_Click(object sender, RoutedEventArgs e)
+        {
+            ShowPage("PageSettings");
+            LoadSettingsPage();
+        }
+
+        private void LoadSettingsPage()
+        {
+            _settingsLoading = true;
+            try
+            {
+                var (enabled, time) = HermesCtl.GetDailyNewSession();
+                ChkDailyNew.IsChecked = enabled;
+                DailyTimeBox.Text = time;
+                DailyTimeBox.IsEnabled = enabled;
+
+                // 注册表说开着、cron 里却没有（或被暂停）：如实说明，不假装在工作
+                var job = HermesCtl.DailyJobInfo();
+                if (enabled && (!job.exists || !job.enabled))
+                {
+                    SettingsHint.Foreground = Brush("#EF6C00");
+                    SettingsHint.Text = job.exists
+                        ? "定时任务处于暂停状态，点「保存」重新启用。"
+                        : "定时任务不存在（可能被手动删除），点「保存」重建。";
+                }
+                else
+                {
+                    SettingsHint.Foreground = Brush("#90A4AE");
+                    SettingsHint.Text = enabled ? "已开启" : "当前关闭";
+                }
+            }
+            finally { _settingsLoading = false; }
+        }
+
+        private void ChkDailyNew_Changed(object sender, RoutedEventArgs e)
+        {
+            if (_settingsLoading) return;
+            DailyTimeBox.IsEnabled = ChkDailyNew.IsChecked == true;
+        }
+
+        private async void BtnSaveSettings_Click(object sender, RoutedEventArgs e)
+        {
+            var enabled = ChkDailyNew.IsChecked == true;
+            var time = (DailyTimeBox.Text ?? "").Trim();
+            if (HermesCtl.CronOf(time) == null)
+            {
+                SettingsHint.Foreground = Brush("#C62828");
+                SettingsHint.Text = "时间格式应为 HH:mm，例如 04:00";
+                return;
+            }
+
+            BtnSaveSettings.IsEnabled = false;
+            SettingsHint.Foreground = Brush("#78909C");
+            SettingsHint.Text = "正在保存……";
+            try
+            {
+                var sourceDir = ResolvePayloadRoot();
+                var (ok, msg) = await Task.Run(() => HermesCtl.SetDailyNewSession(enabled, time, sourceDir));
+                SettingsHint.Foreground = Brush(ok ? "#2E7D32" : "#C62828");
+                SettingsHint.Text = msg;
+            }
+            catch (Exception ex) { ReportUiError("保存设置", ex); }
+            finally { BtnSaveSettings.IsEnabled = true; }
+        }
+
+        /// <summary>随包资源根目录（含 scripts/ 与 memory/）：优先仓库目录，其次解压出来的 payload。
+        /// 安装器与程序本体两种形态都能取到，不用猜。</summary>
+        private string ResolvePayloadRoot()
+        {
+            try
+            {
+                var root = _repoRoot ?? FindRepoRoot();
+                if (!string.IsNullOrEmpty(root) && Directory.Exists(Path.Combine(root, "scripts"))) return root;
+            }
+            catch { }
+            var pd = PayloadDir;
+            if (ExtractPayload(pd)) return pd;
+            return _repoRoot ?? "";
+        }
+
         /// <summary>主界面 → 安装向导：直接切到向导首页并重跑预检。
         /// 已安装状态下重跑，install.ps1 会自动跳过已完成步骤；若此前落在"安装不完整"状态，
         /// 这也是唯一的自愈入口（启动判定把不完整安装导向向导，本按钮则让日常态也能回去）。</summary>

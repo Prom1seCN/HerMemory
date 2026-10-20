@@ -177,6 +177,20 @@ function Get-HermesVersion([string]$exe) {
     return ""
 }
 
+# 粗略 semver 比较：返回 -1/0/1。只比较数字段，够用（版本号都是 x.y.z）。
+function Compare-Version([string]$a, [string]$b) {
+    $pa = @(($a -split '\.') | ForEach-Object { $n = 0; [void][int]::TryParse($_, [ref]$n); $n })
+    $pb = @(($b -split '\.') | ForEach-Object { $n = 0; [void][int]::TryParse($_, [ref]$n); $n })
+    $n = [Math]::Max($pa.Count, $pb.Count)
+    for ($i = 0; $i -lt $n; $i++) {
+        $x = if ($i -lt $pa.Count) { $pa[$i] } else { 0 }
+        $y = if ($i -lt $pb.Count) { $pb[$i] } else { 0 }
+        if ($x -lt $y) { return -1 }
+        if ($x -gt $y) { return 1 }
+    }
+    return 0
+}
+
 # ---------- 静默模式（exe 契约）：-AnswersFile 提供 JSON 答案，跳过全部交互 ----------
 # **分两个阶段调用（2026-09-15 用户定的安装顺序：先选目录 → 安装 → 再填记忆与 API）**：
 #   安装阶段：答案文件里**不带** AI 四项 → 只装内核与文件，memory-tier / config-ai / wechat / gateway 全跳过
@@ -342,7 +356,29 @@ if ($workingCli -and $haveVer -eq $WantHermesVersion) {
     Mark-Done "upstream"
 } else {
     if ($workingCli) {
+        # 现有安装比本发行版还新：不降级。降级会动到用户正在用的内核与数据库 schema，
+        # 而且没有任何回滚保证——宁可停在这里说清楚。
+        if ($haveVer -and (Compare-Version $haveVer $WantHermesVersion) -gt 0) {
+            Die ("检测到已有的 Hermes v$haveVer 比本发行版锁定的 v$WantHermesVersion 更新。" +
+                 [Environment]::NewLine + "为避免降级损坏现有数据，安装已中止。" +
+                 [Environment]::NewLine + "可选：① 换到更新的 HerMemory 发行版；② 先卸载现有 Hermes 再装；" +
+                 [Environment]::NewLine + "③ 把数据目录改到别处（安装位置页可改「数据存储位置」）做并存安装。")
+        }
         Warn ("检测到 Hermes v" + $(if ($haveVer) { $haveVer } else { "未知" }) + "（本发行版锁定 v$WantHermesVersion），将升级内核与运行环境。")
+        # 接管已有安装：先备份配置与凭据。内核升级不会删它们，但用户值得有一个就地回滚点。
+        {
+            $ts = Get-Date -Format "yyyyMMdd-HHmmss"
+            foreach ($f in @("config.yaml", ".env")) {
+                $src = Join-Path $HermesHome $f
+                if (Test-Path $src) {
+                    $bak = Join-Path $HermesHome ("$f.pre-hermemory-" + $ts)
+                    try { Copy-Item $src $bak -Force; } catch { }
+                }
+            }
+            Log "已备份现有配置：config.yaml / .env（.pre-hermemory-$ts）"
+        }
+        # 内核换了版本 → 旧的网关计划任务跑的仍是旧 venv 的启动脚本，必须让它重建
+        $script:KernelUpgraded = $true
     }
     if ($SkipUpstream) { Die "hermes CLI 不可用，且指定了 -SkipUpstream" }
     if ((Test-Done "upstream") -or (Test-Path (Join-Path $HermesHome "hermes-agent"))) {
@@ -468,6 +504,17 @@ $wxPatch = Join-Path $PSScriptRoot "scripts\patch_weixin_qr.py"
 $wxPython = Get-HermesPython
 if ((Test-Path $wxPy) -and (Test-Path $wxPatch) -and $wxPython) {
     & $wxPython $wxPatch $wxPy
+}
+# ---------- 2.6 每日新对话脚本 ----------
+# 设置页「每日新对话」用 cron 的 `--script X --no-agent` 执行它；cron 只认
+# $HERMES_HOME\scripts\ 下的文件，所以这里放一份。默认不创建定时任务（自动化默认关闭，
+# 由用户在设置页自己开）。
+$dailyDir = Join-Path $HermesHome "scripts"
+$dailySrc = Join-Path $PSScriptRoot "scripts\hermemory_daily_new.py"
+if (Test-Path $dailySrc) {
+    New-Item -ItemType Directory -Force -Path $dailyDir | Out-Null
+    Copy-Item $dailySrc (Join-Path $dailyDir "hermemory_daily_new.py") -Force
+    Ok "每日新对话脚本已就位：$dailyDir"
 }
 Progress "upstream"
 
@@ -869,6 +916,13 @@ if (-not $AutoStartGw) { Log "按安装选项：gateway 服务照装，但不随
 # 最终 gateway 根本不工作且全程无任何提示。
 $gwTaskName = "Hermes_Gateway"
 $gwLauncher = Join-Path $HermesHome "gateway-service\$gwTaskName.vbs"
+# 内核换过版本：旧任务里的启动脚本指向旧 venv 的 python，留着它网关就再也起不来。
+# 先删任务与启动脚本，让下面那段老老实实重装一次（重装会把新解释器写进 .vbs）。
+if ($script:KernelUpgraded) {
+    Log "内核已升级：重建网关计划任务（旧任务指向旧运行时）"
+    Run-Quiet schtasks /Delete /TN $gwTaskName /F
+    if (Test-Path $gwLauncher) { Remove-Item $gwLauncher -Force -ErrorAction SilentlyContinue }
+}
 $gwEap = $ErrorActionPreference; $ErrorActionPreference = "Continue"
 $null = schtasks /Query /TN $gwTaskName /FO LIST 2>&1
 $gwExists = ($LASTEXITCODE -eq 0)

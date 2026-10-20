@@ -486,5 +486,125 @@ namespace HerMemory
             if (enabled) k.SetValue("CloseAction", "tray");
             else k.DeleteValue("CloseAction", false);
         }
+
+        // ================= 每日新对话（设置页） =================
+        // 机制：上游 v0.22 内核不再读 session_reset.*（定时轮换被移到社区插件），但 cron 支持
+        // `--script X --no-agent`（不经过模型，跑完把 stdout 投递出去）。我们随包一个脚本
+        // hermemory_daily_new.py，它调用内核自己的 promote_to_session_reset（与 /new 同一个路径），
+        // 每天定时把活着的会话标记为重置 → 用户下一条消息就是新对话。
+        //
+        // 用户选择存我们自己的注册表键；cron 只是执行器。界面回显时以 jobs.json 里是否真有
+        // 这个任务为准（用户可能在别处 pause/删掉它），对不上就如实显示。
+        public const string DailyJobName = "HerMemory 每日新对话";
+        public const string DailyScriptName = "hermemory_daily_new.py";
+        private const string DailyRegKey = @"Software\HerMemory";
+
+        /// <summary>默认凌晨 4 点：用户睡觉时重置，白天不会突然断上下文。</summary>
+        public const string DailyDefaultTime = "04:00";
+
+        public static (bool enabled, string time) GetDailyNewSession()
+        {
+            try
+            {
+                using var k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(DailyRegKey);
+                var enabled = (k?.GetValue("DailyNewSession") as string) == "1";
+                var time = (k?.GetValue("DailyNewSessionTime") as string) ?? DailyDefaultTime;
+                return (enabled, string.IsNullOrWhiteSpace(time) ? DailyDefaultTime : time);
+            }
+            catch { return (false, DailyDefaultTime); }
+        }
+
+        private static void SaveDailyNewSession(bool enabled, string time)
+        {
+            using var k = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(DailyRegKey);
+            k.SetValue("DailyNewSession", enabled ? "1" : "0");
+            k.SetValue("DailyNewSessionTime", time);
+        }
+
+        /// <summary>把随包脚本放进 $HERMES_HOME\scripts\（cron 的 --script 只认这个目录下的文件）。</summary>
+        public static bool EnsureDailyScript(string sourceDir)
+        {
+            try
+            {
+                var dir = Path.Combine(HermesHome, "scripts");
+                Directory.CreateDirectory(dir);
+                var dst = Path.Combine(dir, DailyScriptName);
+                var src = Path.Combine(sourceDir, "scripts", DailyScriptName);
+                if (File.Exists(src)) File.Copy(src, dst, true);   // 脚本是发行版资产，跟着版本走
+                return File.Exists(dst);
+            }
+            catch { return false; }
+        }
+
+        /// <summary>读 jobs.json 里那个任务的最小信息（存在 / 启用 / id）。
+        /// 注意 JsonElement 依赖 JsonDocument 的生命周期，所以必须在 using 块内取值，
+        /// 不能把 element 带出作用域。</summary>
+        public static (bool exists, bool enabled, string? id) DailyJobInfo()
+        {
+            try
+            {
+                var file = Path.Combine(HermesHome, "cron", "jobs.json");
+                if (!File.Exists(file)) return (false, false, null);
+                using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(file));
+                System.Text.Json.JsonElement arr;
+                if (doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Array) arr = doc.RootElement;
+                else if (doc.RootElement.TryGetProperty("jobs", out var j)) arr = j;
+                else return (false, false, null);
+                foreach (var job in arr.EnumerateArray())
+                {
+                    if (!job.TryGetProperty("name", out var n)) continue;
+                    if ((n.GetString() ?? "") != DailyJobName) continue;
+                    var enabled = !job.TryGetProperty("enabled", out var en)
+                                  || en.ValueKind == System.Text.Json.JsonValueKind.True;
+                    var id = job.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
+                    return (true, enabled, id);
+                }
+                return (false, false, null);
+            }
+            catch { return (false, false, null); }
+        }
+
+        /// <summary>HH:mm → 5 段 cron；非法返回 null。</summary>
+        public static string? CronOf(string time)
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(time ?? "", @"^\s*(\d{1,2})\s*[:：]\s*(\d{1,2})\s*$");
+            if (!m.Success) return null;
+            var h = int.Parse(m.Groups[1].Value);
+            var min = int.Parse(m.Groups[2].Value);
+            if (h < 0 || h > 23 || min < 0 || min > 59) return null;
+            return $"{min} {h} * * *";
+        }
+
+        /// <summary>保存设置并同步 cron。会跑 CLI，调用方应在后台线程调用。</summary>
+        public static (bool ok, string message) SetDailyNewSession(bool enabled, string time, string sourceDir)
+        {
+            var cron = CronOf(time);
+            if (enabled && cron == null) return (false, "时间格式应为 HH:mm，例如 04:00");
+
+            SaveDailyNewSession(enabled, time);
+            if (!enabled)
+            {
+                var infoOff = DailyJobInfo();
+                if (infoOff.exists && infoOff.id != null) Run($"cron pause {infoOff.id}", 60);
+                return (true, "已关闭：不会再自动开始新对话");
+            }
+
+            if (!EnsureDailyScript(sourceDir))
+                return (false, "找不到随包脚本 scripts\\" + DailyScriptName + "，请重新运行安装包修复");
+
+            var info = DailyJobInfo();
+            if (!info.exists || info.id == null)
+            {
+                Run($"cron create \"{cron}\" --script {DailyScriptName} --no-agent --name \"{DailyJobName}\" --deliver local", 120);
+                var created = DailyJobInfo();
+                if (created.exists)
+                    return (true, $"已开启：每天 {time} 自动开始新对话（下一条消息生效）");
+                return (false, "创建定时任务失败。可手动执行 hermes cron create 查看原因");
+            }
+
+            Run($"cron edit {info.id} --schedule \"{cron}\"", 60);
+            Run($"cron resume {info.id}", 60);
+            return (true, $"已开启：每天 {time} 自动开始新对话（下一条消息生效）");
+        }
     }
 }

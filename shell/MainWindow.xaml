@@ -58,13 +58,15 @@
                     <Button Content="记忆设置" Style="{StaticResource GhostButton}" Click="LinkMemory_Click"/>
                     <Button Content="API 设置" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="LinkApi_Click"/>
                     <Button Content="微信绑定" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="LinkWeixin_Click"/>
+                    <Button Content="设置" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="LinkSettings_Click"/>
                     <Button x:Name="BtnResetAi" Content="重置 AI" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="BtnResetAi_Click"/>
                 </StackPanel>
                 <!-- 第三行：内容类（文档 / 同步库）+ 主题切换。
                      这里**不放「安装向导」**（2026-09-16 用户裁决）：安装器与日常管理器已经分离，
                      安装/修复是安装包 `Setup.exe` 的事，管理器窗口不该出现安装入口。 -->
                 <StackPanel Orientation="Horizontal" Margin="0,22,0,0">
-                    <Button Content="打开使用文档" Style="{StaticResource GhostButton}" Click="BtnGuide_Click"/>
+                    <Button Content="编辑记忆" Style="{StaticResource AccentButton}" Padding="20,7,20,7" Click="BtnEditor_Click"/>
+                    <Button Content="打开使用文档" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="BtnGuide_Click"/>
                     <Button Content="打开同步库" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="BtnVault_Click"/>
                     <Button x:Name="BtnTheme" Width="36" Height="36" Margin="14,0,0,0" Click="BtnTheme_Click" Cursor="Hand" Background="{DynamicResource FieldBg}">
                         <Button.Template>
@@ -117,6 +119,33 @@
                 <TextBlock x:Name="HomeTierCurrent" Margin="0,10,0,0" FontSize="12.5" Foreground="#546E7A"/>
                                 <TextBlock Style="{StaticResource Body}" Foreground="#B0BEC5" Margin="0,18,0,0"
                            Text="档位修改请与 AI 对话，修改后开启新对话生效。"/>
+            </StackPanel>
+        </Grid>
+
+        <!-- ===== 主界面子页：设置（每日新对话等） ===== -->
+        <Grid x:Name="PageSettings" Visibility="Collapsed">
+            <StackPanel>
+                <Button Content="← 返回" Style="{StaticResource GhostButton}" HorizontalAlignment="Left" Padding="14,6,14,6" Click="BtnBack_Click"/>
+                <TextBlock Text="设置" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource Ink}" Margin="0,18,0,0"/>
+
+                <TextBlock Style="{StaticResource Label}" Margin="0,34,0,0" Text="每日新对话"/>
+                <TextBlock Style="{StaticResource Body}" Margin="0,2,0,0"
+                           Text="到了设定时间，AI 与你的对话会重新开始，第二天消息从零上下文起算，避免历史越堆越长、token 越用越多。"/>
+                <CheckBox x:Name="ChkDailyNew" Content="每天自动开始新对话" Margin="0,14,0,0"
+                          FontSize="13" Cursor="Hand" Foreground="{DynamicResource Ink}" Checked="ChkDailyNew_Changed" Unchecked="ChkDailyNew_Changed"/>
+                <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                    <TextBlock Text="时间" FontSize="13" VerticalAlignment="Center" Foreground="#546E7A"/>
+                    <TextBox x:Name="DailyTimeBox" Style="{StaticResource FieldBox}" Width="96" Margin="10,0,0,0"
+                             Text="04:00" TextAlignment="Center"/>
+                    <TextBlock Text="（24 小时制，建议放在你不会聊天的时段）" FontSize="12" Margin="10,0,0,0"
+                               VerticalAlignment="Center" Foreground="#90A4AE"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
+                    <Button x:Name="BtnSaveSettings" Content="保存" Style="{StaticResource AccentButton}" Padding="22,7,22,7" Click="BtnSaveSettings_Click"/>
+                    <TextBlock x:Name="SettingsHint" VerticalAlignment="Center" Margin="14,0,0,0" FontSize="12" Foreground="#90A4AE"/>
+                </StackPanel>
+                <TextBlock Style="{StaticResource Body}" Foreground="#B0BEC5" Margin="0,22,0,0"
+                           Text="说明：这是应用层的定时任务，网关运行时才执行；PC 关机期间错过的时间不会补跑。"/>
             </StackPanel>
         </Grid>
 

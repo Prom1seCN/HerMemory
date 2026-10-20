@@ -94,3 +94,35 @@ powershell -File build-release.ps1 -Version 0.2.0      # 出 build\app\HerMemory
 export HERMES_HOME=<spike>/home
 <venv>/bin/python -c "from hermes_cli.skin_engine import load_skin; print(load_skin('hermemory').name)"
 ```
+
+## 0.2.0 新增的两块功能
+
+### 应用内嵌 Markdown 编辑器
+- `shell/MemoryEditorWindow.xaml(.cs)`：左侧五个记忆文件 + 编辑区 + 预览；保存走
+  「同目录临时文件 + File.Replace」，UTF-8 无 BOM；保存前比对 `(长度, mtime)` 发现外部改动并询问。
+- `shell/MarkdownPreview.cs`：手写 Markdown → FlowDocument（标题/列表/引用/表格/围栏代码 + 行内样式），
+  零 NuGet 依赖——单文件 exe 不能为预览引入 WebView2 运行时。
+- 入口：主界面「编辑记忆」按钮、托盘右键「编辑记忆…」。
+- 预览开关默认开；关掉只是隐藏右栏，不重建文档。
+
+### 每日新对话
+- 上游 v0.22 **内核不再读 `session_reset.*`**（见 `hermes_cli/session_reset_retirement.py`），
+  定时轮换移到社区插件 `hermes-session-reset-policy`。
+- HerMemory 的做法：`scripts/hermemory_daily_new.py` 直接调内核的
+  `SessionDB.promote_to_session_reset()`（与 `/new` 同一条路径，重置不会被恢复逻辑复活），
+  由 `hermes cron create "<cron>" --script hermemory_daily_new.py --no-agent --name "HerMemory 每日新对话" --deliver local` 定时执行。
+- 用户状态存 `HKCU\Software\HerMemory`（DailyNewSession / DailyNewSessionTime）；
+  界面回显以 `$HERMES_HOME/cron/jobs.json` 里是否真有该任务为准。
+- 默认**不开启**（自动化默认关闭的产品原则），由用户在「设置」页打开。
+- 脚本随包安装到 `$HERMES_HOME/scripts/`（cron 的 `--script` 只认这个目录）。
+
+## 安装的三种场景
+
+| 场景 | 判定 | 行为 |
+|---|---|---|
+| 全新 | 无 `bin\hermes.exe` | 完整安装 |
+| 旧版 HerMemory | `hermes --version` ≠ 0.22.2 | 升级内核；备份 `config.yaml`/`.env`；**重建网关任务**（旧任务指向旧 venv） |
+| 已有 Hermes | 同上，且无 `.hermemory-install-state` | 接管同一数据目录，加记忆库与皮肤，保留配置/会话/技能 |
+
+- 已有版本**比 pin 新则中止**（不降级）：Windows 走 `Compare-Version`，Linux 走 `sort -V`。
+- 并存安装靠「安装位置」页改「数据存储位置」（不同 HERMES_HOME）；同一微信号只能绑一台。
