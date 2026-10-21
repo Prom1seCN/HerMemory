@@ -487,6 +487,32 @@ namespace HerMemory
             else k.DeleteValue("CloseAction", false);
         }
 
+        /// <summary>能跑的 hermes 命令（bin\hermes.exe 优先，其次 PATH）。体检页用。</summary>
+        public static string? WorkingCli()
+        {
+            try
+            {
+                var p = Path.Combine(HermesHome, "bin", "hermes.exe");
+                if (File.Exists(p) && RunExit(p, "--version", 20) == 0) return p;
+                if (RunExit("hermes", "--version", 20) == 0) return "hermes";
+            }
+            catch { }
+            return null;
+        }
+
+        /// <summary>从 `hermes --version` 里取版本号（取不到返回空串）。</summary>
+        public static string VersionOf(string exe)
+        {
+            try
+            {
+                var outp = RunCaptureRaw(exe, "--version", 20) ?? "";
+                var m = System.Text.RegularExpressions.Regex.Match(outp, @"Hermes Agent v(\d+\.\d+\.\d+)");
+                if (m.Success) return m.Groups[1].Value;
+            }
+            catch { }
+            return "";
+        }
+
         // ================= 每日新对话（设置页） =================
         // 机制：上游 v0.22 内核不再读 session_reset.*（定时轮换被移到社区插件），但 cron 支持
         // `--script X --no-agent`（不经过模型，跑完把 stdout 投递出去）。我们随包一个脚本

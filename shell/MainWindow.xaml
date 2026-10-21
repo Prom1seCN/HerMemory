@@ -59,6 +59,7 @@
                     <Button Content="API 设置" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="LinkApi_Click"/>
                     <Button Content="微信绑定" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="LinkWeixin_Click"/>
                     <Button Content="设置" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="LinkSettings_Click"/>
+                    <Button Content="体检" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="LinkHealth_Click"/>
                     <Button x:Name="BtnResetAi" Content="重置 AI" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="BtnResetAi_Click"/>
                 </StackPanel>
                 <!-- 第三行：内容类（文档 / 同步库）+ 主题切换。
@@ -147,6 +148,31 @@
                 <TextBlock Style="{StaticResource Body}" Foreground="#B0BEC5" Margin="0,22,0,0"
                            Text="说明：这是应用层的定时任务，网关运行时才执行；PC 关机期间错过的时间不会补跑。"/>
             </StackPanel>
+        </Grid>
+
+        <!-- ===== 主界面子页：体检 / 自愈 ===== -->
+        <Grid x:Name="PageHealth" Visibility="Collapsed">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <StackPanel Grid.Row="0">
+                <Button Content="← 返回" Style="{StaticResource GhostButton}" HorizontalAlignment="Left" Padding="14,6,14,6" Click="BtnBack_Click"/>
+                <TextBlock Text="体检" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource Ink}" Margin="0,18,0,0"/>
+                <TextBlock Style="{StaticResource Body}" Margin="0,2,0,0"
+                           Text="在本机逐项检查，不调用模型。红色项会直接影响使用，橙色项是提醒。"/>
+                <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                    <Button x:Name="BtnHealthRefresh" Content="重新检查" Style="{StaticResource AccentButton}" Padding="18,6,18,6" Click="BtnHealthRefresh_Click"/>
+                    <Button Content="打开日志文件夹" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Padding="16,6,16,6" Click="BtnHealthLogs_Click"/>
+                </StackPanel>
+            </StackPanel>
+
+            <ScrollViewer Grid.Row="1" Margin="0,14,0,0" VerticalScrollBarVisibility="Auto">
+                <StackPanel x:Name="HealthList"/>
+            </ScrollViewer>
+
+            <TextBlock x:Name="HealthStatus" Grid.Row="2" FontSize="11.5" Foreground="#90A4AE" Margin="2,10,0,0"/>
         </Grid>
 
         <!-- ===== 主界面子页：API 设置 ===== -->

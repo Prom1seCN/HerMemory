@@ -5,6 +5,9 @@ using System.Text;
 using System.Windows;
 using System.Windows.Documents;
 using System.Windows.Media;
+using Color = System.Windows.Media.Color;
+using FontFamily = System.Windows.Media.FontFamily;
+using Brushes = System.Windows.Media.Brushes;
 
 namespace HerMemory
 {
@@ -107,7 +110,7 @@ namespace HerMemory
                 // 表格：本行含 | 且下一行是分隔行
                 if (line.Contains("|") && i + 1 < lines.Length && IsTableSeparator(lines[i + 1]))
                 {
-                    i = AppendTable(doc, lines, i, context);
+                    i = AppendTable(doc.Blocks, lines, i, context);
                     continue;
                 }
 
@@ -449,6 +452,6 @@ namespace HerMemory
             catch { }
         }
 
-        private static System.Windows.Media.Color Hex(string hex) => (Color)ColorConverter.ConvertFromString(hex);
+        private static System.Windows.Media.Color Hex(string hex) => (Color)System.Windows.Media.ColorConverter.ConvertFromString(hex);
     }
 }

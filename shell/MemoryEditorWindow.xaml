@@ -51,6 +51,9 @@
                            Text="这些就是 AI 的记忆本体（纯文本）。保存后开启新对话生效。"/>
             </StackPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button x:Name="BtnHistory" Content="历史" Padding="14,7" Margin="10,0,0,0"
+                        Cursor="Hand" FontSize="12.5" Click="BtnHistory_Click"
+                        Style="{StaticResource GhostButton}"/>
                 <ToggleButton x:Name="PreviewToggle" Content="预览" IsChecked="True" Padding="14,7"
                               Cursor="Hand" FontSize="12.5" Click="PreviewToggle_Click"
                               Background="Transparent" Foreground="{DynamicResource Accent}"

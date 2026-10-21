@@ -1039,6 +1039,157 @@ namespace HerMemory
             catch (Exception ex) { ReportUiError("打开记忆编辑器", ex); }
         }
 
+        // ================= 体检 / 自愈 =================
+
+        private void LinkHealth_Click(object sender, RoutedEventArgs e)
+        {
+            ShowPage("PageHealth");
+            _ = RunHealthAsync();
+        }
+
+        private void BtnHealthRefresh_Click(object sender, RoutedEventArgs e) => _ = RunHealthAsync();
+
+        private void BtnHealthLogs_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var dir = HermesCtl.LogsDir;
+                Directory.CreateDirectory(dir);
+                Process.Start(new ProcessStartInfo("explorer.exe", $"\"{dir}\"") { UseShellExecute = true });
+            }
+            catch (Exception ex) { ReportUiError("打开日志", ex); }
+        }
+
+        private async Task RunHealthAsync()
+        {
+            BtnHealthRefresh.IsEnabled = false;
+            HealthStatus.Text = "正在检查……";
+            try
+            {
+                var items = await Task.Run(() => HealthCheck.Run());
+                RenderHealth(items);
+                var fails = items.Count(i => i.Status == "fail");
+                var warns = items.Count(i => i.Status == "warn");
+                HealthStatus.Text = fails == 0 && warns == 0
+                    ? $"全部正常（{items.Count} 项）"
+                    : $"{items.Count} 项：{fails} 项需要处理，{warns} 项提醒";
+            }
+            catch (Exception ex) { ReportUiError("体检", ex); }
+            finally { BtnHealthRefresh.IsEnabled = true; }
+        }
+
+        private void RenderHealth(List<HealthItem> items)
+        {
+            HealthList.Children.Clear();
+            foreach (var item in items)
+            {
+                var color = item.Status == "fail" ? "#C62828" : item.Status == "warn" ? "#EF6C00" : "#2E7D32";
+                var mark = item.Status == "fail" ? "●" : item.Status == "warn" ? "●" : "●";
+
+                var grid = new Grid { Margin = new Thickness(0, 0, 0, 0) };
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(18) });
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                var dot = new TextBlock
+                {
+                    Text = mark, FontSize = 10, Foreground = Brush(color),
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                Grid.SetColumn(dot, 0);
+
+                var text = new StackPanel { Margin = new Thickness(6, 0, 0, 0) };
+                text.Children.Add(new TextBlock
+                {
+                    Text = item.Title, FontSize = 13, FontWeight = FontWeights.SemiBold,
+                    Foreground = Brush("#37474F"),
+                });
+                text.Children.Add(new TextBlock
+                {
+                    Text = item.Detail, FontSize = 12, TextWrapping = TextWrapping.Wrap,
+                    Foreground = Brush(color), Margin = new Thickness(0, 2, 0, 0),
+                });
+                Grid.SetColumn(text, 1);
+
+                var row = new DockPanel();
+                if (item.Fix != HealthFix.None)
+                {
+                    var btn = new System.Windows.Controls.Button
+                    {
+                        Content = FixLabel(item.Fix),
+                        Style = System.Windows.Application.Current.Resources["GhostButton"] as Style,
+                        Padding = new Thickness(14, 5, 14, 5),
+                        FontSize = 12,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        Tag = item,
+                    };
+                    btn.Click += BtnHealthFix_Click;
+                    DockPanel.SetDock(btn, Dock.Right);
+                    row.Children.Add(btn);
+                }
+                row.Children.Add(text);
+
+                grid.Children.Add(dot);
+                grid.Children.Add(row);
+                Grid.SetColumn(row, 1);
+
+                var border = new Border
+                {
+                    CornerRadius = new CornerRadius(8),
+                    Background = (System.Windows.Media.Brush)System.Windows.Application.Current.Resources["FieldBg"],
+                    BorderBrush = Brush("#CFD8DC"),
+                    BorderThickness = new Thickness(1),
+                    Padding = new Thickness(12, 10, 12, 10),
+                    Margin = new Thickness(0, 0, 0, 8),
+                    Child = grid,
+                };
+                HealthList.Children.Add(border);
+            }
+        }
+
+        private static string FixLabel(HealthFix fix) => fix switch
+        {
+            HealthFix.StartGateway => "启动网关",
+            HealthFix.InstallGateway => "重装任务",
+            HealthFix.Reinstall => "修复安装",
+            HealthFix.OpenLogs => "看日志",
+            _ => "处理",
+        };
+
+        private async void BtnHealthFix_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not System.Windows.Controls.Button btn || btn.Tag is not HealthItem item) return;
+            btn.IsEnabled = false;
+            try
+            {
+                switch (item.Fix)
+                {
+                    case HealthFix.StartGateway:
+                        HealthStatus.Text = "正在启动网关……";
+                        await Task.Run(() => HermesCtl.Run("gateway start", 120));
+                        break;
+                    case HealthFix.InstallGateway:
+                        HealthStatus.Text = "正在重装网关任务（可能要一两分钟）……";
+                        await Task.Run(() => HermesCtl.Run("gateway install", 600));
+                        break;
+                    case HealthFix.OpenLogs:
+                        BtnHealthLogs_Click(sender, e);
+                        break;
+                    case HealthFix.Reinstall:
+                        System.Windows.MessageBox.Show(this,
+                            "这一项需要重新运行安装包 Setup.exe 修复（已完成的步骤会自动跳过，记忆与配置不受影响）。",
+                            "体检", MessageBoxButton.OK, MessageBoxImage.Information);
+                        break;
+                }
+            }
+            catch (Exception ex) { ReportUiError("修复", ex); }
+            finally
+            {
+                btn.IsEnabled = true;
+                await RunHealthAsync();
+            }
+        }
+
         // ================= 设置页（每日新对话） =================
 
         private bool _settingsLoading;

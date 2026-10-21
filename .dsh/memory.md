@@ -126,3 +126,23 @@ export HERMES_HOME=<spike>/home
 
 - 已有版本**比 pin 新则中止**（不降级）：Windows 走 `Compare-Version`，Linux 走 `sort -V`。
 - 并存安装靠「安装位置」页改「数据存储位置」（不同 HERMES_HOME）；同一微信号只能绑一台。
+
+### 体检 / 自愈
+- `shell/HealthCheck.cs`：十项本地检查（内核/PM 环境/网关/计划任务/注入槽位/五文件/WebDAV/磁盘/记忆预算/日志错误）。
+- 页面 `PageHealth` 动态生成行；每项带 `HealthFix` 枚举，界面据此给按钮（启动网关 / 重装任务 / 修复安装 / 看日志）。
+- 判据与上游同口径：内核是否可运行看 `hermes --version` 退出码（`HermesCtl.WorkingCli`），不是看文件在不在。
+
+### 记忆时光机
+- `shell/MemoryHistory.cs` + `shell/HistoryWindow.xaml(.cs)`。
+- 仓库在 `%LOCALAPPDATA%\HerMemory\history`（**不在 vault**，避免被 WebDAV 同步、避免和 Obsidian git 插件抢目录），
+  用 `--git-dir/--work-tree` 指向 vault，只跟踪 `HerMemory/memory/`。
+- 编辑器每次保存后自动提交一条；「历史」窗口可看某个快照与会话的 diff、回滚单个文件（回滚前先给当前状态留快照）。
+- git 解析顺序：PATH → `$HERMES_HOME/tools/git-*/cmd/git.exe`（PM 槽位）→ 旧版 `$HERMES_HOME/git`。
+- 无 git 时整体降级为不可用，不阻塞保存。
+
+### 编译验证（重要）
+- 本机（NAS）**无法**编译 WPF：dotnet 的 NuGet 命名互斥量被沙箱挡住。
+- 真正的编译验证在 Windows 笔记本 `pc`（alias）的 `D:\Projects\HerMemory`：
+  `C:\Users\HCN\.dotnet\dotnet.exe build shell\HerMemory.csproj -c Release`。
+- 踩过的坑：项目同时开 `UseWPF` + `UseWindowsForms`，`Color` / `FontFamily` / `Brushes` / `KeyEventArgs` /
+  `Button` / `Application` / `MessageBox` 都有两份，必须加别名或完全限定。

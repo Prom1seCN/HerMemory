@@ -144,7 +144,7 @@ namespace HerMemory
 
             if (_dirty && _current != null)
             {
-                var r = MessageBox.Show(this,
+                var r = System.Windows.MessageBox.Show(this,
                     $"「{_current.Label}」有未保存的修改。要先保存吗？",
                     "编辑记忆", MessageBoxButton.YesNoCancel, MessageBoxImage.Question, MessageBoxResult.Yes);
                 if (r == MessageBoxResult.Cancel)
@@ -203,7 +203,7 @@ namespace HerMemory
             _previewTimer.Start();
         }
 
-        private void Editor_PreviewKeyDown(object sender, KeyEventArgs e)
+        private void Editor_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
         {
             if (e.Key == Key.S && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
             {
@@ -223,7 +223,7 @@ namespace HerMemory
             var disk = StampOf(path);
             if (!quiet && _stamp != null && disk != null && disk != _stamp)
             {
-                var r = MessageBox.Show(this,
+                var r = System.Windows.MessageBox.Show(this,
                     "这个文件在打开之后被其他程序改过（可能是 AI 自己写的，或同步过来的）。\n\n"
                     + "选「是」用自己的内容覆盖磁盘上的版本；选「否」放弃本次保存、重新载入磁盘版本。",
                     "文件已被外部修改", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
@@ -243,13 +243,16 @@ namespace HerMemory
                 RefreshEntry(_current);
                 UpdateCountText();
                 SetSaveState("已保存 " + DateTime.Now.ToString("HH:mm:ss"), "#2E7D32");
+                // 记忆时光机：后台记一条，不挡保存手感（失败也不影响文件已经写对了）
+                var name = Path.GetFileName(path);
+                _ = System.Threading.Tasks.Task.Run(() => MemoryHistory.Commit("编辑器保存：" + name));
                 return true;
             }
             catch (Exception ex)
             {
                 SetSaveState("保存失败：" + ex.Message, "#C62828");
                 if (!quiet)
-                    MessageBox.Show(this, "保存失败：" + ex.Message + "\n\n文件位置：" + path,
+                    System.Windows.MessageBox.Show(this, "保存失败：" + ex.Message + "\n\n文件位置：" + path,
                         "编辑记忆", MessageBoxButton.OK, MessageBoxImage.Error);
                 return false;
             }
@@ -331,6 +334,41 @@ namespace HerMemory
             catch { }
         }
 
+        private void BtnHistory_Click(object sender, RoutedEventArgs e)
+        {
+            if (_current == null) return;
+            // 有未保存改动时，历史里看不到它们——先提醒保存，避免"恢复了却把刚写的弄丢"
+            if (_dirty)
+            {
+                var r = System.Windows.MessageBox.Show(this,
+                    "当前有未保存的修改。历史快照只包含已保存的内容，建议先保存再看历史。\n\n现在保存吗？",
+                    "记忆历史", MessageBoxButton.YesNoCancel, MessageBoxImage.Question, MessageBoxResult.Yes);
+                if (r == MessageBoxResult.Cancel) return;
+                if (r == MessageBoxResult.Yes && !Save(quiet: false)) return;
+            }
+            try
+            {
+                var w = new HistoryWindow(Path.GetFileName(_current.FilePath)) { Owner = this };
+                w.Restored += () =>
+                {
+                    var en = _current;
+                    if (en != null) LoadEntry(en);
+                };
+                w.ShowDialog();
+            }
+            catch (Exception ex) { ReportError("打开记忆历史", ex); }
+        }
+
+        private void ReportError(string what, Exception ex)
+        {
+            try
+            {
+                System.Windows.MessageBox.Show(this, what + "失败：" + ex.Message, "编辑记忆",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            catch { }
+        }
+
         private void BtnReveal_Click(object sender, RoutedEventArgs e)
         {
             try
@@ -349,7 +387,7 @@ namespace HerMemory
         private void OnClosing(object? sender, CancelEventArgs e)
         {
             if (!_dirty) return;
-            var r = MessageBox.Show(this,
+            var r = System.Windows.MessageBox.Show(this,
                 "还有未保存的修改，要保存吗？",
                 "编辑记忆", MessageBoxButton.YesNoCancel, MessageBoxImage.Question, MessageBoxResult.Yes);
             if (r == MessageBoxResult.Cancel) { e.Cancel = true; return; }
