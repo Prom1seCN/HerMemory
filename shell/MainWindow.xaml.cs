@@ -94,7 +94,7 @@ namespace HerMemory
             ShowPage("PageHome");
             HomeFooter.Text = string.Join(Environment.NewLine,
                 "关闭窗口默认最小化到托盘，可在托盘菜单修改",
-                $"同步库位于 {VaultDir}",
+                $"记忆库位于 {VaultDir}",
                 $"记忆文件位于 {Path.Combine(VaultDir, "HerMemory", "memory")}");
             _ = Task.Run(async () =>
             {
@@ -558,7 +558,7 @@ namespace HerMemory
             confirm.AddRange(plan.GroupBy(x => x.Group)
                 .Select(g => "· " + g.Key + "：" + string.Join("、", g.Select(x => x.Label))));
             confirm.Add("");
-            confirm.Add("保留：.env（API Key 与微信凭据）、config.yaml、内置技能、内核与运行时、同步库中的文档。");
+            confirm.Add("保留：.env（API Key 与微信凭据）、config.yaml、内置技能、内核与运行时、记忆库中的文档。");
             confirm.Add("重置前会停止 Gateway，完成后按原状态恢复。");
             confirm.Add("备份只含记忆文件与会话库（不含日志与缓存），放在 %LOCALAPPDATA%\\HerMemory\\reset-backup-…");
 
@@ -755,7 +755,7 @@ namespace HerMemory
             {
                 var vault = VaultDir;
                 if (!Directory.Exists(vault))
-                    return (false, $"导出中止：同步库不存在（{vault}）。", null);
+                    return (false, $"导出中止：记忆库不存在（{vault}）。", null);
 
                 var ts = DateTime.Now.ToString("yyyyMMdd-HHmmss");
                 var name = $"hermemory-export-{ts}";
@@ -763,7 +763,7 @@ namespace HerMemory
                 var stage = Path.Combine(stageParent, name);
                 Directory.CreateDirectory(stage);
 
-                report("① 复制文档库（vault）……");
+                report("① 复制记忆库（vault）……");
                 int skipped = 0;
                 CopyDirTolerant(vault, Path.Combine(stage, "vault"), ref skipped);
 

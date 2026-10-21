@@ -153,7 +153,7 @@ namespace HerMemory
             }
 
             // ---------- ② 备份 ----------
-            // 放在 %LOCALAPPDATA%\HerMemory 下：不在同步范围内，AI 也不会读它。
+            // 放在 %LOCALAPPDATA%\HerMemory 下：不在记忆库范围内，AI 也不会读它。
             // 只备"小而不可再生"的那几样；logs\ 与 cache\ 是有体积的诊断/派生数据，不备（确认框里写明）。
             progress?.Invoke("正在备份当前记忆……");
             try
@@ -214,13 +214,13 @@ namespace HerMemory
                 {
                     if (s.MustBeEmpty)
                     {
-                        if (new FileInfo(s.Path).Length != 0) r.Notes.Add("未同步到 AI 读取位置：" + s.Path);
+                        if (new FileInfo(s.Path).Length != 0) r.Notes.Add("未写入 AI 读取位置：" + s.Path);
                     }
                     else
                     {
                         var src = Path.Combine(factoryDir, s.Label);
                         if (!File.ReadAllBytes(s.Path).SequenceEqual(File.ReadAllBytes(src)))
-                            r.Notes.Add("未同步到 AI 读取位置：" + s.Path);
+                            r.Notes.Add("未写入 AI 读取位置：" + s.Path);
                     }
                 }
                 catch { }

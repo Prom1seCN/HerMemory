@@ -421,58 +421,6 @@ namespace HerMemory
             catch { return false; }
         }
 
-        // —— 同步服务（WebDAV）：只展示，不启停（启停由用户与 AI 对话完成） ——
-        // 旧实现 `Process.GetProcessesByName("rclone").Length > 0` 会命中**任意** rclone
-        //（用户拿 rclone 挂网盘/搬数据时被误报为"同步服务运行中"）。
-        // 新实现按产品约定端口判可达——docs/ONBOARDING.md 规定同步服务为
-        // `rclone serve webdav <vault> --addr 0.0.0.0:5005`，故 127.0.0.1:5005 可连即视为运行中。
-        // 非默认端口部署可用环境变量 HERMEMORY_WEBDAV_PORT 覆盖。
-        private const int DefaultWebDavPort = 5005;
-
-        public static bool WebDavRunning()
-        {
-            var port = DefaultWebDavPort;
-            var ov = Environment.GetEnvironmentVariable("HERMEMORY_WEBDAV_PORT");
-            if (int.TryParse(ov, out var p) && p > 0 && p < 65536) port = p;
-
-            if (TcpReachable(port)) return true;
-
-            // 兜底：rclone 进程确实来自本产品目录（未来若由安装器托管 rclone，这里仍能判到；
-            // 系统别处装的 rclone 不认，避免误报）
-            try
-            {
-                foreach (var pr in Process.GetProcessesByName("rclone"))
-                {
-                    using (pr)
-                    {
-                        try
-                        {
-                            var f = pr.MainModule?.FileName ?? "";
-                            if (f.Length > 0 && f.StartsWith(HermesHome, StringComparison.OrdinalIgnoreCase))
-                                return true;
-                        }
-                        catch { }   // MainModule 对高权限/异位数进程会抛
-                    }
-                }
-            }
-            catch { }
-            return false;
-        }
-
-        /// <summary>本机回环端口是否可连（400ms 上限；无监听时 Windows 立即回 RST，不会等满）。</summary>
-        private static bool TcpReachable(int port)
-        {
-            try
-            {
-                using var c = new System.Net.Sockets.TcpClient();
-                var ar = c.BeginConnect("127.0.0.1", port, null, null);
-                if (!ar.AsyncWaitHandle.WaitOne(400)) return false;
-                c.EndConnect(ar);
-                return true;
-            }
-            catch { return false; }
-        }
-
         // —— 关闭行为记忆：HKCU\Software\HerMemory\CloseAction（"tray" = 点 X 直接最小化不再询问；缺省 = 每次询问） ——
         public static bool CloseMinimizeEnabled()
         {

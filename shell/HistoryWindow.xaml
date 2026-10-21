@@ -58,7 +58,7 @@
             <StackPanel>
                 <TextBlock Text="记忆历史" FontSize="20" FontWeight="SemiBold" Foreground="{DynamicResource Ink}"/>
                 <TextBlock x:Name="HistoryHint" FontSize="11.5" Foreground="{DynamicResource Subtle}" Margin="0,4,0,0"
-                           Text="每次在编辑器里保存都会留一个快照，可回滚。仓库在本机（不在同步库里）。"/>
+                           Text="每次在编辑器里保存都会留一个快照，可回滚。仓库在本机（不在记忆库里）。"/>
             </StackPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                 <Button x:Name="BtnSnapshot" Content="立即快照" Style="{StaticResource GhostButton}"

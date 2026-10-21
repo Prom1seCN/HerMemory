@@ -5,13 +5,13 @@
 
 一份数字档案，导出于 HerMemory Agent。它由两部分组成：
 
-- **`vault/`** —— 文档库。`HerMemory/memory/` 下四个文件是 AI 的全部人格与记忆，其余是这个人的所有文档。
+- **`vault/`** —— 记忆库。`HerMemory/memory/` 下四个文件是 AI 的全部人格与记忆，其余是这个人的所有文档。
 - **`hermes-home.zip`** —— agent 端全量：会话数据库、全部 skill、配置、定时任务定义。
 
 ## 恢复步骤
 
 1. 安装 HerMemory 或 Hermes（同版本或更新）。
-2. 把 `vault/` 放回同步库位置（默认 `~/vault`）；重跑安装器会自动建立软链，或手动将四个核心文件链接到 agent 的读取位置。
+2. 把 `vault/` 放回记忆库位置（默认 `~/vault`）；重跑安装器会自动建立软链，或手动将四个核心文件链接到 agent 的读取位置。
 3. `hermes import <包内 hermes-home.zip>` 恢复 agent 端。
 4. 打开 `vault/HerMemory/memory/AUTOMATION.md`——里面登记着每一条脚本与定时任务（功能 / 触发条件 / 依赖 / 重建步骤）。进程不能随文件迁移，照单逐条重建。
 5. 读下面四个文件，然后开始第一次对话。这个人的记忆会认出他们自己。

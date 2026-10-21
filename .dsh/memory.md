@@ -128,13 +128,13 @@ export HERMES_HOME=<spike>/home
 - 并存安装靠「安装位置」页改「数据存储位置」（不同 HERMES_HOME）；同一微信号只能绑一台。
 
 ### 体检 / 自愈
-- `shell/HealthCheck.cs`：十项本地检查（内核/PM 环境/网关/计划任务/注入槽位/五文件/WebDAV/磁盘/记忆预算/日志错误）。
+- `shell/HealthCheck.cs`：九项本地检查（内核/PM 环境/网关/计划任务/注入槽位/五文件/磁盘/记忆预算/日志错误）。
 - 页面 `PageHealth` 动态生成行；每项带 `HealthFix` 枚举，界面据此给按钮（启动网关 / 重装任务 / 修复安装 / 看日志）。
 - 判据与上游同口径：内核是否可运行看 `hermes --version` 退出码（`HermesCtl.WorkingCli`），不是看文件在不在。
 
 ### 记忆时光机
 - `shell/MemoryHistory.cs` + `shell/HistoryWindow.xaml(.cs)`。
-- 仓库在 `%LOCALAPPDATA%\HerMemory\history`（**不在 vault**，避免被 WebDAV 同步、避免和 Obsidian git 插件抢目录），
+- 仓库在 `%LOCALAPPDATA%\HerMemory\history`（**不在 vault**，避免被用户的同步/备份工具带走、避免和 Obsidian git 插件抢目录），
   用 `--git-dir/--work-tree` 指向 vault，只跟踪 `HerMemory/memory/`。
 - 编辑器每次保存后自动提交一条；「历史」窗口可看某个快照与会话的 diff、回滚单个文件（回滚前先给当前状态留快照）。
 - git 解析顺序：PATH → `$HERMES_HOME/tools/git-*/cmd/git.exe`（PM 槽位）→ 旧版 `$HERMES_HOME/git`。
@@ -146,6 +146,13 @@ export HERMES_HOME=<spike>/home
   `C:\Users\HCN\.dotnet\dotnet.exe build shell\HerMemory.csproj -c Release`。
 - 踩过的坑：项目同时开 `UseWPF` + `UseWindowsForms`，`Color` / `FontFamily` / `Brushes` / `KeyEventArgs` /
   `Button` / `Application` / `MessageBox` 都有两份，必须加别名或完全限定。
+
+## 产品边界（2026-10-21 用户裁决）
+
+- **不做同步引导。** 用户想同步/备份是自己的事，软件不替他选。vault 统一称「记忆库」（不再叫「同步库」）。
+- WebDAV 相关内容已全部移除：`docs/ONBOARDING.md` 不再有同步章节，`docs/GUIDE.md` 的「多端同步」整章删除，
+  体检里的「同步服务（WebDAV）」检查项与 `HermesCtl.WebDavRunning` / `TcpReachable` 一并删除（现为九项）。
+- 核心卖点收敛为一条：**记忆是明文文件，可见、可改、可带走。**
 
 ## 界面层（v0.2.0 重做）
 

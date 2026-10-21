@@ -205,7 +205,7 @@
                         VerticalAlignment="Center" Margin="10,0,0,0" Click="BtnExport_Click"/>
                 <Button DockPanel.Dock="Right" Content="卸载" Style="{StaticResource LinkButton}"
                         VerticalAlignment="Center" Margin="14,0,0,0" Click="BtnUninstall_Click"/>
-                <Button DockPanel.Dock="Right" Content="打开同步库" Style="{StaticResource GhostButton}"
+                <Button DockPanel.Dock="Right" Content="打开记忆库" Style="{StaticResource GhostButton}"
                         VerticalAlignment="Center" Margin="10,0,0,0" Click="BtnVault_Click"/>
                 <Button DockPanel.Dock="Right" Content="使用文档" Style="{StaticResource GhostButton}"
                         VerticalAlignment="Center" Margin="10,0,0,0" Click="BtnGuide_Click"/>

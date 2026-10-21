@@ -9,7 +9,7 @@
 #   → 记忆档位 → AI 配置 → 微信接入 → gateway 服务。
 #
 # key 配置：脚本内引导（用户流程 2），底层走上游原生机制；不碰任何商业引导。
-#   WebDAV 同步服务**不在安装范围**：装完由 AI 引导用户开启（见文件末「脚本下线」）。
+#   同步/备份不在安装范围：装完由用户自己决定，AI 不主动引导。
 #   随包内核：把 hermes-agent.bundle 放在本脚本同目录即走离线落位；没有就按 GitHub 在线装。
 #
 # 运行方式：clone 本仓库后，在仓库根目录 bash install.sh（需交互式终端）
@@ -224,7 +224,7 @@ fi
 
 # ---------- 3. vault 结构 ----------
 mkdir -p "$VAULT_DIR/HerMemory/memory"
-ok "同步根结构：$VAULT_DIR/{用户文档, HerMemory/memory/}"
+ok "记忆库结构：$VAULT_DIR/{用户文档, HerMemory/memory/}"
 
 # ---------- 4. 出厂四文件（已存在则绝不覆盖——那是你的记忆） ----------
 for f in MEMORY.md USER.md SOUL.md AGENTS.md AUTOMATION.md; do
@@ -237,7 +237,7 @@ for f in MEMORY.md USER.md SOUL.md AGENTS.md AUTOMATION.md; do
     fi
 done
 
-# ---------- 4.5 使用文档进同步范围（AI 可读、多端可读） ----------
+# ---------- 4.5 使用文档进记忆库（AI 可读） ----------
 mkdir -p "$VAULT_DIR/HerMemory/docs"
 cp -R "$SRC/docs/." "$VAULT_DIR/HerMemory/docs/"
 ok "使用文档已就位：HerMemory/docs/"
@@ -246,7 +246,7 @@ ok "使用文档已就位：HerMemory/docs/"
 #   SOUL.md  → $HERMES_HOME/SOUL.md            （身份槽 slot#1）
 #   AGENTS.md→ $HERMES_HOME/AGENTS.md          （官方 context file 通道）
 #   MEMORY.md / USER.md → $HERMES_HOME/memories/（原生双文件，全量注入）
-link_one() { # link_one <同步侧文件> <agent侧路径>
+link_one() { # link_one <记忆库侧文件> <agent侧路径>
     local src="$1" dst="$2"
     mkdir -p "$(dirname "$dst")"
     if [ -L "$dst" ] && [ "$(readlink "$dst")" = "$src" ]; then
@@ -617,7 +617,7 @@ fi
 
 # ---------- 12. 脚本下线 ----------
 # 设计（用户流程 2）：key 配置完成后 AI 上线，脚本下线。
-# WebDAV / 微信接入 / 同步引导 / 能力演示全部由 AI 完成（#13）——AI 读 AGENTS.md 指针（内容在 docs）。
+# 微信接入 / 初次部署 / 能力演示全部由 AI 完成（#13）——AI 读 AGENTS.md 指针（内容在 docs）。
 
 # ---------- 13. 完成提示 ----------
 echo ""

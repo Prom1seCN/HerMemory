@@ -42,7 +42,6 @@ namespace HerMemory
             items.Add(GatewayTask());
             items.Add(InjectionSlots());
             items.Add(VaultFiles());
-            items.Add(WebDav());
             items.Add(Disk());
             items.Add(MemoryBudget());
             items.Add(Logs());
@@ -147,7 +146,7 @@ namespace HerMemory
                 if (bad.Count == 0)
                 {
                     item.Status = "ok";
-                    item.Detail = "三个槽位都指向同步库";
+                    item.Detail = "三个槽位都指向记忆库";
                 }
                 else
                 {
@@ -182,7 +181,7 @@ namespace HerMemory
 
         private static HealthItem VaultFiles()
         {
-            var item = new HealthItem { Title = "同步库文件", Fix = HealthFix.Reinstall };
+            var item = new HealthItem { Title = "记忆库文件", Fix = HealthFix.Reinstall };
             try
             {
                 var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
@@ -190,7 +189,7 @@ namespace HerMemory
                 if (!Directory.Exists(dir))
                 {
                     item.Status = "fail";
-                    item.Detail = "同步库不存在：" + dir;
+                    item.Detail = "记忆库不存在：" + dir;
                     return item;
                 }
                 var missing = new[] { "MEMORY.md", "USER.md", "SOUL.md", "AGENTS.md", "AUTOMATION.md" }
@@ -201,26 +200,6 @@ namespace HerMemory
                     : "缺：" + string.Join("、", missing);
             }
             catch (Exception ex) { item.Status = "fail"; item.Detail = ex.Message; }
-            return item;
-        }
-
-        private static HealthItem WebDav()
-        {
-            var item = new HealthItem { Title = "同步服务（WebDAV）", Fix = HealthFix.None };
-            try
-            {
-                if (HermesCtl.WebDavRunning())
-                {
-                    item.Status = "ok";
-                    item.Detail = "端口 5005 可连";
-                }
-                else
-                {
-                    item.Status = "warn";
-                    item.Detail = "没在运行（手机/平板暂时同步不了；让 AI 帮你开一次即可）";
-                }
-            }
-            catch (Exception ex) { item.Status = "warn"; item.Detail = ex.Message; }
             return item;
         }
 

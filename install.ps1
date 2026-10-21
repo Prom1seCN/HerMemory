@@ -520,7 +520,7 @@ Progress "upstream"
 
 # ---------- 3. vault 结构 ----------
 New-Item -ItemType Directory -Force -Path "$VaultDir\HerMemory\memory" | Out-Null
-Ok "同步根结构：$VaultDir\{用户文档, HerMemory\memory\}"
+Ok "记忆库结构：$VaultDir\{用户文档, HerMemory\memory\}"
 
 # ---------- 4. 出厂五文件（已存在绝不覆盖——那是记忆） ----------
 foreach ($f in @("MEMORY.md","USER.md","SOUL.md","AGENTS.md","AUTOMATION.md")) {
@@ -529,7 +529,7 @@ foreach ($f in @("MEMORY.md","USER.md","SOUL.md","AGENTS.md","AUTOMATION.md")) {
     else { Copy-Item "$SRC\memory\$f" $dst; Ok "铺设出厂文件：HerMemory\memory\$f" }
 }
 
-# ---------- 4.5 使用文档进同步范围 ----------
+# ---------- 4.5 使用文档进记忆库 ----------
 New-Item -ItemType Directory -Force -Path "$VaultDir\HerMemory\docs" | Out-Null
 Copy-Item "$SRC\docs\*" "$VaultDir\HerMemory\docs\" -Recurse -Force
 Ok "使用文档已就位：HerMemory\docs\"
@@ -983,7 +983,7 @@ if (-not $HasAiConfig) {
 
 # ---------- 12. 脚本下线 ----------
 # 设计（用户流程 2）：key 配置完成后 AI 上线，脚本下线。
-# WebDAV / 微信接入 / 同步引导 / 能力演示全部由 AI 完成（#13）——AI 读 AGENTS.md 指针（内容在 docs）。
+# 微信接入 / 初次部署 / 能力演示全部由 AI 完成（#13）——AI 读 AGENTS.md 指针（内容在 docs）。
 
 # ---------- 13. 完成提示 ----------
 Write-Host ""

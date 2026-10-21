@@ -10,7 +10,7 @@ namespace HerMemory
     /// 记忆时光机：用 PortableGit（随内核落位）给 vault 里的记忆目录做本地版本历史。
     ///
     /// 几个刻意的选择：
-    ///  · 仓库放在 **%LOCALAPPDATA%\HerMemory\history**，不放进 vault——否则会被 WebDAV 同步
+    ///  · 仓库放在 **%LOCALAPPDATA%\HerMemory\history**，不放进 vault——否则会跟用户文档一起被同步/备份工具
     ///    到手机、还会和 Obsidian 的 .git 插件抢同一个目录。
     ///  · 用 `--git-dir/--work-tree` 指向 vault，只跟踪 `HerMemory/memory/`，不碰用户文档。
     ///  · 每次编辑器保存后自动提交一条；手动「立即快照」也走同一条路。
@@ -138,7 +138,7 @@ namespace HerMemory
         {
             try
             {
-                if (!EnsureRepo()) return (false, "记忆历史不可用（找不到 git 或同步库）");
+                if (!EnsureRepo()) return (false, "记忆历史不可用（找不到 git 或记忆库）");
                 var add = Run(BaseArgs + $"add -A -- \"{RelDir}\"");
                 if (add.code != 0) return (false, "git add 失败：" + Short(add.output));
 

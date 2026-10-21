@@ -64,7 +64,7 @@ namespace HerMemory
                 else
                 {
                     foreach (var s in _items) SnapshotList.Items.Add(s.Display);
-                    Status.Text = $"共 {_items.Count} 个快照（本机保存，不随同步库走）";
+                    Status.Text = $"共 {_items.Count} 个快照（本机保存，不随记忆库走）";
                 }
                 DiffBox.Text = "";
                 BtnRestore.IsEnabled = false;

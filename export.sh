@@ -5,7 +5,7 @@
 # 纯 bash + hermes 官方 CLI——AI 瘫痪也能导出全部内容。
 #
 # 包内结构：
-#   vault/               文档库：四核心文件（HerMemory/memory/）+ 全部用户文档
+#   vault/               记忆库：四核心文件（HerMemory/memory/）+ 全部用户文档
 #   hermes-home.zip      hermes backup 官方全量：state.db 一致性副本（sqlite
 #                        backup API）+ 所有 skill + 配置 + cron + 皮肤
 #   README_REBORN.md     恢复指引（docs/ 有则随包，供下一个 agent 读）
@@ -34,18 +34,18 @@ command -v zip >/dev/null || die "zip 命令缺失（第 4 步合包需要，最
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ---------- 0. vault 位置 ----------
-read -rp "vault（同步根）路径 [默认 ~/vault]: " VAULT_DIR
+read -rp "记忆库（vault）路径 [默认 ~/vault]: " VAULT_DIR
 VAULT_DIR="${VAULT_DIR:-$HOME/vault}"
 [ -d "$VAULT_DIR" ] || die "vault 不存在：$VAULT_DIR"
 
 # ---------- 1. vault：四核心 + 用户文档 ----------
 mkdir -p "$STAGE"
-log "打包文档库（四核心 + 用户文档）..."
+log "打包记忆库（四核心 + 用户文档）..."
 tar -C "$VAULT_DIR" -cf - . | tar -C "$STAGE" -xf - --one-top-level=vault \
     2>/dev/null || { mkdir -p "$STAGE/vault"; cp -R "$VAULT_DIR/." "$STAGE/vault/"; }
 [ -f "$STAGE/vault/HerMemory/memory/MEMORY.md" ] \
     || warn "vault/HerMemory/memory/MEMORY.md 不在包内——软链断了还是 vault 位置变了？请检查"
-ok "文档库已入包"
+ok "记忆库已入包"
 
 # ---------- 2. hermes backup：官方全量（DB 一致性副本 + skills + 配置） ----------
 log "hermes backup 官方全量打包（数据库用 sqlite backup API 生成一致性副本，热备不锁库）..."

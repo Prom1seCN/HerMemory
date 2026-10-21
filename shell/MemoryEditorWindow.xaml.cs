@@ -18,7 +18,7 @@ namespace HerMemory
     /// 设计取舍：
     ///  · 只改 vault 里那份真文件——AI 是通过符号链接/junction 读它的，所以没有「两份要对齐」。
     ///  · 保存用「同目录临时文件 + 替换」，避免写到一半断电把记忆写坏；编码固定 UTF-8 无 BOM。
-    ///  · 打开期间外部改动（AI 自己写记忆、Obsidian 同步过来）要能被发现：保存前比对
+    ///  · 打开期间外部改动（AI 自己写记忆、你用别的编辑器改过）要能被发现：保存前比对
     ///    (长度, mtime)，不一致就先问，绝不静默覆盖别人的改动。
     ///  · 预览走 MarkdownPreview（本地渲染，零依赖、不联网）。
     /// </summary>
@@ -221,12 +221,12 @@ namespace HerMemory
             if (_current == null) return false;
             var path = _current.FilePath;
 
-            // 外部改动保护：打开后被 AI / 同步工具改过就先问，不静默覆盖
+            // 外部改动保护：打开后被 AI / 别的编辑器改过就先问，不静默覆盖
             var disk = StampOf(path);
             if (!quiet && _stamp != null && disk != null && disk != _stamp)
             {
                 var r = System.Windows.MessageBox.Show(this,
-                    "这个文件在打开之后被其他程序改过（可能是 AI 自己写的，或同步过来的）。\n\n"
+                    "这个文件在打开之后被其他程序改过（可能是 AI 自己写的，或你用别的编辑器改过）。\n\n"
                     + "选「是」用自己的内容覆盖磁盘上的版本；选「否」放弃本次保存、重新载入磁盘版本。",
                     "文件已被外部修改", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
                 if (r != MessageBoxResult.Yes)
