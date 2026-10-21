@@ -60,7 +60,9 @@ if ((Test-Path $Bundle) -and (Test-Path $CommitTxt) -and -not $Force) {
     if (Test-Path $Src) { Remove-Item $Src -Recurse -Force -ErrorAction SilentlyContinue }
     Write-Host "[clone] $RepoUrl ($Tag)"
     $prev = $ErrorActionPreference; $ErrorActionPreference = "Continue"
-    try { & git clone --depth 1 --branch $Tag $RepoUrl $Src 2>&1 | Out-String | Write-Host } finally { $ErrorActionPreference = $prev }
+    # 关掉行尾转换再 clone：Windows 上 core.autocrlf=true 会把文本文件检出成 CRLF，
+    # 快照树就与上游 tag 不再逐字节一致（activate 这类无扩展名的脚本会带 CRLF）。
+    try { & git -c core.autocrlf=false -c core.eol=lf clone --depth 1 --branch $Tag $RepoUrl $Src 2>&1 | Out-String | Write-Host } finally { $ErrorActionPreference = $prev }
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path (Join-Path $Src ".git"))) { Fail "git clone 失败（网络/GitHub 限流？换时间或挂代理重试）" }
 
     $upstreamCommit = (& git -C $Src rev-parse HEAD).Trim()
@@ -70,6 +72,11 @@ if ((Test-Path $Bundle) -and (Test-Path $CommitTxt) -and -not $Force) {
 
     # ---------- 2. 重做成快照仓库（单提交 + tag） ----------
     Step "2/5 重建为快照仓库"
+    # 记下上游受控文件清单：重建后必须一个不少。有些文件上游仍在跟踪、却已写进自己的
+    # .gitignore（web/public/fonts、website/src/data、hello-runtime 的 js），普通 `git add -A`
+    # 会把它们当忽略项丢掉 —— 快照树就不再等于 pin 的树了。
+    $trackedBefore = @(& git -C $Src ls-files)
+    if ($trackedBefore.Count -lt 1000) { Fail "上游工作树文件数异常（$($trackedBefore.Count)），clone 可能不完整" }
     Remove-Item (Join-Path $Src ".git") -Recurse -Force
     $prev = $ErrorActionPreference; $ErrorActionPreference = "Continue"
     try {
@@ -78,7 +85,8 @@ if ((Test-Path $Bundle) -and (Test-Path $CommitTxt) -and -not $Force) {
         & git -C $Src config core.autocrlf false 2>&1 | Out-Null
         & git -C $Src config core.safecrlf false 2>&1 | Out-Null
         Set-Content -Path (Join-Path $Src ".git\info\attributes") -Value "* -text`n" -Encoding ASCII
-        & git -C $Src -c user.name="HerMemory Release" -c user.email="noreply@hermemory.local" add -A 2>&1 | Out-String | Write-Host
+        # -f：强制把「上游跟踪、但 upstream .gitignore 恰好命中」的文件也收进来
+        & git -C $Src -c user.name="HerMemory Release" -c user.email="noreply@hermemory.local" add -A -f 2>&1 | Out-String | Write-Host
         if ($LASTEXITCODE -ne 0) { Fail "git add 失败" }
         & git -C $Src -c user.name="HerMemory Release" -c user.email="noreply@hermemory.local" `
             commit -q -m "Hermes Agent $Tag (source snapshot; tree identical to upstream $upstreamCommit)" 2>&1 | Out-String | Write-Host
@@ -87,6 +95,13 @@ if ((Test-Path $Bundle) -and (Test-Path $CommitTxt) -and -not $Force) {
             tag -a $Tag -m "Hermes Agent $Tag" 2>&1 | Out-String | Write-Host
         if ($LASTEXITCODE -ne 0) { Fail "git tag 失败" }
     } finally { $ErrorActionPreference = $prev }
+
+    $trackedAfter = @(& git -C $Src ls-files)
+    $missing = @($trackedBefore | Where-Object { $trackedAfter -notcontains $_ })
+    if ($missing.Count -gt 0) {
+        Fail ("快照比上游少 {0} 个受控文件，拒绝产出：`n  {1}" -f $missing.Count, (($missing | Select-Object -First 10) -join "`n  "))
+    }
+    Write-Host "快照文件数：$($trackedAfter.Count)（与上游受控文件一致）"
 
     $snapshotCommit = (& git -C $Src rev-parse HEAD).Trim()
     Write-Host "snapshot commit: $snapshotCommit"

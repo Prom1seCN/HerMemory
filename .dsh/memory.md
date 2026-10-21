@@ -173,3 +173,17 @@ export HERMES_HOME=<spike>/home
 - 界面真机验证：`pc` 上建一次性计划任务（`/it`，交互会话）跑 PowerShell 截图脚本，
   `SetWindowPos(HWND_TOPMOST)` 才能把窗口抬到前台（脚本进程拿不到前台锁）。
   脚本本身含中文时必须存成 **UTF-8 带 BOM**，否则 PS 5.1 按 GBK 读会把引号吞掉。
+
+## 升级路径（0.1.0 → 0.2.0，2026-10-21 实测）
+
+- **不能在旧 checkout 里切分支**：仓库 `contributors/emails/` 有两个仅大小写不同的文件，
+  NTFS 上只能存在一个 → git 永远报 dirty，`git stash` 消不掉，上游 installer 的 `git checkout` 必然被拒
+  （"Please commit your changes or stash them..."）。install.ps1 现在把 `hermes-agent` 整体改名为
+  `hermes-agent.pre-0.2.2-<ts>`，让上游从随包 bundle 干净克隆；旧目录保留可回滚。
+- 升级前必须 `hermes gateway stop`：`schtasks /Delete` 只删任务不杀进程，旧网关会继续跑旧 venv。
+- 阶段 1/2 是两个进程：`KernelUpgraded` 用 `$HERMES_HOME\.hm-kernel-upgrade` 标记持久化，
+  网关重建成功后才删标记；否则中止后重试会跳过网关重建。
+- 向导「连接 AI」页会预填现有 URL/Key/模型/档位；不预填的话升级会被"请完整填写"卡死。
+- 备份配置的代码曾经是一个裸 `{ ... }` ScriptBlock（从未执行），已改成顺序执行。
+- 接管别人的 Hermes：`memories\` 先整目录改名备份，再按"缺则补、空则填、冲突并存"合并，
+  绝不再 `Remove-Item -Recurse` 旧目录（旧逻辑会把真记忆换成出厂空模板）。

@@ -31,6 +31,8 @@ $ErrorActionPreference = "Stop"
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 $HermesHome = $env:HERMES_HOME; if (-not $HermesHome) { $HermesHome = "$env:LOCALAPPDATA\hermes" }
 $HermesHome = $HermesHome.Trim().Trim('"').TrimEnd('\')
+# 升级进行中的标记：中止/断电后重跑时，靠它知道"网关任务必须重建"（进程内变量活不过一次重跑）。
+$HmUpgradeMarker = Join-Path $HermesHome ".hm-kernel-upgrade"
 # 显式导出到本进程环境。上游 vendored 安装器（scripts\upstream-install.ps1）的 param() 默认值
 # 取 $env:HERMES_HOME，其 $InstallDir 亦由其派生，且它会把该值**持久化**写入 User 环境变量。
 # 不导出时 $HermesHome 只是本脚本的变量：上游会按自己的默认值落位，并把**错误路径**持久化下去
@@ -158,8 +160,14 @@ function Get-WorkingHermesCli {
     foreach ($c in @((Join-Path $HermesHome "bin\hermes.exe"), (Join-Path $HermesHome "bin\hermes.cmd"))) {
         if ((Test-Path -LiteralPath $c) -and ((Run-Q $c --version) -eq 0)) { return $c }
     }
+    # PATH 兜底只接受**本 home 内**的 launcher。否则机器上别人的 Hermes 会被当成本机的内核：
+    # 版本碰巧相同就 Mark-Done 跳过安装，后续 config/皮肤写进别人的 home，而 vault 建在新 home。
     $g = Get-Command hermes -ErrorAction SilentlyContinue
-    if ($g -and $g.Source -and ((Run-Q $g.Source --version) -eq 0)) { return $g.Source }
+    if ($g -and $g.Source) {
+        $inside = $g.Source.StartsWith($HermesHome.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)
+        if ($inside -and ((Run-Q $g.Source --version) -eq 0)) { return $g.Source }
+        if (-not $inside) { Warn "PATH 里的 hermes 属于另一处安装（$($g.Source)），本发行版不使用它。" }
+    }
     return $null
 }
 
@@ -365,20 +373,44 @@ if ($workingCli -and $haveVer -eq $WantHermesVersion) {
                  [Environment]::NewLine + "③ 把数据目录改到别处（安装位置页可改「数据存储位置」）做并存安装。")
         }
         Warn ("检测到 Hermes v" + $(if ($haveVer) { $haveVer } else { "未知" }) + "（本发行版锁定 v$WantHermesVersion），将升级内核与运行环境。")
-        # 接管已有安装：先备份配置与凭据。内核升级不会删它们，但用户值得有一个就地回滚点。
-        {
-            $ts = Get-Date -Format "yyyyMMdd-HHmmss"
-            foreach ($f in @("config.yaml", ".env")) {
-                $src = Join-Path $HermesHome $f
-                if (Test-Path $src) {
-                    $bak = Join-Path $HermesHome ("$f.pre-hermemory-" + $ts)
-                    try { Copy-Item $src $bak -Force; } catch { }
-                }
+        # 接管已有安装：先停网关、备份配置与凭据。内核升级不会删它们，但用户值得有一个就地回滚点。
+        $ts = Get-Date -Format "yyyyMMdd-HHmmss"
+        # 旧网关不杀，新网关会与它抢同一份 state.db（schtasks /Delete 只删任务、不杀进程）
+        if (Test-Path -LiteralPath $HermesCli) {
+            Log "停止旧网关……"
+            Run-Quiet $HermesCli gateway stop
+            Start-Sleep -Seconds 1
+        }
+        foreach ($f in @("config.yaml", ".env")) {
+            $src = Join-Path $HermesHome $f
+            if (Test-Path $src) {
+                $bak = Join-Path $HermesHome ("$f.pre-hermemory-" + $ts)
+                try { Copy-Item $src $bak -Force; } catch { }
             }
-            Log "已备份现有配置：config.yaml / .env（.pre-hermemory-$ts）"
+        }
+        Log "已备份现有配置：config.yaml / .env（.pre-hermemory-$ts）"
+
+        # 旧 checkout 必须整体挪开，不能在原地切分支。
+        # 原因（2026-10-21 实测）：仓库 contributors/emails/ 下有两个**仅大小写不同**的文件
+        # （agent@Agents-Mac-mini.local / agent@agents-Mac-mini.local），NTFS 上只能存在一个，
+        # 于是 git 永远把其中一个报成 modified；stash 也消不掉，`git checkout` 必然被拒：
+        #   "Please commit your changes or stash them before you switch branches."
+        # 上游 installer 对此没有兜底（它假定 Windows 能 stash 干净），升级会硬停在内核段。
+        # 挪开之后上游走「全新克隆」路径，从随包 bundle 拿到干净树；旧目录原样保留可回滚。
+        $oldRepo = Join-Path $HermesHome "hermes-agent"
+        if (Test-Path (Join-Path $oldRepo ".git")) {
+            $aside = "$oldRepo.pre-$($WantHermesVersion)-$ts"
+            try {
+                Move-Item -LiteralPath $oldRepo -Destination $aside -ErrorAction Stop
+                Log "旧内核目录已移到 $aside（确认新版可用后可删除）"
+            } catch {
+                Warn "旧内核目录挪不动（可能有进程占用）：$($_.Exception.Message)"
+                Warn "升级可能在 git 切分支处失败；若失败，请先关闭网关与托盘程序后重试。"
+            }
         }
         # 内核换了版本 → 旧的网关计划任务跑的仍是旧 venv 的启动脚本，必须让它重建
         $script:KernelUpgraded = $true
+        try { Set-Content -LiteralPath $HmUpgradeMarker -Value "$haveVer -> $WantHermesVersion" -Encoding ASCII -Force } catch { }
     }
     if ($SkipUpstream) { Die "hermes CLI 不可用，且指定了 -SkipUpstream" }
     if ((Test-Done "upstream") -or (Test-Path (Join-Path $HermesHome "hermes-agent"))) {
@@ -586,12 +618,29 @@ if ($exJ -and $exJ.LinkType -eq "Junction" -and "$($exJ.Target)" -eq $jTarget) {
     Log "memories junction 已就位：$memDir -> $jTarget"
 } else {
     if (Test-Path $memDir) {
-        # 迁移既有记忆到 vault（仅拷 vault 缺失的文件，绝不覆盖）
-        Get-ChildItem $memDir -File -Force | ForEach-Object {
-            $d = Join-Path $jTarget $_.Name
-            if (-not (Test-Path $d)) { Copy-Item $_.FullName $d -Force; Warn "迁移既有记忆：$($_.Name)" }
+        # **先整目录改名备份，再合并**。旧逻辑按"目标已存在就跳过"处理，而 §4 刚往 vault 铺了
+        # 出厂空白 MEMORY.md/USER.md —— 接管别人的 Hermes 时，用户真记忆会被空模板顶掉，随后
+        # 旧目录被 -Recurse 删除。这里改成：一个字节都不删，冲突的文件在 vault 里并存一份。
+        $memStamp = Get-Date -Format "yyyyMMdd-HHmmss"
+        $memBak = "$memDir.pre-hermemory-$memStamp"
+        Move-Item -LiteralPath $memDir -Destination $memBak -ErrorAction Stop
+        Get-ChildItem $memBak -Recurse -File -Force | ForEach-Object {
+            $rel = $_.FullName.Substring($memBak.Length).TrimStart('\')
+            $d = Join-Path $jTarget $rel
+            if (-not (Test-Path $d)) {
+                New-Item -ItemType Directory -Force -Path (Split-Path -Parent $d) | Out-Null
+                Copy-Item $_.FullName $d -Force
+                Warn "迁移既有记忆：$rel"
+            } elseif ((Get-Item -LiteralPath $d).Length -eq 0) {
+                Copy-Item $_.FullName $d -Force
+                Warn "填补空文件：$rel"
+            } else {
+                $side = "$d.from-hermes-$memStamp"
+                Copy-Item $_.FullName $side -Force
+                Warn "同名记忆并存：$side（vault 原文件保留）"
+            }
         }
-        Remove-Item $memDir -Recurse -Force -ErrorAction SilentlyContinue
+        Ok "旧 memories 已备份到 $memBak，并按上面清单合并"
     }
     New-Item -ItemType Junction -Path $memDir -Target $jTarget -ErrorAction Stop | Out-Null
     Ok "memories 已以 junction 挂载至 vault：$memDir -> $jTarget"
@@ -665,9 +714,9 @@ switch ($choice) {
 }
 }
 $_r = Run-QOut $HermesCli config set memory.memory_char_limit $memLimit
-if ($_r.Code -ne 0) { Warn ("memory.memory_char_limit 写入失败" + (Show-Tail $_r.Out)) }
+if ($_r.Code -ne 0) { Die ("memory.memory_char_limit 写入失败" + (Show-Tail $_r.Out)) }
 $_r = Run-QOut $HermesCli config set memory.user_char_limit $userLimit
-if ($_r.Code -ne 0) { Warn ("memory.user_char_limit 写入失败" + (Show-Tail $_r.Out)) }
+if ($_r.Code -ne 0) { Die ("memory.user_char_limit 写入失败" + (Show-Tail $_r.Out)) }
 Ok "记忆档位：MEMORY $memLimit / USER $userLimit 字符（调整：memory-size.sh）"
 Mark-Done "memory-tier"
 }
@@ -795,8 +844,14 @@ $u = [uri]$provBase
 $hostId = $u.Host
 if ($u.Port -gt 0) { $hostId = "${hostId}_$($u.Port)" }
 $keyEnv = "HERMES_CUSTOM_" + (($hostId.ToUpper()) -replace "[^A-Z0-9]+", "_").Trim("_") + "_API_KEY"
-& $HermesCli config set $keyEnv $apiKey | Out-Null
-if (-not (Select-String -Path "$HermesHome\.env" -Pattern ("^" + $keyEnv + "=") -Quiet)) { Add-Content -Path "$HermesHome\.env" -Value "$keyEnv=$apiKey" }
+function Set-ConfigOrDie([string]$k, [string]$v) {
+    $r = Run-QOut $HermesCli config set $k $v
+    if ($r.Code -ne 0) { Die ("写入配置失败：config set " + $k + "`n" + (Show-Tail $r.Out)) }
+}
+Set-ConfigOrDie $keyEnv $apiKey
+$envFile = Join-Path $HermesHome ".env"
+if (-not (Test-Path -LiteralPath $envFile)) { New-Item -ItemType File -Path $envFile -Force | Out-Null }
+if (-not (Select-String -Path $envFile -Pattern ("^" + $keyEnv + "=") -Quiet)) { Add-Content -Path $envFile -Value "$keyEnv=$apiKey" }
 # 清除会劫持路由的 OPENAI_*（上游 auxiliary_client 明确告警的 env 污染场景）
 Run-Quiet $HermesCli config unset OPENAI_API_KEY
 Run-Quiet $HermesCli config unset OPENAI_BASE_URL
@@ -808,11 +863,11 @@ if (Test-Path "$HermesHome\.env") {
 if (-not $envClean -or $envClean.Count -eq 0) { $envClean = @("$keyEnv=$apiKey") }
 # PS5.1 的 Set-Content -Encoding UTF8 会写 BOM——.env 首行键名会被 BOM 污染，必须无 BOM 落盘
 [IO.File]::WriteAllLines("$HermesHome\.env", [string[]]@($envClean), (New-Object Text.UTF8Encoding($false)))
-& $HermesCli config set model.default $provModel | Out-Null
-& $HermesCli config set model.provider custom | Out-Null
-& $HermesCli config set model.base_url $provBase | Out-Null
-& $HermesCli config set model.api_key ('${' + $keyEnv + '}') | Out-Null
-& $HermesCli config set model.api_mode chat_completions | Out-Null
+Set-ConfigOrDie "model.default" $provModel
+Set-ConfigOrDie "model.provider" "custom"
+Set-ConfigOrDie "model.base_url" $provBase
+Set-ConfigOrDie "model.api_key" ('${' + $keyEnv + '}')
+Set-ConfigOrDie "model.api_mode" "chat_completions"
 # 落盘验证：provider/custom 与 key 引用缺一不可，缺则直改文件
 $cfgPath = Join-Path $HermesHome "config.yaml"
 if ((Test-Path $cfgPath) -and -not (Select-String -Path $cfgPath -Pattern "provider: custom" -Quiet)) {
@@ -918,7 +973,7 @@ $gwTaskName = "Hermes_Gateway"
 $gwLauncher = Join-Path $HermesHome "gateway-service\$gwTaskName.vbs"
 # 内核换过版本：旧任务里的启动脚本指向旧 venv 的 python，留着它网关就再也起不来。
 # 先删任务与启动脚本，让下面那段老老实实重装一次（重装会把新解释器写进 .vbs）。
-if ($script:KernelUpgraded) {
+if ($script:KernelUpgraded -or (Test-Path -LiteralPath $HmUpgradeMarker)) {
     Log "内核已升级：重建网关计划任务（旧任务指向旧运行时）"
     Run-Quiet schtasks /Delete /TN $gwTaskName /F
     if (Test-Path $gwLauncher) { Remove-Item $gwLauncher -Force -ErrorAction SilentlyContinue }
@@ -940,7 +995,10 @@ if ($gwExists -and (Test-Path $gwLauncher)) {
     #   START_NOW=0：不在安装期派生常驻进程——安装常以管理员身份运行，避免留下提权 gateway。
     #   需要启动时由 exe 的微信流程或用户自行 gateway start。
     $env:HERMES_NONINTERACTIVE = "1"
-    $env:HERMES_GATEWAY_INSTALL_START_ON_LOGIN = $(if ($AutoStartGw) { "1" } else { "0" })
+    # 上游 install(start_on_login=False) 会**直接 return，连任务都不建** —— 那样用户关掉
+    # "开机自启"就连网关都没有了。所以一律按登录自启装，装完再按用户选择禁用任务
+    # （gateway start 是直接拉起进程，不依赖计划任务，手动启动照常可用）。
+    $env:HERMES_GATEWAY_INSTALL_START_ON_LOGIN = "1"
     $env:HERMES_GATEWAY_INSTALL_START_NOW = "0"
     Log "安装 gateway 服务……"
     $gwExe = Join-Path $HermesHome "bin\hermes.exe"
@@ -960,6 +1018,10 @@ if ($gwExists -and (Test-Path $gwLauncher)) {
     }
     if ($gwCode -eq 0) {
         Ok "gateway 服务已安装"
+        if (-not $AutoStartGw) {
+            Run-Quiet schtasks /Change /TN $gwTaskName /DISABLE
+            Log "按安装选项：登录自启已关闭（任务保留，可在主界面手动启动）"
+        }
     } elseif ($gwCode -eq -2) {
         Warn "gateway 服务安装超时（240 秒），已终止。可稍后手动执行：hermes gateway install"
     } else {
@@ -968,6 +1030,8 @@ if ($gwExists -and (Test-Path $gwLauncher)) {
         try { Get-Content $gwOut -Tail 3 -ErrorAction SilentlyContinue | ForEach-Object { Warn "  $_" } } catch { }
     }
 }
+# 启动脚本已就位 = 这次重建成功（或本来就可用）；清掉标记，下一次安装不再无谓重装任务。
+if (Test-Path -LiteralPath $gwLauncher) { Remove-Item -LiteralPath $HmUpgradeMarker -Force -ErrorAction SilentlyContinue }
 Progress "gateway"
 
 }   # end of 配置阶段（9~11 段）

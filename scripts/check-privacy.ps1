@@ -54,7 +54,7 @@ function Test-PrivacyGate {
         "build-offline.ps1","build-release.ps1","README.md","LICENSE","shell","memory","skins","docs","scripts"
     ) | ForEach-Object { Join-Path $Root $_ } | Where-Object { Test-Path $_ }
 
-    $exts = @('.ps1','.sh','.bat','.cmd','.cs','.xaml','.csproj','.md','.json','.yaml','.yml','.txt','.vbs','.config')
+    $exts = @('.ps1','.sh','.bat','.cmd','.cs','.xaml','.csproj','.md','.json','.yaml','.yml','.txt','.vbs','.config','.py')
     $files = foreach ($t in $targets) {
         if ((Get-Item $t).PSIsContainer) {
             Get-ChildItem $t -Recurse -File -ErrorAction SilentlyContinue |

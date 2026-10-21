@@ -118,7 +118,13 @@ namespace HerMemory
                 if (GitExe == null) return false;
 
                 Directory.CreateDirectory(Path.GetDirectoryName(RepoDir) ?? RepoDir);
-                if (Directory.Exists(RepoDir)) Directory.Delete(RepoDir, true);
+                if (Directory.Exists(RepoDir))
+                {
+                    // 仓库目录在、refs 不全（初始化中断/被搬动）时**不能递归删**：
+                    // objects 里可能已经有用户的历史快照。改名留档，再建新仓。
+                    var broken = RepoDir + ".broken-" + DateTime.Now.ToString("yyyyMMddHHmmss");
+                    Directory.Move(RepoDir, broken);
+                }
                 var init = Run($"init --bare \"{RepoDir}\"");
                 if (init.code != 0) return false;
                 Run($"--git-dir=\"{RepoDir}\" config core.bare false");

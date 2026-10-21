@@ -30,8 +30,7 @@ UPSTREAM_DIR="$HOME/hermes-agent"
 # 留空 = 跳过直链层，用同目录的 hermes-agent.bundle，再没有就 GitHub clone。
 OFFLINE_BUNDLE_URL=""
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
-WEBDAV_PORT="5005"
-WEBDAV_USER="hermemory"
+
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # 本仓库（壳）位置
 
 log()  { printf '\033[36m[HerMemory]\033[0m %s\n' "$*"; }
@@ -132,6 +131,9 @@ else
         done
         log "已备份现有配置：config.yaml / .env（.pre-hermemory-$TS）"
         KERNEL_UPGRADED=1
+        # 落一个标记：升级中途失败/被 Ctrl-C 后重跑，$KERNEL_UPGRADED 这个进程变量就没了，
+        # 旧 unit 会继续指向旧 venv。标记让重跑仍然知道"网关必须重建"。
+        : > "$HERMES_HOME/.hm-kernel-upgrade" 2>/dev/null || true
     fi
     UPSTREAM_INSTALLER="$SRC/scripts/upstream-install.sh"
     [ -f "$UPSTREAM_INSTALLER" ] || die "缺 vendored 上游安装器：$UPSTREAM_INSTALLER（发行包不完整，请重新 git clone 本仓库）"
@@ -468,7 +470,9 @@ cfg_set model.api_mode chat_completions
 # 落盘验证：缺则直改文件
 grep -q "provider: custom" "$HERMES_HOME/config.yaml" 2>/dev/null || sed -i 's/^  provider: .*/  provider: custom/' "$HERMES_HOME/config.yaml"
 if ! grep -q 'api_key: \${'"$KEY_ENV"'}' "$HERMES_HOME/config.yaml" 2>/dev/null; then
-    sed -i "/^  base_url: /a\\  api_key: \\${${KEY_ENV}}\\  api_mode: chat_completions" "$HERMES_HOME/config.yaml"
+    # 旧的 sed 兜底是坏的：嵌套 ${${KEY_ENV}} 在 bash 里是 bad substitution，set -e 直接中断；
+    # 就算展开成功，`a\` 也只追加一行，YAML 结构是错的。宁可停下来说清楚怎么补。
+    die "config.yaml 里没有写入 model.api_key（可能被其他进程占用）。请手动执行：hermes config set model.api_key '\${$KEY_ENV}' 后重新运行安装。"
 fi
 ok "配置完成（模型：$PROV_MODEL）"
 mark_done config-ai
@@ -548,12 +552,14 @@ print(json.load(open(files[-1])).get('user_id', '') if files else '')" 2>/dev/nu
 fi
 
 # ---------- 11. gateway 服务（消息通道 + cron） ----------
-if [ "${KERNEL_UPGRADED:-0}" = "1" ]; then
+if [ "${KERNEL_UPGRADED:-0}" = "1" ] || [ -f "$HERMES_HOME/.hm-kernel-upgrade" ]; then
     # 内核换了版本：旧 systemd 单元里的解释器/工作目录都是旧的，留着它网关就起不来。
     # 先停掉并删单元，让下面那段老老实实重装。
     log "内核已升级：重建 gateway 服务单元"
     hermes gateway stop >/dev/null 2>&1 || true
-    rm -f "$HOME/.config/systemd/user/"*hermes*.service 2>/dev/null || true
+    # 只删 gateway 单元，别把同目录下别的 hermes-*.service 一起误杀
+    rm -f "$HOME/.config/systemd/user/hermes-gateway"*.service "$HOME/.config/systemd/user/hermes.service" 2>/dev/null || true
+    : > "$HERMES_HOME/.hm-kernel-upgrade" 2>/dev/null || true
     systemctl --user daemon-reload 2>/dev/null || true
 fi
 log "安装 gateway 服务……"
@@ -571,6 +577,7 @@ GW_TIMEOUT=""
 if command -v timeout >/dev/null 2>&1; then GW_TIMEOUT="timeout 240"; fi
 if $GW_TIMEOUT hermes gateway install --start-now --start-on-login < /dev/null > "$GW_LOG" 2>&1; then
     ok "gateway 服务已安装"
+    rm -f "$HERMES_HOME/.hm-kernel-upgrade" 2>/dev/null || true
     # ---- 登出后常驻（systemd linger）----
     # systemd 的 **user** 服务默认在最后一个会话退出时被停掉：服务器上这意味着
     # SSH 一断 gateway 就停了、微信不再有回复，"24h 在线"不成立。

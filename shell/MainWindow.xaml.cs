@@ -29,6 +29,7 @@ namespace HerMemory
         private bool _pendAutoStart = true;           // 安装时选择的「开机自动启动」
         private bool _pendHeavyTools = true;          // 安装时选择的「浏览器与电脑操作」（v0.22 双形态）
         private bool _autoStartChosen;                // 本会话里用户是否真的在向导中做过这项选择
+        private bool _gwWasRunning;                    // 升级前网关是否在跑（装完要给人恢复回去）
         private bool _shellOk = true;                 // 安装收尾是否真的落地了程序文件（供完成页如实报错）
         private int _installStage = 1;                // 当前/最近一次跑的阶段：1=安装 2=配置（重试按钮据此回对页）
         private CancellationTokenSource? _qrCts;
@@ -194,6 +195,12 @@ namespace HerMemory
                 _ = Task.Run(() =>
                 {
                     var (url, _, key) = HermesCtl.GetModelCfg();
+            if (key.Length == 0)
+            {
+                // 有些配置直接把 key 写在 model.api_key 里（不走 ${ENV} 引用）
+                var raw = HermesCtl.Run("config get model.api_key", 20).Trim().Trim('"');
+                if (raw.Length > 0 && !raw.StartsWith("${", StringComparison.Ordinal)) key = raw;
+            }
                     var def = "";
                     try { def = HermesCtl.Run("config get model.default", 20).Trim().Trim('"'); } catch { }
                     Dispatcher.Invoke(() =>
@@ -278,7 +285,7 @@ namespace HerMemory
                 // —— 模型决策 ——
                 // 只有"列表确实对应当前地址、且从中选定了型号"才算明确；否则必须核对当前默认模型
                 // 在新地址上是否仍存在（与安装期同一口径），绝不静默保留一个可能已失效的型号。
-                var picked = CleanAscii(CfgModelCombo.SelectedItem as string ?? "");
+                var picked = CleanAscii(CfgModelCombo.SelectedItem as string ?? CfgModelCombo.Text ?? "");
                 var listValid = _cfgListUrl != null && string.Equals(_cfgListUrl, url, StringComparison.Ordinal);
                 string modelToWrite = "";
                 string note;
@@ -766,6 +773,17 @@ namespace HerMemory
                 report("① 复制记忆库（vault）……");
                 int skipped = 0;
                 CopyDirTolerant(vault, Path.Combine(stage, "vault"), ref skipped);
+                // 复制失败（被占用/权限）只会计数，不会抛 —— 校验五个记忆文件确实进了包，
+                // 否则用户拿到一个"导出完成"但缺记忆的 zip，等于备份了个寂寞。
+                var memOut = Path.Combine(stage, "vault", "HerMemory", "memory");
+                var missingCore = new[] { "MEMORY.md", "USER.md", "SOUL.md", "AGENTS.md", "AUTOMATION.md" }
+                    .Where(f => !File.Exists(Path.Combine(memOut, f))).ToList();
+                if (missingCore.Count > 0)
+                {
+                    try { Directory.Delete(stageParent, true); } catch { }
+                    return (false, "导出中止：记忆库里缺少 " + string.Join("、", missingCore)
+                        + "（文件被占用或复制失败）。请关闭占用它的程序后重试。", null);
+                }
 
                 report("② 生成 AI 端全量备份（hermes backup，数据库热备不锁库）……");
                 var backup = Path.Combine(stage, "hermes-home.zip");
@@ -775,6 +793,17 @@ namespace HerMemory
                     // 中止时清掉已铺开的 staging，否则整份 vault 副本会烂在 temp 里
                     try { Directory.Delete(stageParent, true); } catch { }
                     return (false, "导出中止：hermes backup 未产出备份包。\n" + Tail(bout), null);
+                }
+                // 文件在 ≠ 包是好的：超时/磁盘满会留下半截 zip，直接打进导出包等于伪造成功。
+                try
+                {
+                    using var z = System.IO.Compression.ZipFile.OpenRead(backup);
+                    if (z.Entries.Count == 0) throw new InvalidDataException("备份包为空");
+                }
+                catch (Exception zex)
+                {
+                    try { Directory.Delete(stageParent, true); } catch { }
+                    return (false, "导出中止：hermes backup 产出的包不完整（" + zex.Message + "）。", null);
                 }
 
                 var reborn = Path.Combine(vault, "HerMemory", "docs", "README_REBORN.md");
@@ -1088,7 +1117,7 @@ namespace HerMemory
                 // 刚 Add 完子项时布局还没跑，同步 ScrollToTop 有时落在旧 Extent 上（表现为一进页就在底部）。
                 // 交给 Background 优先级再滚一次，此时 Extent 已按新内容算好。
                 HealthScroll.ScrollToTop();
-                Dispatcher.BeginInvoke(new Action(() => HealthScroll.ScrollToTop()),
+                _ = Dispatcher.BeginInvoke(new Action(() => HealthScroll.ScrollToTop()),
                     System.Windows.Threading.DispatcherPriority.Background);
                 var fails = items.Count(i => i.Status == "fail");
                 var warns = items.Count(i => i.Status == "warn");
@@ -1869,7 +1898,8 @@ namespace HerMemory
         {
             var url = CleanAscii(UrlBox.Text).TrimEnd('/');
             var key = CleanAscii(KeyBox.Text);
-            var model = ModelCombo.SelectedItem as string ?? "";
+            // 有的服务商不提供 /models（或返回空列表）：允许直接键入型号，不把人卡死在下拉框上。
+            var model = (ModelCombo.SelectedItem as string ?? ModelCombo.Text ?? "").Trim();
             if (url.Length == 0 || key.Length == 0 || model.Length == 0)
             {
                 ParamStatus.Text = "请完整填写地址与 Key，并选择模型。";
@@ -1903,6 +1933,51 @@ namespace HerMemory
         // 已有安装 → 该页只读（用户裁决：位置仅首次安装可选）。
         // 理由：计划任务脚本里写的是绝对路径，venv 的 pyvenv.cfg、uv 蹦床也都是绝对路径，
         // 事后改位置等价于卸载重装，而"半移动"的状态无法自愈。
+
+        private readonly record struct ParamPrefill(string Url, string Key, string Model, string Mem, string Usr);
+
+        /// <summary>读现有模型与档位配置（后台线程调用，内部串行跑几次 CLI）。</summary>
+        private static ParamPrefill ReadExistingModelConfig()
+        {
+            var (url, _, key) = HermesCtl.GetModelCfg();
+            var def = CleanAscii(HermesCtl.Run("config get model.default", 20).Trim().Trim('"'));
+            if (def.Length > 120 || def.Contains("not set", StringComparison.OrdinalIgnoreCase)) def = "";
+            string Limit(string name)
+            {
+                var m = System.Text.RegularExpressions.Regex.Match(HermesCtl.Run($"config get {name}", 20), @"(\d{3,7})");
+                return m.Success ? m.Groups[1].Value : "";
+            }
+            return new ParamPrefill(url, key, def,
+                Limit("memory.memory_char_limit"), Limit("memory.user_char_limit"));
+        }
+
+        private void ApplyPrefill(ParamPrefill? cfg)
+        {
+            if (cfg is not { } v) return;
+            if (v.Url.Length > 0) UrlBox.Text = v.Url;
+            if (v.Key.Length > 0) KeyBox.Text = v.Key;
+            if (v.Model.Length > 0)
+            {
+                ModelCombo.ItemsSource = new[] { v.Model };
+                ModelCombo.SelectedIndex = 0;
+            }
+            switch ((v.Mem, v.Usr))
+            {
+                case ("2200", "1375"): Tier1.IsChecked = true; break;
+                case ("5000", "3000"): Tier2.IsChecked = true; break;
+                case ("10000", "5000"): Tier3.IsChecked = true; break;
+                default:
+                    if (v.Mem.Length > 0 && v.Usr.Length > 0)
+                    {
+                        Tier4.IsChecked = true;
+                        CustomMem.Text = v.Mem;
+                        CustomUser.Text = v.Usr;
+                    }
+                    break;
+            }
+            ParamStatus.Text = "已读取当前配置；直接点「完成配置」即可保留原 Key 与模型。";
+            ParamStatus.Foreground = Brush("#2E7D32");
+        }
 
         private void PrepareLocationPage()
         {
@@ -1957,7 +2032,7 @@ namespace HerMemory
                 BtnLocStart.IsEnabled = false;
                 return;
             }
-            LocStatus.Text = "位置可用。安装后合计占用约 2-3 GB。";
+            LocStatus.Text = "位置可用。安装约需 3.5-4.5 GB（不勾选浏览器能力约 2-2.5 GB）。";
             LocStatus.Foreground = Brush("#2E7D32");
             BtnLocStart.IsEnabled = true;
         }
@@ -2390,6 +2465,19 @@ namespace HerMemory
                     var payload = JsonSerializer.Serialize(answers);
                     await File.WriteAllTextAsync(_answersPath, payload, new UTF8Encoding(false));
 
+                    // 升级前先停旧网关：schtasks 删任务**不会杀进程**，旧进程会继续用旧 venv 跑，
+                    // 与新网关抢同一份数据库/微信通道。停完记下原状态，装完再拉起来。
+                    if (stage == 1 && HermesCtl.Installed)
+                    {
+                        Dispatcher.Invoke(() => InstallDetail.Text = "正在停止旧网关……");
+                        try
+                        {
+                            _gwWasRunning = await Task.Run(() => HermesCtl.State() == "running");
+                            if (_gwWasRunning) await Task.Run(() => HermesCtl.Run("gateway stop", 120));
+                        }
+                        catch { }
+                    }
+
                     // 2. 静默安装
                     // RedirectStandardInput：CreateNoWindow 下子进程会拿到一个"无窗口但真实存在"的控制台，
                     // 其 stdin 是有效输入缓冲区——上游任何 input() 都会永久阻塞等待敲不进来的按键
@@ -2481,7 +2569,10 @@ namespace HerMemory
 
                     if (exit != 0)
                     {
-                        // 答案文件保留：续装还要用（成功才删）
+                        // 答案文件里有明文 API Key：失败/中止也要删掉，不能留在 %TEMP%。
+                        // 「重新安装」用的是内存里的 _pendKey，不依赖这个文件。
+                        try { if (_answersPath != null) File.Delete(_answersPath); } catch { }
+                        _answersPath = null;
                         string tailText;
                         lock (_installTail)
                             tailText = string.Join(Environment.NewLine,
@@ -2524,10 +2615,23 @@ namespace HerMemory
                         // 用户在下一页填参数时它已到位。返回值供完成页如实报错。
                         _shellOk = FinalizeShellIntegration();
                         StopTips();
+                        // 已经是配置过的老用户：把现有 URL/Key/模型/档位读回来预填。
+                        // 不预填的话升级会被卡在「请完整填写地址与 Key」——用户多半早就不记得 Key 了。
+                        ParamPrefill? prefill = null;
+                        try { if (File.Exists(Path.Combine(HermesHome, ".env"))) prefill = ReadExistingModelConfig(); } catch { }
+                        if (_gwWasRunning)
+                        {
+                            try { await Task.Run(() => HermesCtl.Run("gateway start", 120)); } catch { }
+                            _gwWasRunning = false;
+                        }
                         Dispatcher.Invoke(() =>
                         {
-                            ParamStatus.Text = "环境已就绪，填写下方参数后完成配置。";
-                            ParamStatus.Foreground = Brush("#2E7D32");
+                            ApplyPrefill(prefill);
+                            if (prefill == null)
+                            {
+                                ParamStatus.Text = "环境已就绪，填写下方参数后完成配置。";
+                                ParamStatus.Foreground = Brush("#2E7D32");
+                            }
                             ShowPage("PageParams");
                         });
                         return;

@@ -6,6 +6,10 @@ namespace HerMemory
     /// <summary>exe 与托盘共用的 hermes 操作层。</summary>
     internal static class HermesCtl
     {
+        /// <summary>本发行版锁定的内核版本。与 install.ps1 / install.sh 的 `WantHermesVersion` 必须一致；
+        /// 体检据此判断"能跑"是不是"跑对了版本"。</summary>
+        public const string PinnedKernelVersion = "0.22.2";
+
         // hermes CLI 并发调用会争用配置存储（并发读取偶发空输出 → 配置回显缺失、状态误判）。
         // 工程纪律：全进程串行调用。
         private static readonly object _sync = new object();

@@ -134,6 +134,41 @@ namespace HerMemory
             w.HomeMode = false;
         }
 
+        /// <summary>Setup 形态专用：关掉正在运行的 HerMemory 托盘程序。
+        /// 只关界面进程（网关是独立计划任务，不受影响），关闭前必须经用户同意。</summary>
+        private static bool TryCloseRunningShell()
+        {
+            var mine = Environment.ProcessId;
+            var list = new List<System.Diagnostics.Process>();
+            foreach (var p in System.Diagnostics.Process.GetProcessesByName("HerMemory"))
+            {
+                if (p.Id == mine) continue;
+                list.Add(p);
+            }
+            if (list.Count == 0) return false;
+
+            var answer = System.Windows.MessageBox.Show(
+                "检测到 HerMemory 正在运行。\n\n安装或升级需要先关闭它——只会关掉托盘界面，" +
+                "不影响记忆、文档、API Key 与微信绑定。\n\n现在关闭并继续吗？",
+                "HerMemory 安装程序", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            if (answer != MessageBoxResult.Yes) return false;
+
+            foreach (var p in list) { try { p.CloseMainWindow(); } catch { } }
+            var deadline = DateTime.UtcNow.AddSeconds(5);
+            while (DateTime.UtcNow < deadline && list.Any(p => { try { return !p.HasExited; } catch { return false; } }))
+                System.Threading.Thread.Sleep(150);
+            foreach (var p in list) { try { if (!p.HasExited) p.Kill(true); } catch { } }
+            System.Threading.Thread.Sleep(400);
+            return true;
+        }
+
+        /// <summary>在旧实例退出后重新抢一次单实例锁（最多 8 秒）。</summary>
+        private bool WaitForMutex()
+        {
+            try { return _single?.WaitOne(TimeSpan.FromSeconds(8)) ?? false; }
+            catch (AbandonedMutexException) { return true; }
+        }
+
         protected override void OnStartup(StartupEventArgs e)
         {
             base.OnStartup(e);
@@ -157,9 +192,19 @@ namespace HerMemory
                     try { took = _single.WaitOne(TimeSpan.FromSeconds(8)); }
                     catch (AbandonedMutexException) { took = true; }   // 旧实例进程已终止，锁归本进程
                 }
+                if (!took && AppPaths.IsSetup)
+                {
+                    // 升级场景：旧版托盘程序还在跑。安装器要覆盖 Program Files 里的 exe，
+                    // 正在运行的映像删不掉——不先关掉，最后会在完成页报「程序文件未能写入」。
+                    took = TryCloseRunningShell() && WaitForMutex();
+                }
                 if (!took)
                 {
-                    System.Windows.MessageBox.Show("HerMemory 已在运行，见系统托盘。", "HerMemory",
+                    var msg = AppPaths.IsSetup
+                        ? "HerMemory 正在运行。\n\n安装或升级需要先关闭它（只关界面，不影响记忆与文档）。\n" +
+                          "请在托盘图标上右键 → 退出，再重新运行安装包。"
+                        : "HerMemory 已在运行，见系统托盘。";
+                    System.Windows.MessageBox.Show(msg, AppPaths.IsSetup ? "HerMemory 安装程序" : "HerMemory",
                         MessageBoxButton.OK, MessageBoxImage.Information);
                     Shutdown();
                     return;

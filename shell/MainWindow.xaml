@@ -191,7 +191,7 @@
                     <Button x:Name="BtnResetAi" Grid.Row="1" Grid.Column="2" Style="{StaticResource TileButton}" Margin="6,3,0,0" AutomationProperties.Name="重置 AI" Click="BtnResetAi_Click">
                         <StackPanel>
                             <TextBlock Text="重置 AI" FontSize="13.5" FontWeight="SemiBold"/>
-                            <TextBlock Text="清空对话上下文" FontSize="11.5" Margin="0,3,0,0" Foreground="{DynamicResource Subtle}"/>
+                            <TextBlock Text="清空记忆并恢复出厂" FontSize="11.5" Margin="0,3,0,0" Foreground="{DynamicResource Subtle}"/>
                         </StackPanel>
                     </Button>
                 </Grid>
@@ -364,7 +364,7 @@
                             <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
                                 <Button x:Name="CfgFetchModels" Content="获取模型列表" Style="{StaticResource GhostButton}"
                                         Padding="16,7,16,7" Click="CfgFetchModels_Click"/>
-                                <ComboBox x:Name="CfgModelCombo" MinWidth="280" Margin="10,0,0,0" VerticalAlignment="Center"/>
+                                <ComboBox x:Name="CfgModelCombo" MinWidth="280" IsEditable="True" Margin="10,0,0,0" VerticalAlignment="Center"/>
                             </StackPanel>
 
                             <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
@@ -417,7 +417,7 @@
                 <Border Style="{StaticResource SoftCard}" Padding="18,14">
                     <StackPanel>
                         <TextBlock Style="{StaticResource Body}" Margin="0,0,0,4"
-                                   Text="即将安装 Hermes 内核、记忆库与微信接入。全部资源已内置，无需联网。"/>
+                                   Text="即将安装 Hermes 内核、记忆库与微信接入。内核已内置，运行环境需要联网下载。"/>
                         <TextBlock Style="{StaticResource Body}" Margin="0,0,0,0"
                                    Text="安装后 AI 接入微信；全部记忆是纯文本文件，可随时查看、修改与迁移。"/>
                     </StackPanel>
@@ -518,7 +518,7 @@
                     <ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <Button Grid.Column="0" x:Name="BtnModels" Content="获取模型列表" Style="{StaticResource GhostButton}" Click="BtnModels_Click"/>
-                <ComboBox Grid.Column="1" x:Name="ModelCombo" Style="{StaticResource FieldCombo}" Margin="10,0,0,0"/>
+                <ComboBox Grid.Column="1" x:Name="ModelCombo" Style="{StaticResource FieldCombo}" IsEditable="True" Margin="10,0,0,0"/>
                 <Button Grid.Column="2" x:Name="BtnNext" Content="完成配置" Style="{StaticResource AccentButton}" Margin="10,0,0,0" Click="BtnNext_Click"/>
             </Grid>
         </Grid>

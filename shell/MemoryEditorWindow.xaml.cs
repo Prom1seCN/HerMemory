@@ -157,7 +157,15 @@ namespace HerMemory
                     _suppress = false;
                     return;
                 }
-                if (r == MessageBoxResult.Yes && !Save(quiet: false)) return;
+                if (r == MessageBoxResult.Yes && !Save(quiet: false))
+                {
+                    // 保存失败：列表已切到 next，但 _current 还是旧文件 —— 不回滚的话
+                    // 接下来的编辑会写进旧文件，用户以为在改新文件。
+                    _suppress = true;
+                    FileList.SelectedItem = _current;
+                    _suppress = false;
+                    return;
+                }
             }
             LoadEntry(next);
         }
@@ -223,7 +231,9 @@ namespace HerMemory
 
             // 外部改动保护：打开后被 AI / 别的编辑器改过就先问，不静默覆盖
             var disk = StampOf(path);
-            if (!quiet && _stamp != null && disk != null && disk != _stamp)
+            // _stamp == null 表示打开时文件还不存在（例如 AUTOMATION.md）；此后别的进程创建了它，
+            // 也必须按"外部改动"处理，否则一次保存就把人家刚写的内容盖掉。
+            if (!quiet && disk != null && disk != _stamp)
             {
                 var r = System.Windows.MessageBox.Show(this,
                     "这个文件在打开之后被其他程序改过（可能是 AI 自己写的，或你用别的编辑器改过）。\n\n"
@@ -276,9 +286,9 @@ namespace HerMemory
                     try { File.Replace(tmp, path, null, true); }
                     catch
                     {
-                        // 跨卷 / 目标被占用时退化为覆盖复制
-                        File.Copy(tmp, path, true);
-                        try { File.Delete(tmp); } catch { }
+                        // 同目录 rename 是原子的；绝不用 File.Copy 覆盖 —— 复制到一半断电/被杀
+                        // 会在目标位置留下半截记忆文件，而 tmp 已被删，等于记忆被截断。
+                        File.Move(tmp, path, true);
                     }
                 }
                 else File.Move(tmp, path);
@@ -345,8 +355,10 @@ namespace HerMemory
                 var r = System.Windows.MessageBox.Show(this,
                     "当前有未保存的修改。历史快照只包含已保存的内容，建议先保存再看历史。\n\n现在保存吗？",
                     "记忆历史", MessageBoxButton.YesNoCancel, MessageBoxImage.Question, MessageBoxResult.Yes);
-                if (r == MessageBoxResult.Cancel) return;
-                if (r == MessageBoxResult.Yes && !Save(quiet: false)) return;
+                // 取消或"不保存"都不进历史：历史窗口里一恢复就会用磁盘旧版覆盖编辑器，
+                // 未保存的内容会静默消失。要看历史，先落盘。
+                if (r != MessageBoxResult.Yes) return;
+                if (!Save(quiet: false)) return;
             }
             try
             {

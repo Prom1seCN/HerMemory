@@ -48,7 +48,8 @@
     <EmbeddedResource Include="@(PayloadDocs)" LogicalName="payload/docs/%(Filename)%(Extension)" />
     <PayloadSkins Include="..\skins\**\*" />
     <EmbeddedResource Include="@(PayloadSkins)" LogicalName="payload/skins/%(Filename)%(Extension)" />
-    <PayloadScripts Include="..\scripts\**\*" />
+    <!-- 只打运行时脚本；__pycache__ / *.pyc 是构建机残留，不该进包 -->
+    <PayloadScripts Include="..\scripts\**\*" Exclude="..\scripts\**\__pycache__\**;..\scripts\**\*.pyc" />
     <EmbeddedResource Include="@(PayloadScripts)" LogicalName="payload/scripts/%(Filename)%(Extension)" />
   </ItemGroup>
 

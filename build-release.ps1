@@ -60,6 +60,9 @@ $common = @(
     "-p:EnableCompressionInSingleFile=true",
     "-p:IncludeNativeLibrariesForSelfExtract=true",
     "-p:Version=$Version",
+    # 构建机的 .git 可能落后于实际同步过去的源码 —— 关掉 SourceRevisionId，
+    # 免得 ProductVersion 里带一个与代码不符的 commit。
+    "-p:IncludeSourceRevisionInInformationalVersion=false",
     "--no-restore"
 )
 

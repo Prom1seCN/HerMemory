@@ -61,10 +61,23 @@ namespace HerMemory
                     return item;
                 }
                 var ver = HermesCtl.VersionOf(cli);
-                item.Status = string.IsNullOrEmpty(ver) ? "warn" : "ok";
-                item.Detail = string.IsNullOrEmpty(ver)
-                    ? "命令可运行，但版本号读不出来：" + cli
-                    : "v" + ver + " · " + cli;
+                var want = HermesCtl.PinnedKernelVersion;
+                if (string.IsNullOrEmpty(ver))
+                {
+                    item.Status = "warn";
+                    item.Detail = "命令可运行，但版本号读不出来：" + cli;
+                }
+                else if (!string.Equals(ver, want, StringComparison.Ordinal))
+                {
+                    // 能跑不等于跑对了：0.1.0 的 v0.21 也能跑，但 PM/记忆路径全不一样。
+                    item.Status = "warn";
+                    item.Detail = $"v{ver}（本发行版为 v{want}）。运行安装包可升级，记忆与配置保留。";
+                }
+                else
+                {
+                    item.Status = "ok";
+                    item.Detail = "v" + ver + " · " + cli;
+                }
             }
             catch (Exception ex) { item.Status = "fail"; item.Detail = ex.Message; }
             return item;
