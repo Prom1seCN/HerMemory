@@ -349,16 +349,26 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="CheckBox">
-                        <StackPanel Orientation="Horizontal" Background="Transparent">
+                        <Grid Background="Transparent">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <!-- 方块下移 2px：中文字形的视觉中心比行框中心低，严格居中会显得"盒子偏高"。
+                                 方框用 Grid 而不是 StackPanel 定位，保证多行/长文案时方块只跟第一行对齐。 -->
                             <Border x:Name="box" Width="18" Height="18" CornerRadius="5" BorderThickness="1.5"
                                     BorderBrush="{DynamicResource CardBorder}" Background="{DynamicResource FieldBg}"
-                                    VerticalAlignment="Center">
-                                <Path x:Name="check" Data="M 3.5 9 L 7 12.5 L 14 4.5" Stroke="{DynamicResource OnAccent}"
-                                      StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
-                                      StrokeLineJoin="Round" Visibility="Collapsed"/>
+                                    VerticalAlignment="Center" Margin="0,2,0,0">
+                                <!-- 对勾用 Stretch 居中：之前用绝对坐标，勾偏左下、看着是歪的 -->
+                                <Path x:Name="check" Data="M 1 4.5 L 4 7.5 L 10.5 1"
+                                      Stroke="{DynamicResource OnAccent}" StrokeThickness="1.9"
+                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                      Width="10" Height="7" Stretch="Uniform"
+                                      HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"/>
                             </Border>
-                            <ContentPresenter Margin="9,0,0,0" VerticalAlignment="Center" RecognizesAccessKey="True"/>
-                        </StackPanel>
+                            <ContentPresenter Grid.Column="1" Margin="9,0,0,0" VerticalAlignment="Center"
+                                              RecognizesAccessKey="True"/>
+                        </Grid>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsChecked" Value="True">
                                 <Setter TargetName="box" Property="Background" Value="{DynamicResource Accent}"/>
