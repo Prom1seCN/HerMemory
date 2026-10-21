@@ -146,3 +146,23 @@ export HERMES_HOME=<spike>/home
   `C:\Users\HCN\.dotnet\dotnet.exe build shell\HerMemory.csproj -c Release`。
 - 踩过的坑：项目同时开 `UseWPF` + `UseWindowsForms`，`Color` / `FontFamily` / `Brushes` / `KeyEventArgs` /
   `Button` / `Application` / `MessageBox` 都有两份，必须加别名或完全限定。
+
+## 界面层（v0.2.0 重做）
+
+- 语义色令牌在 `shell/App.xaml`（默认浅色）与 `shell/Theme.cs`（按偏好整体替换同名键）。
+  新增键必须两处同时加：`CardBg` / `CardBorder` / `Muted` / `Subtle` / `AccentSoft` / `Hairline` /
+  `ScrollThumb` / `OnAccent` / `Danger` / `Success` / `Warn`。
+- 控件模板全在 `App.xaml`：`AccentButton`（主行动）/ `GhostButton`（次级）/ `TileButton`（首页六宫格）/
+  `LinkButton`（返回、卸载）/ `IconButton`（圆形主题键）/ `ChipToggle`（编辑器「预览」）/ `Card` / `SoftCard`，
+  以及隐式 `CheckBox`、`ProgressBar`、`ScrollBar` 模板。
+- 动效：页面切换 200ms 淡入 + 10px 上浮（`MainWindow.AnimatePageIn`，只对"从隐藏变可见"播放）；
+  窗口 260ms 淡入（`PlayWindowIntro` / `FadeInWindow`）；按钮悬停 140~180ms 叠层染色 + 上移 1~2px；
+  状态灯 1.5s 呼吸；换主题时 280ms 交叉淡入 + `Theme.ApplyTitleBar` 切深色标题栏。
+- 排版：窗口 820×620，内容区 712px；首页 = 标题 + 状态卡 + 3×2 磁贴 + 动作行 + 页脚。
+- **深色主题下强调色是亮青 `#22D3EE`，主按钮文字必须用 `OnAccent`（深色 `#08151C`）**，白字对比度不够。
+- **自定义 TextBox 模板的坑**：`ScrollViewer x:Name="PART_ContentHost"` 不能设
+  `VerticalContentAlignment=Center` —— TextBoxView 会按控件全高排版却被内容区裁掉下半截
+  （真机截图里 "04:00" 只剩上半截）。用 `MinHeight` + `VerticalContentAlignment=Top`，Padding 压在 Border 上。
+- 界面真机验证：`pc` 上建一次性计划任务（`/it`，交互会话）跑 PowerShell 截图脚本，
+  `SetWindowPos(HWND_TOPMOST)` 才能把窗口抬到前台（脚本进程拿不到前台锁）。
+  脚本本身含中文时必须存成 **UTF-8 带 BOM**，否则 PS 5.1 按 GBK 读会把引号吞掉。

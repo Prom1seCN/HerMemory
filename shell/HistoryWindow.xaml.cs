@@ -19,7 +19,29 @@ namespace HerMemory
             InitializeComponent();
             _fileName = fileName ?? "MEMORY.md";
             Title = "记忆历史 · " + _fileName;
-            Loaded += (_, _) => Reload();
+            Loaded += (_, _) =>
+            {
+                FadeInWindow();
+                Theme.ApplyTitleBar(this);
+                Reload();
+            };
+        }
+
+        private void FadeInWindow()
+        {
+            Root.Opacity = 0;
+            var tt = new System.Windows.Media.TranslateTransform(0, 8);
+            Root.RenderTransform = tt;
+            var ease = new System.Windows.Media.Animation.CubicEase
+            {
+                EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut,
+            };
+            Root.BeginAnimation(OpacityProperty,
+                new System.Windows.Media.Animation.DoubleAnimation(0, 1,
+                    new Duration(TimeSpan.FromMilliseconds(240))) { EasingFunction = ease });
+            tt.BeginAnimation(System.Windows.Media.TranslateTransform.YProperty,
+                new System.Windows.Media.Animation.DoubleAnimation(8, 0,
+                    new Duration(TimeSpan.FromMilliseconds(320))) { EasingFunction = ease });
         }
 
         private void Reload()

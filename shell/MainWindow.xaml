@@ -1,153 +1,313 @@
 <Window x:Class="HerMemory.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="HerMemory" Height="600" Width="800"
+        Title="HerMemory" Height="620" Width="820"
         WindowStartupLocation="CenterScreen" Background="{DynamicResource WindowBg}"
+        Foreground="{DynamicResource Ink}"
+        FontFamily="{DynamicResource UiFont}"
+        TextOptions.TextFormattingMode="Display"
+        UseLayoutRounding="True"
         ResizeMode="CanMinimize">
     <Window.Resources>
-        <Style x:Key="PageGrid" TargetType="Grid"/>
         <Style x:Key="H1" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="32"/>
+            <Setter Property="FontSize" Value="30"/>
             <Setter Property="FontWeight" Value="Bold"/>
             <Setter Property="Foreground" Value="{DynamicResource Ink}"/>
+            <Setter Property="TextOptions.TextFormattingMode" Value="Ideal"/>
         </Style>
-        <Style x:Key="Slogan" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="17"/>
-            <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
-            <Setter Property="Margin" Value="0,2,0,0"/>
+        <Style x:Key="PageTitle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="23"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{DynamicResource Ink}"/>
+            <Setter Property="Margin" Value="0,8,0,0"/>
         </Style>
         <Style x:Key="Body" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="13.5"/>
-            <Setter Property="Foreground" Value="#546E7A"/>
+            <Setter Property="FontSize" Value="12.5"/>
+            <Setter Property="Foreground" Value="{DynamicResource Muted}"/>
             <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="LineHeight" Value="20"/>
             <Setter Property="Margin" Value="0,3"/>
         </Style>
-        <Style x:Key="RadioTile" TargetType="RadioButton">
-            <Setter Property="Margin" Value="0,0,18,0"/>
-            <Setter Property="FontSize" Value="13"/>
+        <Style x:Key="Hint" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11.5"/>
+            <Setter Property="Foreground" Value="{DynamicResource Subtle}"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="LineHeight" Value="18"/>
+        </Style>
+        <Style x:Key="SectionLabel" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11.5"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{DynamicResource Subtle}"/>
+            <Setter Property="Margin" Value="2,0,0,0"/>
+        </Style>
+        <!-- 圆形图标按钮（主题切换）：自定义模板，不参与 GhostButton 的矩形圆角 -->
+        <Style x:Key="IconButton" TargetType="Button">
+            <Setter Property="Width" Value="34"/>
+            <Setter Property="Height" Value="34"/>
+            <Setter Property="Background" Value="{DynamicResource FieldBg}"/>
+            <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
             <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Foreground" Value="{DynamicResource Ink}"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Grid>
+                            <Ellipse Fill="{TemplateBinding Background}" Stroke="{DynamicResource CardBorder}" StrokeThickness="1"/>
+                            <Ellipse x:Name="tint" Fill="{DynamicResource AccentSoft}" Opacity="0"/>
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <EventTrigger RoutedEvent="MouseEnter">
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="tint" Storyboard.TargetProperty="Opacity"
+                                                         To="1" Duration="0:0:0.15"/>
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </EventTrigger>
+                            <EventTrigger RoutedEvent="MouseLeave">
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="tint" Storyboard.TargetProperty="Opacity"
+                                                         To="0" Duration="0:0:0.18"/>
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </EventTrigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter Property="Opacity" Value="0.8"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
     </Window.Resources>
 
-    <Grid Margin="56,44,56,36">
-        <!-- 女孩图标：右上角，随主题切换（深=白线稿/浅=黑线稿；均全透明底——窗口背景透出，与软件背景永远同色；logo 嵌入色两版一致） -->
-        <Image x:Name="GirlIcon" Width="198" Height="198" HorizontalAlignment="Right" VerticalAlignment="Top"
-               Margin="0,-20,-36,0" Stretch="Uniform"/>
+    <Grid x:Name="RootGrid" Margin="54,38,54,30">
+        <!-- 女孩图标：向导页的品牌位（首页改用右下角淡水印，避免压住状态卡与磁贴）。
+             随主题切换（深=白线稿/浅=黑线稿；全透明底——窗口背景透出）。 -->
+        <Image x:Name="GirlIcon" Width="150" Height="150" HorizontalAlignment="Right" VerticalAlignment="Top"
+               Margin="0,-14,-26,0" Stretch="Uniform" IsHitTestVisible="False"/>
+
         <!-- ===== 主界面（托盘模式的日常页） ===== -->
         <Grid x:Name="PageHome" Visibility="Collapsed">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
-            <StackPanel Grid.Row="0" VerticalAlignment="Top" Margin="0,6,0,0">
-                <TextBlock FontSize="32" FontWeight="Bold" Foreground="{DynamicResource Ink}" Margin="0,0,0,14">HerMemory. <Run Foreground="{DynamicResource Accent}">Your memory.</Run></TextBlock>
-            </StackPanel>
-            <StackPanel Grid.Row="1" VerticalAlignment="Center">
-                <TextBlock x:Name="HomeStatus" Margin="0,22,0,0" FontSize="15" FontWeight="SemiBold" Foreground="{DynamicResource Ink}" Text="正在检查 Gateway 状态……"/>
-                <TextBlock Style="{StaticResource Body}" Margin="0,6,0,0" Text="微信通过 Gateway 连接 HerMemory。"/>
-                <StackPanel Orientation="Horizontal" Margin="0,22,0,0">
-                    <Button x:Name="HomeStart" Content="启动" Style="{StaticResource AccentButton}" Click="HomeCtl_Click"/>
-                    <Button x:Name="HomeStop" Content="停止" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="HomeCtl_Click"/>
-                    <Button x:Name="BtnRefresh" Content="刷新" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="BtnRefresh_Click"/>
-                    <Button Content="一键导出" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="BtnExport_Click"/>
-                    <Button Content="卸载" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="BtnUninstall_Click"/>
+
+            <!-- 水印：右下角，低到只提供一点层次，不干扰阅读 -->
+            <Image x:Name="GirlWatermark" Grid.RowSpan="5" Width="300" Height="300"
+                   HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,-84,-118"
+                   Stretch="Uniform" Opacity="0.07" IsHitTestVisible="False"/>
+
+            <Grid Grid.Row="0">
+                <StackPanel>
+                    <TextBlock Style="{StaticResource H1}">HerMemory. <Run Foreground="{DynamicResource Accent}">Your memory.</Run></TextBlock>
                 </StackPanel>
-                <!-- 第二行：设置类（记忆 / API / 微信绑定 / 重置） -->
-                <StackPanel Orientation="Horizontal" Margin="0,22,0,0">
-                    <Button Content="记忆设置" Style="{StaticResource GhostButton}" Click="LinkMemory_Click"/>
-                    <Button Content="API 设置" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="LinkApi_Click"/>
-                    <Button Content="微信绑定" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="LinkWeixin_Click"/>
-                    <Button Content="设置" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="LinkSettings_Click"/>
-                    <Button Content="体检" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="LinkHealth_Click"/>
-                    <Button x:Name="BtnResetAi" Content="重置 AI" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="BtnResetAi_Click"/>
-                </StackPanel>
-                <!-- 第三行：内容类（文档 / 同步库）+ 主题切换。
-                     这里**不放「安装向导」**（2026-09-16 用户裁决）：安装器与日常管理器已经分离，
-                     安装/修复是安装包 `Setup.exe` 的事，管理器窗口不该出现安装入口。 -->
-                <StackPanel Orientation="Horizontal" Margin="0,22,0,0">
-                    <Button Content="编辑记忆" Style="{StaticResource AccentButton}" Padding="20,7,20,7" Click="BtnEditor_Click"/>
-                    <Button Content="打开使用文档" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="BtnGuide_Click"/>
-                    <Button Content="打开同步库" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="BtnVault_Click"/>
-                    <Button x:Name="BtnTheme" Width="36" Height="36" Margin="14,0,0,0" Click="BtnTheme_Click" Cursor="Hand" Background="{DynamicResource FieldBg}">
-                        <Button.Template>
-                            <ControlTemplate TargetType="Button">
-                                <Border x:Name="bd" Background="{TemplateBinding Background}" BorderBrush="#CFD8DC" BorderThickness="1" CornerRadius="18">
-                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </Border>
-                                <ControlTemplate.Triggers>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="bd" Property="Background" Value="#E0F7FA"/>
-                                    </Trigger>
-                                </ControlTemplate.Triggers>
-                            </ControlTemplate>
-                        </Button.Template>
-                        <TextBlock x:Name="ThemeGlyph" Text="☀" FontSize="16" Foreground="{DynamicResource Accent}"/>
+                <Button x:Name="BtnTheme" Style="{StaticResource IconButton}" HorizontalAlignment="Right"
+                        VerticalAlignment="Top" Margin="0,4,0,0" Click="BtnTheme_Click" ToolTip="切换深浅色"
+                        AutomationProperties.Name="切换深浅色">
+                    <TextBlock x:Name="ThemeGlyph" Text="☀" FontSize="16" FontFamily="Segoe UI Symbol"
+                               Foreground="{DynamicResource Accent}"/>
+                </Button>
+            </Grid>
+
+            <!-- 状态卡：一眼看到 AI 在不在线，右边就是它的开关 -->
+            <Border Grid.Row="1" Style="{StaticResource Card}" Padding="18,14" Margin="0,16,0,0">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <Grid Width="18" Height="18" VerticalAlignment="Center">
+                            <Ellipse x:Name="StatusHalo" Width="18" Height="18" Fill="{DynamicResource Success}" Opacity="0"/>
+                            <Ellipse x:Name="StatusDot" Width="9" Height="9" Fill="{DynamicResource Subtle}"/>
+                        </Grid>
+                        <StackPanel Margin="12,0,0,0">
+                            <TextBlock x:Name="HomeStatus" FontSize="14.5" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource Ink}" Text="正在检查 Gateway 状态……"/>
+                            <TextBlock x:Name="HomeStatusSub" FontSize="11.5" Margin="0,3,0,0"
+                                       Foreground="{DynamicResource Subtle}" Text="微信通过 Gateway 连接 HerMemory"/>
+                        </StackPanel>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button x:Name="HomeStart" Content="启动" Style="{StaticResource AccentButton}"
+                                Padding="20,7,20,7" Click="HomeCtl_Click"/>
+                        <Button x:Name="HomeStop" Content="停止" Style="{StaticResource GhostButton}"
+                                Margin="8,0,0,0" Padding="20,7,20,7" Click="HomeCtl_Click"/>
+                        <Button x:Name="BtnRefresh" Content="刷新" Style="{StaticResource GhostButton}"
+                                Margin="8,0,0,0" Padding="16,7,16,7" Click="BtnRefresh_Click"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- 六宫格：日常真正会点的入口 -->
+            <StackPanel Grid.Row="2" Margin="0,20,0,0">
+                <TextBlock Text="常用功能" Style="{StaticResource SectionLabel}"/>
+                <Grid Margin="0,10,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="64"/><RowDefinition Height="64"/>
+                    </Grid.RowDefinitions>
+
+                    <Button Grid.Row="0" Grid.Column="0" Style="{StaticResource TileButton}" Margin="0,0,6,6" AutomationProperties.Name="记忆设置" Click="LinkMemory_Click">
+                        <StackPanel>
+                            <TextBlock Text="记忆设置" FontSize="13.5" FontWeight="SemiBold"/>
+                            <TextBlock Text="档位与记忆预算" FontSize="11.5" Margin="0,3,0,0" Foreground="{DynamicResource Subtle}"/>
+                        </StackPanel>
                     </Button>
-                </StackPanel>
-                <TextBlock x:Name="HomeFooter" Style="{StaticResource Body}" Foreground="#B0BEC5" Margin="0,26,0,0"/>
+                    <Button Grid.Row="0" Grid.Column="1" Style="{StaticResource TileButton}" Margin="3,0,3,6" AutomationProperties.Name="API 设置" Click="LinkApi_Click">
+                        <StackPanel>
+                            <TextBlock Text="API 设置" FontSize="13.5" FontWeight="SemiBold"/>
+                            <TextBlock Text="地址、密钥与模型" FontSize="11.5" Margin="0,3,0,0" Foreground="{DynamicResource Subtle}"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Grid.Row="0" Grid.Column="2" Style="{StaticResource TileButton}" Margin="6,0,0,6" AutomationProperties.Name="微信绑定" Click="LinkWeixin_Click">
+                        <StackPanel>
+                            <TextBlock Text="微信绑定" FontSize="13.5" FontWeight="SemiBold"/>
+                            <TextBlock Text="扫码连接与解绑" FontSize="11.5" Margin="0,3,0,0" Foreground="{DynamicResource Subtle}"/>
+                        </StackPanel>
+                    </Button>
+
+                    <Button Grid.Row="1" Grid.Column="0" Style="{StaticResource TileButton}" Margin="0,3,6,0" AutomationProperties.Name="设置" Click="LinkSettings_Click">
+                        <StackPanel>
+                            <TextBlock Text="设置" FontSize="13.5" FontWeight="SemiBold"/>
+                            <TextBlock Text="每日新对话" FontSize="11.5" Margin="0,3,0,0" Foreground="{DynamicResource Subtle}"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Grid.Row="1" Grid.Column="1" Style="{StaticResource TileButton}" Margin="3,3,3,0" AutomationProperties.Name="体检" Click="LinkHealth_Click">
+                        <StackPanel>
+                            <TextBlock Text="体检" FontSize="13.5" FontWeight="SemiBold"/>
+                            <TextBlock Text="检查并修复问题" FontSize="11.5" Margin="0,3,0,0" Foreground="{DynamicResource Subtle}"/>
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="BtnResetAi" Grid.Row="1" Grid.Column="2" Style="{StaticResource TileButton}" Margin="6,3,0,0" AutomationProperties.Name="重置 AI" Click="BtnResetAi_Click">
+                        <StackPanel>
+                            <TextBlock Text="重置 AI" FontSize="13.5" FontWeight="SemiBold"/>
+                            <TextBlock Text="清空对话上下文" FontSize="11.5" Margin="0,3,0,0" Foreground="{DynamicResource Subtle}"/>
+                        </StackPanel>
+                    </Button>
+                </Grid>
             </StackPanel>
+
+            <!-- 内容类动作：编辑记忆是首页唯一的主按钮 -->
+            <DockPanel Grid.Row="3" VerticalAlignment="Bottom" Margin="0,18,0,0" LastChildFill="False">
+                <Button DockPanel.Dock="Left" Content="✎  编辑记忆" AutomationProperties.Name="编辑记忆" Style="{StaticResource AccentButton}"
+                        Padding="20,8,22,8" Click="BtnEditor_Click"/>
+                <Button DockPanel.Dock="Left" Content="一键导出" Style="{StaticResource GhostButton}"
+                        VerticalAlignment="Center" Margin="10,0,0,0" Click="BtnExport_Click"/>
+                <Button DockPanel.Dock="Right" Content="卸载" Style="{StaticResource LinkButton}"
+                        VerticalAlignment="Center" Margin="14,0,0,0" Click="BtnUninstall_Click"/>
+                <Button DockPanel.Dock="Right" Content="打开同步库" Style="{StaticResource GhostButton}"
+                        VerticalAlignment="Center" Margin="10,0,0,0" Click="BtnVault_Click"/>
+                <Button DockPanel.Dock="Right" Content="使用文档" Style="{StaticResource GhostButton}"
+                        VerticalAlignment="Center" Margin="10,0,0,0" Click="BtnGuide_Click"/>
+            </DockPanel>
+
+            <TextBlock x:Name="HomeFooter" Grid.Row="4" Style="{StaticResource Hint}" Margin="2,16,0,0" Opacity="0.9"/>
         </Grid>
 
         <!-- ===== 主界面子页：记忆设置 ===== -->
         <Grid x:Name="PageMemory" Visibility="Collapsed">
-            <StackPanel>
-                <Button Content="← 返回" Style="{StaticResource GhostButton}" HorizontalAlignment="Left" Padding="14,6,14,6" Click="BtnBack_Click"/>
-                <TextBlock Text="记忆设置" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource Ink}" Margin="0,18,0,0"/>
-                <TextBlock Style="{StaticResource Label}" Margin="0,44,0,0" Text="记忆档位"/>
-                <Grid Margin="0,4,0,0">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="90"/><ColumnDefinition Width="100"/><ColumnDefinition Width="100"/><ColumnDefinition Width="100"/><ColumnDefinition Width="100"/>
-                    </Grid.ColumnDefinitions>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="26"/><RowDefinition Height="26"/><RowDefinition Height="26"/>
-                    </Grid.RowDefinitions>
-                    <TextBlock Grid.Row="0" Grid.Column="1" Text="紧凑" FontSize="12.5" Foreground="#546E7A"/>
-                    <TextBlock Grid.Row="0" Grid.Column="2" Text="标准" FontSize="12.5" Foreground="#546E7A"/>
-                    <TextBlock Grid.Row="0" Grid.Column="3" Text="详细" FontSize="12.5" Foreground="#546E7A"/>
-                    <TextBlock Grid.Row="0" Grid.Column="4" Text="自定义" FontSize="12.5" Foreground="#546E7A"/>
-                    <TextBlock Grid.Row="1" Grid.Column="0" Text="MEMORY" FontSize="12.5" Foreground="#546E7A"/>
-                    <TextBlock x:Name="TierM1" Grid.Row="1" Grid.Column="1" Text="2200" FontSize="12.5" Foreground="#546E7A"/>
-                    <TextBlock x:Name="TierM2" Grid.Row="1" Grid.Column="2" Text="5000" FontSize="12.5" Foreground="#546E7A"/>
-                    <TextBlock x:Name="TierM3" Grid.Row="1" Grid.Column="3" Text="10000" FontSize="12.5" Foreground="#546E7A"/>
-                    <TextBlock x:Name="TierM4" Grid.Row="1" Grid.Column="4" Text="/" FontSize="12.5" Foreground="#546E7A"/>
-                    <TextBlock Grid.Row="2" Grid.Column="0" Text="USER" FontSize="12.5" Foreground="#546E7A"/>
-                    <TextBlock x:Name="TierU1" Grid.Row="2" Grid.Column="1" Text="1375" FontSize="12.5" Foreground="#546E7A"/>
-                    <TextBlock x:Name="TierU2" Grid.Row="2" Grid.Column="2" Text="3000" FontSize="12.5" Foreground="#546E7A"/>
-                    <TextBlock x:Name="TierU3" Grid.Row="2" Grid.Column="3" Text="5000" FontSize="12.5" Foreground="#546E7A"/>
-                    <TextBlock x:Name="TierU4" Grid.Row="2" Grid.Column="4" Text="/" FontSize="12.5" Foreground="#546E7A"/>
-                </Grid>
-                <TextBlock x:Name="HomeTierCurrent" Margin="0,10,0,0" FontSize="12.5" Foreground="#546E7A"/>
-                                <TextBlock Style="{StaticResource Body}" Foreground="#B0BEC5" Margin="0,18,0,0"
-                           Text="档位修改请与 AI 对话，修改后开启新对话生效。"/>
-            </StackPanel>
+            <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
+                <StackPanel>
+                    <Button Content="← 返回" Style="{StaticResource LinkButton}" HorizontalAlignment="Left" Click="BtnBack_Click"/>
+                    <TextBlock Text="记忆设置" Style="{StaticResource PageTitle}"/>
+                    <TextBlock Style="{StaticResource Body}" Margin="0,6,0,0"
+                               Text="AI 会长期记住的内容就存在这两个文件里。档位决定它们能写多长。"/>
+
+                    <Border Style="{StaticResource Card}" Margin="0,20,0,0" Padding="20,14">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="82"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="30"/>
+                                <RowDefinition Height="32"/>
+                                <RowDefinition Height="32"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="MEMORY" FontSize="11.5" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource Subtle}" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Row="1" Grid.Column="1" x:Name="TierM1" Text="2200" FontSize="13" Foreground="{DynamicResource Muted}" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Row="1" Grid.Column="2" x:Name="TierM2" Text="5000" FontSize="13" Foreground="{DynamicResource Muted}" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Row="1" Grid.Column="3" x:Name="TierM3" Text="10000" FontSize="13" Foreground="{DynamicResource Muted}" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Row="1" Grid.Column="4" x:Name="TierM4" Text="/" FontSize="13" Foreground="{DynamicResource Muted}" VerticalAlignment="Center"/>
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="USER" FontSize="11.5" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource Subtle}" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Row="2" Grid.Column="1" x:Name="TierU1" Text="1375" FontSize="13" Foreground="{DynamicResource Muted}" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Row="2" Grid.Column="2" x:Name="TierU2" Text="3000" FontSize="13" Foreground="{DynamicResource Muted}" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Row="2" Grid.Column="3" x:Name="TierU3" Text="5000" FontSize="13" Foreground="{DynamicResource Muted}" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Row="2" Grid.Column="4" x:Name="TierU4" Text="/" FontSize="13" Foreground="{DynamicResource Muted}" VerticalAlignment="Center"/>
+
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="档位" FontSize="11.5" Foreground="{DynamicResource Subtle}" VerticalAlignment="Bottom"/>
+                            <TextBlock Grid.Row="0" Grid.Column="1" Text="紧凑" FontSize="12.5" FontWeight="SemiBold" Foreground="{DynamicResource Muted}" VerticalAlignment="Bottom" Margin="0,0,0,4"/>
+                            <TextBlock Grid.Row="0" Grid.Column="2" Text="标准" FontSize="12.5" FontWeight="SemiBold" Foreground="{DynamicResource Muted}" VerticalAlignment="Bottom" Margin="0,0,0,4"/>
+                            <TextBlock Grid.Row="0" Grid.Column="3" Text="详细" FontSize="12.5" FontWeight="SemiBold" Foreground="{DynamicResource Muted}" VerticalAlignment="Bottom" Margin="0,0,0,4"/>
+                            <TextBlock Grid.Row="0" Grid.Column="4" Text="自定义" FontSize="12.5" FontWeight="SemiBold" Foreground="{DynamicResource Muted}" VerticalAlignment="Bottom" Margin="0,0,0,4"/>
+
+                            <Border Grid.Row="3" Grid.ColumnSpan="5" Height="1" VerticalAlignment="Top"
+                                    Background="{DynamicResource Hairline}"/>
+                            <TextBlock Grid.Row="3" Grid.ColumnSpan="5" x:Name="HomeTierCurrent" FontSize="11.5"
+                                       Foreground="{DynamicResource Subtle}" VerticalAlignment="Center" Margin="0,10,0,2"/>
+                        </Grid>
+                    </Border>
+
+                    <TextBlock Style="{StaticResource Hint}" Margin="2,14,0,0"
+                               Text="数字是字符预算（约等于汉字数）。档位修改请与 AI 对话，修改后开启新对话生效。"/>
+                </StackPanel>
+            </ScrollViewer>
         </Grid>
 
-        <!-- ===== 主界面子页：设置（每日新对话等） ===== -->
+        <!-- ===== 主界面子页：设置（每日新对话） ===== -->
         <Grid x:Name="PageSettings" Visibility="Collapsed">
-            <StackPanel>
-                <Button Content="← 返回" Style="{StaticResource GhostButton}" HorizontalAlignment="Left" Padding="14,6,14,6" Click="BtnBack_Click"/>
-                <TextBlock Text="设置" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource Ink}" Margin="0,18,0,0"/>
+            <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
+                <StackPanel>
+                    <Button Content="← 返回" Style="{StaticResource LinkButton}" HorizontalAlignment="Left" Click="BtnBack_Click"/>
+                    <TextBlock Text="设置" Style="{StaticResource PageTitle}"/>
+                    <TextBlock Style="{StaticResource Body}" Margin="0,6,0,0"
+                               Text="这里放那些“设一次就不用再管”的开关。"/>
 
-                <TextBlock Style="{StaticResource Label}" Margin="0,34,0,0" Text="每日新对话"/>
-                <TextBlock Style="{StaticResource Body}" Margin="0,2,0,0"
-                           Text="到了设定时间，AI 与你的对话会重新开始，第二天消息从零上下文起算，避免历史越堆越长、token 越用越多。"/>
-                <CheckBox x:Name="ChkDailyNew" Content="每天自动开始新对话" Margin="0,14,0,0"
-                          FontSize="13" Cursor="Hand" Foreground="{DynamicResource Ink}" Checked="ChkDailyNew_Changed" Unchecked="ChkDailyNew_Changed"/>
-                <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
-                    <TextBlock Text="时间" FontSize="13" VerticalAlignment="Center" Foreground="#546E7A"/>
-                    <TextBox x:Name="DailyTimeBox" Style="{StaticResource FieldBox}" Width="96" Margin="10,0,0,0"
-                             Text="04:00" TextAlignment="Center"/>
-                    <TextBlock Text="（24 小时制，建议放在你不会聊天的时段）" FontSize="12" Margin="10,0,0,0"
-                               VerticalAlignment="Center" Foreground="#90A4AE"/>
+                    <Border Style="{StaticResource Card}" Margin="0,20,0,0" Padding="20,4,20,16">
+                        <StackPanel>
+                            <TextBlock Text="每日新对话" Style="{StaticResource Label}" Margin="0,14,0,6"/>
+                            <TextBlock Style="{StaticResource Body}" Margin="0,0,0,0"
+                                       Text="到了设定时间，AI 与你的对话会重新开始：第二天从零上下文起算，避免历史越堆越长、token 越用越多。"/>
+                            <CheckBox x:Name="ChkDailyNew" Content="每天自动开始新对话" Margin="0,16,0,0"
+                                      Checked="ChkDailyNew_Changed" Unchecked="ChkDailyNew_Changed"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+                                <TextBlock Text="时间" FontSize="12.5" VerticalAlignment="Center" Foreground="{DynamicResource Muted}"/>
+                                <TextBox x:Name="DailyTimeBox" Style="{StaticResource FieldBox}" Width="92" Margin="12,0,0,0"
+                                         Text="04:00" TextAlignment="Center"/>
+                                <TextBlock Text="24 小时制，建议放在你不会聊天的时段" FontSize="11.5" Margin="12,0,0,0"
+                                           VerticalAlignment="Center" Foreground="{DynamicResource Subtle}"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,20,0,0">
+                                <Button x:Name="BtnSaveSettings" Content="保存" Style="{StaticResource AccentButton}"
+                                        Padding="24,7,24,7" Click="BtnSaveSettings_Click"/>
+                                <TextBlock x:Name="SettingsHint" VerticalAlignment="Center" Margin="14,0,0,0"
+                                           FontSize="11.5" Foreground="{DynamicResource Subtle}"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <TextBlock Style="{StaticResource Hint}" Margin="2,14,0,0"
+                               Text="说明：这是应用层的定时任务，网关运行时才执行；PC 关机期间错过的时间不会补跑。"/>
                 </StackPanel>
-                <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
-                    <Button x:Name="BtnSaveSettings" Content="保存" Style="{StaticResource AccentButton}" Padding="22,7,22,7" Click="BtnSaveSettings_Click"/>
-                    <TextBlock x:Name="SettingsHint" VerticalAlignment="Center" Margin="14,0,0,0" FontSize="12" Foreground="#90A4AE"/>
-                </StackPanel>
-                <TextBlock Style="{StaticResource Body}" Foreground="#B0BEC5" Margin="0,22,0,0"
-                           Text="说明：这是应用层的定时任务，网关运行时才执行；PC 关机期间错过的时间不会补跑。"/>
-            </StackPanel>
+            </ScrollViewer>
         </Grid>
 
         <!-- ===== 主界面子页：体检 / 自愈 ===== -->
@@ -158,61 +318,87 @@
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
             <StackPanel Grid.Row="0">
-                <Button Content="← 返回" Style="{StaticResource GhostButton}" HorizontalAlignment="Left" Padding="14,6,14,6" Click="BtnBack_Click"/>
-                <TextBlock Text="体检" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource Ink}" Margin="0,18,0,0"/>
-                <TextBlock Style="{StaticResource Body}" Margin="0,2,0,0"
+                <Button Content="← 返回" Style="{StaticResource LinkButton}" HorizontalAlignment="Left" Click="BtnBack_Click"/>
+                <TextBlock Text="体检" Style="{StaticResource PageTitle}"/>
+                <TextBlock Style="{StaticResource Body}" Margin="0,6,0,0"
                            Text="在本机逐项检查，不调用模型。红色项会直接影响使用，橙色项是提醒。"/>
-                <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
-                    <Button x:Name="BtnHealthRefresh" Content="重新检查" Style="{StaticResource AccentButton}" Padding="18,6,18,6" Click="BtnHealthRefresh_Click"/>
-                    <Button Content="打开日志文件夹" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Padding="16,6,16,6" Click="BtnHealthLogs_Click"/>
+                <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+                    <Button x:Name="BtnHealthRefresh" Content="重新检查" Style="{StaticResource AccentButton}"
+                            Padding="18,7,18,7" Click="BtnHealthRefresh_Click"/>
+                    <Button Content="打开日志文件夹" Style="{StaticResource GhostButton}" Margin="10,0,0,0"
+                            Padding="16,7,16,7" Click="BtnHealthLogs_Click"/>
                 </StackPanel>
             </StackPanel>
 
-            <ScrollViewer Grid.Row="1" Margin="0,14,0,0" VerticalScrollBarVisibility="Auto">
+            <ScrollViewer x:Name="HealthScroll" Grid.Row="1" Margin="0,14,0,0" VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
                 <StackPanel x:Name="HealthList"/>
             </ScrollViewer>
 
-            <TextBlock x:Name="HealthStatus" Grid.Row="2" FontSize="11.5" Foreground="#90A4AE" Margin="2,10,0,0"/>
+            <TextBlock x:Name="HealthStatus" Grid.Row="2" Style="{StaticResource Hint}" Margin="2,10,0,0"/>
         </Grid>
 
         <!-- ===== 主界面子页：API 设置 ===== -->
         <Grid x:Name="PageApi" Visibility="Collapsed">
-            <StackPanel>
-                <Button Content="← 返回" Style="{StaticResource GhostButton}" HorizontalAlignment="Left" Padding="14,6,14,6" Click="BtnBack_Click"/>
-                <TextBlock Text="API 设置" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource Ink}" Margin="0,18,0,0"/>
-                <TextBlock Style="{StaticResource Label}" Margin="0,44,0,0" Text="修改后需停止并重新启动 Gateway 生效。"/>
-                <TextBlock Style="{StaticResource Body}" Text="API 地址"/>
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <TextBox x:Name="CfgUrl" Style="{StaticResource FieldBox}" TextChanged="CfgUrl_TextChanged"/>
-                    <Button x:Name="CfgCheck" Grid.Column="1" Content="检测" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Padding="18,7,18,7" VerticalAlignment="Center" Click="CfgCheck_Click"/>
-                </Grid>
-                <TextBlock Style="{StaticResource Body}" Margin="0,10,0,0" Text="API Key"/>
-                <TextBox x:Name="CfgKey" Style="{StaticResource FieldBox}"/>
-                <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                    <Button x:Name="CfgFetchModels" Content="获取模型列表" Style="{StaticResource GhostButton}" Padding="16,6,16,6" Click="CfgFetchModels_Click"/>
-                    <ComboBox x:Name="CfgModelCombo" MinWidth="260" Margin="12,0,0,0" VerticalAlignment="Center"/>
+            <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
+                <StackPanel>
+                    <Button Content="← 返回" Style="{StaticResource LinkButton}" HorizontalAlignment="Left" Click="BtnBack_Click"/>
+                    <TextBlock Text="API 设置" Style="{StaticResource PageTitle}"/>
+                    <TextBlock Style="{StaticResource Body}" Margin="0,6,0,0"
+                               Text="修改后可保存，需停止再启动 Gateway 生效。"/>
+
+                    <Border Style="{StaticResource Card}" Margin="0,18,0,0" Padding="20,4,20,18">
+                        <StackPanel>
+                            <TextBlock Text="API 地址" Style="{StaticResource Label}"/>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="CfgUrl" Style="{StaticResource FieldBox}" TextChanged="CfgUrl_TextChanged"/>
+                                <Button x:Name="CfgCheck" Grid.Column="1" Content="检测" Style="{StaticResource GhostButton}"
+                                        Margin="10,0,0,0" Padding="18,8,18,8" VerticalAlignment="Center" Click="CfgCheck_Click"/>
+                            </Grid>
+
+                            <TextBlock Text="API Key" Style="{StaticResource Label}" Margin="0,14,0,6"/>
+                            <TextBox x:Name="CfgKey" Style="{StaticResource FieldBox}"/>
+
+                            <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+                                <Button x:Name="CfgFetchModels" Content="获取模型列表" Style="{StaticResource GhostButton}"
+                                        Padding="16,7,16,7" Click="CfgFetchModels_Click"/>
+                                <ComboBox x:Name="CfgModelCombo" MinWidth="280" Margin="10,0,0,0" VerticalAlignment="Center"/>
+                            </StackPanel>
+
+                            <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
+                                <Button x:Name="CfgSave" Content="保存" Style="{StaticResource AccentButton}"
+                                        Padding="24,7,24,7" Click="CfgSave_Click"/>
+                                <TextBlock x:Name="CfgHint" VerticalAlignment="Center" Margin="14,0,0,0"
+                                           FontSize="11.5" Foreground="{DynamicResource Subtle}" TextWrapping="Wrap" MaxWidth="420"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
                 </StackPanel>
-                <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
-                    <Button x:Name="CfgSave" Content="保存" Style="{StaticResource AccentButton}" Padding="20,7,20,7" Click="CfgSave_Click"/>
-                    <TextBlock x:Name="CfgHint" VerticalAlignment="Center" Margin="14,0,0,0" FontSize="12" Foreground="#90A4AE"/>
-                </StackPanel>
-            </StackPanel>
+            </ScrollViewer>
         </Grid>
 
         <!-- ===== 主界面子页：微信绑定 ===== -->
         <Grid x:Name="PageWeixin" Visibility="Collapsed">
             <StackPanel>
-                <Button Content="← 返回" Style="{StaticResource GhostButton}" HorizontalAlignment="Left" Padding="14,6,14,6" Click="BtnBack_Click"/>
-                <TextBlock Text="微信绑定" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource Ink}" Margin="0,18,0,0"/>
-                <TextBlock x:Name="WxBindStatus" Style="{StaticResource Body}" Margin="0,30,0,0" Text="检测中……"/>
-                <StackPanel Orientation="Horizontal" Margin="0,20,0,0">
-                    <Button x:Name="BtnWxBind" Content="绑定微信" Style="{StaticResource AccentButton}" Padding="20,7,20,7" Click="BtnWxBind_Click"/>
-                    <Button x:Name="BtnWxUnbind" Content="解绑" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Padding="20,7,20,7" Click="BtnWxUnbind_Click"/>
-                </StackPanel>
-                <TextBlock Style="{StaticResource Body}" Foreground="#B0BEC5" Margin="0,26,0,0"
+                <Button Content="← 返回" Style="{StaticResource LinkButton}" HorizontalAlignment="Left" Click="BtnBack_Click"/>
+                <TextBlock Text="微信绑定" Style="{StaticResource PageTitle}"/>
+
+                <Border Style="{StaticResource Card}" Margin="0,20,0,0" Padding="20,18">
+                    <StackPanel>
+                        <TextBlock x:Name="WxBindStatus" FontSize="13.5" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource Ink}" Text="检测中……"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
+                            <Button x:Name="BtnWxBind" Content="绑定微信" Style="{StaticResource AccentButton}"
+                                    Padding="22,8,22,8" Click="BtnWxBind_Click"/>
+                            <Button x:Name="BtnWxUnbind" Content="解绑" Style="{StaticResource GhostButton}"
+                                    Margin="10,0,0,0" Padding="22,8,22,8" Click="BtnWxUnbind_Click"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <TextBlock Style="{StaticResource Hint}" Margin="2,16,0,0"
                            Text="一个微信同时只能绑定一台设备，最后扫码者生效；被顶掉的设备可随时重新绑定夺回。绑定与解绑不影响本机记忆与文档。"/>
             </StackPanel>
         </Grid>
@@ -223,20 +409,40 @@
                 <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/>
                 <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
-            <TextBlock Grid.Row="0" FontSize="32" FontWeight="Bold" Foreground="{DynamicResource Ink}" Margin="0,0,0,14">HerMemory. <Run Foreground="{DynamicResource Accent}">Your memory.</Run></TextBlock>
-            <!-- 版本号放首页，不进文件名：安装包永远叫 HerMemory-Setup.exe，版本靠这里体现 -->
-            <TextBlock Grid.Row="1" x:Name="AppVersion" FontSize="13" Foreground="#90A4AE"/>
-            <StackPanel Grid.Row="2" Margin="0,10,0,0" VerticalAlignment="Top">
-                <TextBlock Style="{StaticResource Body}" Text="即将安装 Hermes 内核、记忆库与微信接入。全部资源已内置，无需联网。"/>
-                <TextBlock Style="{StaticResource Body}" Text="安装完成后，AI 将接入微信。全部记忆为纯文本文件，可随时查看、修改与迁移。"/>
-                <TextBlock x:Name="PrecheckStatus" Margin="0,18,0,0" FontSize="13" Foreground="#78909C" Text="正在检查环境……"/>
+            <TextBlock Grid.Row="0" Style="{StaticResource H1}" Margin="0,0,0,0">HerMemory. <Run Foreground="{DynamicResource Accent}">Your memory.</Run></TextBlock>
+            <!-- 版本号放首页，不进文件名：安装包永远叫 Setup.exe，版本靠这里体现 -->
+            <TextBlock Grid.Row="1" x:Name="AppVersion" FontSize="12" Foreground="{DynamicResource Subtle}" Margin="0,6,0,0"/>
+
+            <StackPanel Grid.Row="2" Margin="0,22,0,0" VerticalAlignment="Top">
+                <Border Style="{StaticResource SoftCard}" Padding="18,14">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource Body}" Margin="0,0,0,4"
+                                   Text="即将安装 Hermes 内核、记忆库与微信接入。全部资源已内置，无需联网。"/>
+                        <TextBlock Style="{StaticResource Body}" Margin="0,0,0,0"
+                                   Text="安装后 AI 接入微信；全部记忆是纯文本文件，可随时查看、修改与迁移。"/>
+                    </StackPanel>
+                </Border>
+                <Grid Margin="2,18,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid Width="14" Height="14" VerticalAlignment="Top" Margin="0,3,0,0">
+                        <Ellipse x:Name="PrecheckHalo" Width="14" Height="14" Fill="{DynamicResource Accent}" Opacity="0"/>
+                        <Ellipse x:Name="PrecheckDot" Width="7" Height="7" Fill="{DynamicResource Subtle}"/>
+                    </Grid>
+                    <TextBlock x:Name="PrecheckStatus" Grid.Column="1" Margin="10,0,0,0" FontSize="12.5"
+                               Foreground="{DynamicResource Muted}" TextWrapping="Wrap" LineHeight="20"
+                               Text="正在检查环境……"/>
+                </Grid>
             </StackPanel>
-            <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,0,0,0">
+
+            <StackPanel Grid.Row="3" Orientation="Horizontal">
                 <Button x:Name="BtnStart" Content="开始安装" Style="{StaticResource AccentButton}" IsEnabled="False" Click="BtnStart_Click"/>
-                <Button Content="查看安装说明" Style="{StaticResource GhostButton}" Margin="14,0,0,0" Click="BtnDocs_Click"/>
-                <Button x:Name="BtnWelcomeUninstall" Content="卸载 HerMemory" Style="{StaticResource GhostButton}" Margin="14,0,0,0" Click="BtnUninstall_Click"/>
+                <Button Content="查看安装说明" Style="{StaticResource GhostButton}" Margin="10,0,0,0" Click="BtnDocs_Click"/>
+                <Button x:Name="BtnWelcomeUninstall" Content="卸载 HerMemory" Style="{StaticResource LinkButton}"
+                        Margin="16,0,0,0" VerticalAlignment="Center" Click="BtnUninstall_Click"/>
             </StackPanel>
-            <TextBlock Grid.Row="4" Margin="0,14,0,0" FontSize="11.5" Foreground="#B0BEC5"
+            <TextBlock Grid.Row="4" Style="{StaticResource Hint}" Margin="0,14,0,0"
                        Text="符号链接需要开发者模式或管理员权限，以管理员身份运行可免去设置。"/>
         </Grid>
 
@@ -246,93 +452,119 @@
                 <RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
             <StackPanel>
-                <TextBlock Text="请选择记忆档位" Style="{StaticResource Label}"/>
-                <Grid Margin="0,6,0,10">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="76"/><ColumnDefinition Width="104"/><ColumnDefinition Width="104"/><ColumnDefinition Width="104"/><ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-                    <RadioButton x:Name="Tier1" Grid.Row="0" Grid.Column="1" Content="紧凑" GroupName="tier" IsChecked="True" FontSize="13" Margin="0,0,0,4" Cursor="Hand" Foreground="{DynamicResource Ink}" Checked="Tier_Checked"/>
-                    <RadioButton x:Name="Tier2" Grid.Row="0" Grid.Column="2" Content="标准" GroupName="tier" FontSize="13" Margin="0,0,0,4" Cursor="Hand" Foreground="{DynamicResource Ink}" Checked="Tier_Checked"/>
-                    <RadioButton x:Name="Tier3" Grid.Row="0" Grid.Column="3" Content="详细" GroupName="tier" FontSize="13" Margin="0,0,0,4" Cursor="Hand" Foreground="{DynamicResource Ink}" Checked="Tier_Checked"/>
-                    <RadioButton x:Name="Tier4" Grid.Row="0" Grid.Column="4" Content="自定义" GroupName="tier" FontSize="13" Margin="0,0,0,4" Cursor="Hand" Foreground="{DynamicResource Ink}" Checked="Tier_Checked"/>
-                    <TextBlock Grid.Row="1" Grid.Column="0" Text="MEMORY" FontSize="12.5" Foreground="#546E7A" VerticalAlignment="Center"/>
-                    <TextBlock Grid.Row="1" Grid.Column="1" Text="2200" FontSize="12.5" Foreground="#546E7A" VerticalAlignment="Center"/>
-                    <TextBlock Grid.Row="1" Grid.Column="2" Text="5000" FontSize="12.5" Foreground="#546E7A" VerticalAlignment="Center"/>
-                    <TextBlock Grid.Row="1" Grid.Column="3" Text="10000" FontSize="12.5" Foreground="#546E7A" VerticalAlignment="Center"/>
-                    <TextBox x:Name="CustomMem" Grid.Row="1" Grid.Column="4" Style="{StaticResource FieldBox}" Width="130" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="0,3" IsEnabled="False"/>
-                    <TextBlock Grid.Row="2" Grid.Column="0" Text="USER" FontSize="12.5" Foreground="#546E7A" VerticalAlignment="Center"/>
-                    <TextBlock Grid.Row="2" Grid.Column="1" Text="1375" FontSize="12.5" Foreground="#546E7A" VerticalAlignment="Center"/>
-                    <TextBlock Grid.Row="2" Grid.Column="2" Text="3000" FontSize="12.5" Foreground="#546E7A" VerticalAlignment="Center"/>
-                    <TextBlock Grid.Row="2" Grid.Column="3" Text="5000" FontSize="12.5" Foreground="#546E7A" VerticalAlignment="Center"/>
-                    <TextBox x:Name="CustomUser" Grid.Row="2" Grid.Column="4" Style="{StaticResource FieldBox}" Width="130" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="0,3" IsEnabled="False"/>
-                </Grid>
-                <TextBlock Text="API 地址：服务商控制台的 OpenAI 兼容地址，通常以 /v1 结尾" Style="{StaticResource Label}"/>
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <TextBox x:Name="UrlBox" Style="{StaticResource FieldBox}"/>
-                    <Button x:Name="BtnCheckUrl" Grid.Column="1" Content="检测" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Padding="18,7,18,7" VerticalAlignment="Center" Click="BtnCheckUrl_Click"/>
-                </Grid>
-                <TextBlock Text="API Key：在服务商控制台生成" Style="{StaticResource Label}"/>
-                <TextBox x:Name="KeyBox" Style="{StaticResource FieldBox}"/>
-                <Grid Margin="0,16,0,0">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <Button Grid.Column="0" x:Name="BtnModels" Content="获取模型列表" Style="{StaticResource GhostButton}" Click="BtnModels_Click"/>
-                    <ComboBox Grid.Column="1" x:Name="ModelCombo" Style="{StaticResource FieldCombo}" Margin="12,0,0,0"/>
-                    <Button Grid.Column="2" x:Name="BtnNext" Content="确定：完成配置" Style="{StaticResource AccentButton}" Margin="12,0,0,0" Click="BtnNext_Click"/>
-                </Grid>
-                <TextBlock x:Name="ParamStatus" Margin="0,12,0,0" FontSize="12.5" Foreground="#78909C"/>
+                <TextBlock Text="连接 AI" Style="{StaticResource PageTitle}" Margin="0,0,0,0"/>
+                <TextBlock Style="{StaticResource Body}" Margin="0,6,0,0"
+                           Text="最后两步：决定 AI 能记多长，以及它用哪个模型。"/>
             </StackPanel>
+
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,16,0,0" Padding="0,0,6,0">
+                <StackPanel>
+                    <Border Style="{StaticResource Card}" Padding="20,4,20,16">
+                        <StackPanel>
+                            <TextBlock Text="记忆档位" Style="{StaticResource Label}"/>
+                            <Grid Margin="0,0,0,6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="72"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/><ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="26"/><RowDefinition Height="30"/><RowDefinition Height="30"/>
+                                </Grid.RowDefinitions>
+                                <RadioButton x:Name="Tier1" Grid.Row="0" Grid.Column="1" Content="紧凑" GroupName="tier" IsChecked="True"
+                                             FontSize="12.5" Margin="0,0,0,4" Checked="Tier_Checked"/>
+                                <RadioButton x:Name="Tier2" Grid.Row="0" Grid.Column="2" Content="标准" GroupName="tier"
+                                             FontSize="12.5" Margin="0,0,0,4" Checked="Tier_Checked"/>
+                                <RadioButton x:Name="Tier3" Grid.Row="0" Grid.Column="3" Content="详细" GroupName="tier"
+                                             FontSize="12.5" Margin="0,0,0,4" Checked="Tier_Checked"/>
+                                <RadioButton x:Name="Tier4" Grid.Row="0" Grid.Column="4" Content="自定义" GroupName="tier"
+                                             FontSize="12.5" Margin="0,0,0,4" Checked="Tier_Checked"/>
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="MEMORY" FontSize="11.5" Foreground="{DynamicResource Subtle}" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Row="1" Grid.Column="1" Text="2200" FontSize="12.5" Foreground="{DynamicResource Muted}" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Row="1" Grid.Column="2" Text="5000" FontSize="12.5" Foreground="{DynamicResource Muted}" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Row="1" Grid.Column="3" Text="10000" FontSize="12.5" Foreground="{DynamicResource Muted}" VerticalAlignment="Center"/>
+                                <TextBox x:Name="CustomMem" Grid.Row="1" Grid.Column="4" Style="{StaticResource FieldBox}" Width="110"
+                                         HorizontalAlignment="Left" VerticalAlignment="Center" Margin="0,2" IsEnabled="False"/>
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="USER" FontSize="11.5" Foreground="{DynamicResource Subtle}" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Row="2" Grid.Column="1" Text="1375" FontSize="12.5" Foreground="{DynamicResource Muted}" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Row="2" Grid.Column="2" Text="3000" FontSize="12.5" Foreground="{DynamicResource Muted}" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Row="2" Grid.Column="3" Text="5000" FontSize="12.5" Foreground="{DynamicResource Muted}" VerticalAlignment="Center"/>
+                                <TextBox x:Name="CustomUser" Grid.Row="2" Grid.Column="4" Style="{StaticResource FieldBox}" Width="110"
+                                         HorizontalAlignment="Left" VerticalAlignment="Center" Margin="0,2" IsEnabled="False"/>
+                            </Grid>
+
+                            <TextBlock Text="API 地址" Style="{StaticResource Label}" Margin="0,12,0,6"/>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="UrlBox" Style="{StaticResource FieldBox}"/>
+                                <Button x:Name="BtnCheckUrl" Grid.Column="1" Content="检测" Style="{StaticResource GhostButton}"
+                                        Margin="10,0,0,0" Padding="18,8,18,8" VerticalAlignment="Center" Click="BtnCheckUrl_Click"/>
+                            </Grid>
+                            <TextBlock Style="{StaticResource Hint}" Margin="2,6,0,0"
+                                       Text="服务商控制台的 OpenAI 兼容地址，通常以 /v1 结尾。"/>
+
+                            <TextBlock Text="API Key" Style="{StaticResource Label}" Margin="0,12,0,6"/>
+                            <TextBox x:Name="KeyBox" Style="{StaticResource FieldBox}"/>
+                            <TextBlock Style="{StaticResource Hint}" Margin="2,6,0,0" Text="在服务商控制台生成。"/>
+                        </StackPanel>
+                    </Border>
+                    <TextBlock x:Name="ParamStatus" Margin="2,12,0,0" FontSize="12" Foreground="{DynamicResource Muted}" TextWrapping="Wrap"/>
+                </StackPanel>
+            </ScrollViewer>
+
+            <Grid Grid.Row="2" Margin="0,14,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <Button Grid.Column="0" x:Name="BtnModels" Content="获取模型列表" Style="{StaticResource GhostButton}" Click="BtnModels_Click"/>
+                <ComboBox Grid.Column="1" x:Name="ModelCombo" Style="{StaticResource FieldCombo}" Margin="10,0,0,0"/>
+                <Button Grid.Column="2" x:Name="BtnNext" Content="完成配置" Style="{StaticResource AccentButton}" Margin="10,0,0,0" Click="BtnNext_Click"/>
+            </Grid>
         </Grid>
 
         <!-- ===== 页 2：安装位置（仅首次安装可改；已装则只读） ===== -->
         <Grid x:Name="PageLocation" Visibility="Collapsed">
             <StackPanel VerticalAlignment="Center">
-                <TextBlock Text="选择安装位置" FontSize="19" FontWeight="SemiBold" Foreground="{DynamicResource Ink}"/>
-                <TextBlock Style="{StaticResource Body}" Foreground="#546E7A" Margin="0,8,0,0"
+                <TextBlock Text="选择安装位置" Style="{StaticResource PageTitle}" Margin="0,0,0,0"/>
+                <TextBlock Style="{StaticResource Body}" Margin="0,6,0,0"
                            Text="程序文件与运行数据分开存放。安装后不可更改。"/>
 
-                <TextBlock Text="程序安装位置（约 80 MB）" Style="{StaticResource Label}" Margin="0,16,0,0"/>
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <TextBox x:Name="LocBox" Style="{StaticResource FieldBox}" TextChanged="LocBox_TextChanged"/>
-                    <Button x:Name="BtnLocBrowse" Grid.Column="1" Content="浏览…" Style="{StaticResource GhostButton}"
-                            Margin="12,0,0,0" Padding="18,7,18,7" VerticalAlignment="Center" Click="BtnLocBrowse_Click"/>
-                </Grid>
+                <Border Style="{StaticResource Card}" Margin="0,18,0,0" Padding="20,4,20,16">
+                    <StackPanel>
+                        <TextBlock Text="程序安装位置（约 80 MB）" Style="{StaticResource Label}"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="LocBox" Style="{StaticResource FieldBox}" TextChanged="LocBox_TextChanged"/>
+                            <Button x:Name="BtnLocBrowse" Grid.Column="1" Content="浏览…" Style="{StaticResource GhostButton}"
+                                    Margin="10,0,0,0" Padding="18,8,18,8" VerticalAlignment="Center" Click="BtnLocBrowse_Click"/>
+                        </Grid>
 
-                <TextBlock Text="数据存储位置（约 2-3 GB）" Style="{StaticResource Label}" Margin="0,12,0,0"/>
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <TextBox x:Name="DataBox" Style="{StaticResource FieldBox}" TextChanged="LocBox_TextChanged"/>
-                    <Button x:Name="BtnDataBrowse" Grid.Column="1" Content="浏览…" Style="{StaticResource GhostButton}"
-                            Margin="12,0,0,0" Padding="18,7,18,7" VerticalAlignment="Center" Click="BtnDataBrowse_Click"/>
-                </Grid>
+                        <TextBlock Text="数据存储位置（约 2-3 GB）" Style="{StaticResource Label}" Margin="0,12,0,6"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="DataBox" Style="{StaticResource FieldBox}" TextChanged="LocBox_TextChanged"/>
+                            <Button x:Name="BtnDataBrowse" Grid.Column="1" Content="浏览…" Style="{StaticResource GhostButton}"
+                                    Margin="10,0,0,0" Padding="18,8,18,8" VerticalAlignment="Center" Click="BtnDataBrowse_Click"/>
+                        </Grid>
 
-                <CheckBox x:Name="ChkAutoStart" Content="开机自动启动（托盘与 AI 通道随登录启动）"
-                          Margin="0,16,0,0" FontSize="13" IsChecked="True" Cursor="Hand"
-                          Foreground="{DynamicResource Ink}"/>
+                        <CheckBox x:Name="ChkAutoStart" Content="开机自动启动（托盘与 AI 通道随登录启动）"
+                                  Margin="0,16,0,0" IsChecked="True"/>
+                        <!-- 双形态（v0.22）：浏览器与电脑操作是两个大件（Chromium ~500MB + cua-driver）。
+                             勾选状态会透传给上游安装器，并由上游记进 declined-packages.json。 -->
+                        <CheckBox x:Name="ChkHeavyTools" Content="安装浏览器与电脑操作能力（约 500 MB，可稍后补装）"
+                                  Margin="0,10,0,0" IsChecked="True"/>
+                    </StackPanel>
+                </Border>
 
-                <!-- 双形态（v0.22）：浏览器与电脑操作是两个大件（Chromium ~500MB + cua-driver）。
-                     勾选状态会透传给上游安装器，并由上游记进 declined-packages.json，
-                     之后的更新/补装也不会悄悄加回来。 -->
-                <CheckBox x:Name="ChkHeavyTools" Content="安装浏览器与电脑操作能力（约 500 MB，可稍后补装）"
-                          Margin="0,10,0,0" FontSize="13" IsChecked="True" Cursor="Hand"
-                          Foreground="{DynamicResource Ink}"/>
-
-                <TextBlock x:Name="LocStatus" Margin="0,12,0,0" FontSize="12.5" TextWrapping="Wrap" Foreground="#78909C"/>
+                <TextBlock x:Name="LocStatus" Margin="2,12,0,0" FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource Muted}"/>
                 <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
                     <Button x:Name="BtnLocStart" Content="开始安装" Style="{StaticResource AccentButton}" Click="BtnLocStart_Click"/>
-                    <Button Content="← 返回" Style="{StaticResource GhostButton}" Margin="14,0,0,0" Click="BtnLocBack_Click"/>
+                    <Button Content="← 返回" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="BtnLocBack_Click"/>
                 </StackPanel>
             </StackPanel>
         </Grid>
@@ -342,81 +574,102 @@
             <Grid.RowDefinitions>
                 <RowDefinition Height="*"/><RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
-            <StackPanel VerticalAlignment="Center">
-                <TextBlock x:Name="InstallTitle" Text="正在安装……" FontSize="19" FontWeight="SemiBold" Foreground="{DynamicResource Ink}"/>
-                <ProgressBar x:Name="InstallBar" Height="8" Minimum="0" Maximum="100" Margin="0,20,0,6"/>
-                <TextBlock x:Name="InstallDetail" FontSize="12" Foreground="#90A4AE" TextWrapping="Wrap" MaxHeight="180"/>
-                <!-- 失败原因：红字，位于「重新安装」按钮上方（按钮由代码追加到本面板末尾） -->
-                <TextBlock x:Name="InstallFail" FontSize="12.5" Foreground="#C62828" TextWrapping="Wrap" Margin="0,14,0,0" Visibility="Collapsed"/>
-                <!-- 中止安装：安装链若卡住（未发现的交互点 / 网络停滞），超时上限之前用户也能自己退出 -->
-                <Button x:Name="BtnInstallAbort" Content="中止安装" Style="{StaticResource GhostButton}"
-                        HorizontalAlignment="Left" Margin="0,16,0,0" Padding="16,7,16,7"
-                        Visibility="Collapsed" Click="BtnInstallAbort_Click"/>
-            </StackPanel>
+            <Border Style="{StaticResource Card}" Padding="24,20" VerticalAlignment="Center">
+                <StackPanel>
+                    <TextBlock x:Name="InstallTitle" Text="正在安装……" FontSize="18" FontWeight="SemiBold"
+                               Foreground="{DynamicResource Ink}"/>
+                    <ProgressBar x:Name="InstallBar" Height="8" Minimum="0" Maximum="100" Margin="0,18,0,6"/>
+                    <TextBlock x:Name="InstallDetail" FontSize="12" Foreground="{DynamicResource Muted}"
+                               TextWrapping="Wrap" MaxHeight="170" LineHeight="19"/>
+                    <!-- 失败原因：红字，位于「重新安装」按钮上方（按钮由代码追加到本面板末尾） -->
+                    <TextBlock x:Name="InstallFail" FontSize="12.5" Foreground="{DynamicResource Danger}"
+                               TextWrapping="Wrap" Margin="0,14,0,0" Visibility="Collapsed"/>
+                    <!-- 中止安装：安装链若卡住，超时上限之前用户也能自己退出 -->
+                    <Button x:Name="BtnInstallAbort" Content="中止安装" Style="{StaticResource GhostButton}"
+                            HorizontalAlignment="Left" Margin="0,16,0,0" Padding="16,7,16,7"
+                            Visibility="Collapsed" Click="BtnInstallAbort_Click"/>
+                </StackPanel>
+            </Border>
             <!-- 轮换提示：固定窗口底部、灰色弱化——与安装器真实输出物理分离，不再混淆 -->
-            <TextBlock x:Name="InstallTip" Grid.Row="1" FontSize="11.5" Foreground="#B0BEC5" TextWrapping="Wrap" Margin="0,0,0,2"/>
+            <TextBlock x:Name="InstallTip" Grid.Row="1" Style="{StaticResource Hint}" Margin="2,0,2,2"/>
         </Grid>
 
         <!-- ===== 页 5：微信扫码 ===== -->
         <Grid x:Name="PageQr" Visibility="Collapsed">
-            <StackPanel VerticalAlignment="Center">
-                <TextBlock Text="连接微信" FontSize="19" FontWeight="SemiBold" Foreground="{DynamicResource Ink}"/>
-                <TextBlock x:Name="QrStatus" Style="{StaticResource Body}" Margin="0,14,0,0"
-                           Text="正在拉起微信接入。浏览器将打开二维码页面，请用微信扫码并确认。"/>
-                <TextBlock x:Name="QrHint" Style="{StaticResource Body}" Foreground="#90A4AE" Margin="0,10,0,0"
-                           Text="二维码 8 分钟内有效，过期可点「重新扫码」。"/>
-                <!-- 扫码链接（2026-09-17）：沙盒等环境无法拉起浏览器时，用户仍可在应用内查看并复制，
-                     粘到其他设备的浏览器打开扫码。二维码过期重打时会自动更新为新的链接。 -->
-                <Border x:Name="QrLinkBox" Visibility="Collapsed" Margin="0,14,0,0" Padding="12,10"
-                        Background="#F4F6F8" BorderBrush="#D8E0E5" BorderThickness="1" CornerRadius="8">
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock x:Name="QrLinkText" Grid.Column="0" TextWrapping="Wrap" FontSize="12"
-                                   Foreground="#37474F" VerticalAlignment="Center" Cursor="Hand"
-                                   ToolTip="点击复制" MouseLeftButtonUp="QrLinkText_MouseLeftButtonUp"/>
-                        <Button x:Name="BtnCopyQrLink" Grid.Column="1" Content="复制" Margin="12,0,0,0"
-                                Padding="12,5,12,5" VerticalAlignment="Center"
-                                Style="{StaticResource GhostButton}" Click="BtnCopyQrLink_Click"/>
-                    </Grid>
-                </Border>
-                <StackPanel Orientation="Horizontal" Margin="0,22,0,0">
-                    <Button x:Name="BtnQrRetry" Content="重新扫码" Style="{StaticResource GhostButton}" Click="BtnQrRetry_Click"/>
-                    <Button x:Name="BtnQrSkip" Content="跳过" Style="{StaticResource GhostButton}" Margin="12,0,0,0" Click="BtnQrSkip_Click"/>
+            <Border Style="{StaticResource Card}" Padding="24,22" VerticalAlignment="Center">
+                <StackPanel>
+                    <TextBlock Text="连接微信" FontSize="18" FontWeight="SemiBold" Foreground="{DynamicResource Ink}"/>
+                    <TextBlock x:Name="QrStatus" Style="{StaticResource Body}" Margin="0,10,0,0"
+                               Text="正在拉起微信接入。浏览器将打开二维码页面，请用微信扫码并确认。"/>
+                    <TextBlock x:Name="QrHint" Style="{StaticResource Hint}" Margin="0,8,0,0"
+                               Text="二维码 8 分钟内有效，过期可点「重新扫码」。"/>
+                    <!-- 扫码链接（2026-09-17）：沙盒等环境无法拉起浏览器时，用户仍可在应用内查看并复制 -->
+                    <Border x:Name="QrLinkBox" Visibility="Collapsed" Margin="0,14,0,0" Padding="12,10"
+                            Background="{DynamicResource Hairline}" CornerRadius="8">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Name="QrLinkText" Grid.Column="0" TextWrapping="Wrap" FontSize="12"
+                                       Foreground="{DynamicResource Muted}" VerticalAlignment="Center" Cursor="Hand"
+                                       ToolTip="点击复制" MouseLeftButtonUp="QrLinkText_MouseLeftButtonUp"/>
+                            <Button x:Name="BtnCopyQrLink" Grid.Column="1" Content="复制" Margin="12,0,0,0"
+                                    Padding="14,5,14,5" VerticalAlignment="Center"
+                                    Style="{StaticResource GhostButton}" Click="BtnCopyQrLink_Click"/>
+                        </Grid>
+                    </Border>
+                    <StackPanel Orientation="Horizontal" Margin="0,20,0,0">
+                        <Button x:Name="BtnQrRetry" Content="重新扫码" Style="{StaticResource GhostButton}" Click="BtnQrRetry_Click"/>
+                        <Button x:Name="BtnQrSkip" Content="跳过" Style="{StaticResource LinkButton}" Margin="14,0,0,0"
+                                VerticalAlignment="Center" Click="BtnQrSkip_Click"/>
+                    </StackPanel>
                 </StackPanel>
-            </StackPanel>
+            </Border>
         </Grid>
 
         <!-- ===== 页 6：卸载 ===== -->
         <Grid x:Name="PageUninstall" Visibility="Collapsed">
-            <StackPanel>
-                <Button x:Name="BtnUninsBack" Content="← 返回" Style="{StaticResource GhostButton}" HorizontalAlignment="Left" Padding="14,6,14,6" Click="BtnUninsCancel_Click"/>
-                <TextBlock Text="卸载 HerMemory" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource Ink}" Margin="0,18,0,0"/>
-                <TextBlock Style="{StaticResource Body}" Margin="0,30,0,0"
-                           Text="将移除：程序文件、Hermes 内核与全部配置、微信接入凭据、gateway 计划任务与登录项、开机自启项、桌面与开始菜单快捷方式、偏好设置。运行数据目录为 %LOCALAPPDATA%\hermes。网关将先停止。"/>
-                <TextBlock Style="{StaticResource Body}" Foreground="#C62828" Margin="0,10,0,0"
-                           Text="vault（文档与记忆）默认保留，不在卸载范围内。"/>
-                <CheckBox x:Name="UninsVault" Content="同时删除 vault（文档与记忆不可恢复）"
-                          Margin="0,14,0,0" FontSize="13" Foreground="#C62828"/>
-                <StackPanel Orientation="Horizontal" Margin="0,22,0,0">
-                    <Button x:Name="BtnUninsRun" Content="执行卸载" Style="{StaticResource AccentButton}" Background="#C62828" Click="BtnUninsRun_Click"/>
+            <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
+                <StackPanel>
+                    <Button x:Name="BtnUninsBack" Content="← 返回" Style="{StaticResource LinkButton}"
+                            HorizontalAlignment="Left" Click="BtnUninsCancel_Click"/>
+                    <TextBlock Text="卸载 HerMemory" Style="{StaticResource PageTitle}"/>
+
+                    <Border Style="{StaticResource Card}" Margin="0,18,0,0" Padding="20,4,20,16">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource Body}" Margin="0,14,0,0"
+                                       Text="将移除：程序文件、Hermes 内核与全部配置、微信接入凭据、gateway 计划任务与登录项、开机自启项、桌面与开始菜单快捷方式、偏好设置。运行数据目录为 %LOCALAPPDATA%\hermes。网关将先停止。"/>
+                            <TextBlock Style="{StaticResource Body}" Foreground="{DynamicResource Danger}" Margin="0,10,0,0"
+                                       Text="vault（文档与记忆）默认保留，不在卸载范围内。"/>
+                            <CheckBox x:Name="UninsVault" Content="同时删除 vault（文档与记忆不可恢复）"
+                                      Margin="0,14,0,0" Foreground="{DynamicResource Danger}"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,20,0,0">
+                                <Button x:Name="BtnUninsRun" Content="执行卸载" Style="{StaticResource AccentButton}" Background="{DynamicResource Danger}" Click="BtnUninsRun_Click"/>
+                            </StackPanel>
+                            <TextBlock x:Name="UninsStatus" Style="{StaticResource Body}" Margin="0,16,0,0"/>
+                            <ProgressBar x:Name="UninsBar" Height="8" Minimum="0" Maximum="100" Margin="0,10,0,0" Visibility="Collapsed"/>
+                            <Button x:Name="BtnUninsClose" Content="退出" Style="{StaticResource AccentButton}" Margin="0,18,0,0" Visibility="Collapsed" Click="BtnUninsDone_Click"/>
+                        </StackPanel>
+                    </Border>
                 </StackPanel>
-                <TextBlock x:Name="UninsStatus" Style="{StaticResource Body}" Margin="0,16,0,0"/>
-                <ProgressBar x:Name="UninsBar" Height="8" Minimum="0" Maximum="100" Margin="0,10,0,0" Visibility="Collapsed"/>
-                <Button x:Name="BtnUninsClose" Content="退出" Style="{StaticResource AccentButton}" Margin="0,18,0,0" Visibility="Collapsed" Click="BtnUninsDone_Click"/>
-            </StackPanel>
+            </ScrollViewer>
         </Grid>
 
         <!-- ===== 页 7：完成 ===== -->
         <Grid x:Name="PageDone" Visibility="Collapsed">
             <StackPanel VerticalAlignment="Center">
+                <Border x:Name="DoneBadge" Width="56" Height="56" CornerRadius="28" HorizontalAlignment="Left"
+                        Background="{DynamicResource AccentSoft}" Margin="0,0,0,18">
+                    <Path Data="M 14 29 L 23 38 L 42 18" Stroke="{DynamicResource Accent}" StrokeThickness="3"
+                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                          HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
                 <TextBlock Text="安装完成" FontSize="26" FontWeight="Bold" Foreground="{DynamicResource Ink}"/>
-                <TextBlock x:Name="DoneText" Style="{StaticResource Body}" Margin="0,16,0,0" LineHeight="22"/>
-                <StackPanel Orientation="Horizontal" Margin="0,26,0,0">
+                <TextBlock x:Name="DoneText" Style="{StaticResource Body}" Margin="0,14,0,0" LineHeight="22"/>
+                <StackPanel Orientation="Horizontal" Margin="0,24,0,0">
                     <Button x:Name="BtnGuide" Content="打开使用文档" Style="{StaticResource GhostButton}" Click="BtnGuide_Click"/>
-                    <Button Content="完成" Style="{StaticResource AccentButton}" Margin="14,0,0,0" Click="BtnFinish_Click"/>
+                    <Button Content="完成" Style="{StaticResource AccentButton}" Margin="12,0,0,0" Click="BtnFinish_Click"/>
                 </StackPanel>
             </StackPanel>
         </Grid>

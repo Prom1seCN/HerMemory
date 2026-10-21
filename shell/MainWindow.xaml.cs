@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media.Animation;
 
 namespace HerMemory
 {
@@ -42,7 +43,7 @@ namespace HerMemory
         private static string SelfPath => Environment.ProcessPath ?? "";
 
         /// <summary>版本号（显示在首页）。构建时由 `-p:Version=` 写入程序集，这里是唯一读取口——
-        /// 安装包文件名因此可以固定为 HerMemory-Setup.exe，版本靠界面体现。</summary>
+        /// 安装包文件名因此固定为 Setup.exe（用户裁决：不带版本后缀），版本靠界面体现。</summary>
         private static string AppVersionText
         {
             get
@@ -74,7 +75,9 @@ namespace HerMemory
             }
             Loaded += async (_, _) =>
             {
-                ApplyGirlIcon();   // 右上角女孩图标：随主题（Assets 为相对路径，用绝对资源文件流加载）
+                PlayWindowIntro();
+                ApplyGirlIcon();
+                Theme.ApplyTitleBar(this);   // 右上角女孩图标：随主题（Assets 为相对路径，用绝对资源文件流加载）
                 if (HomeMode) GoHome();
                 else await RunPrecheckAsync();
             };
@@ -131,7 +134,18 @@ namespace HerMemory
                 "running" => "Gateway 运行中，AI 在线",
                 _ => "Gateway 已停止，AI 离线",
             };
-            HomeStatus.Foreground = Brush(state == "running" ? "#2E7D32" : "#90A4AE");
+            var running = state == "running";
+            HomeStatus.Foreground = running ? Res("Ink") : Res("Muted");
+            StatusDot.Fill = running ? Res("Success") : Res("Subtle");
+            // 在线时该露脸的是「停止」，离线时才轮到「启动」：同屏永远只有一个主按钮。
+            if (_uiRunning != running)
+            {
+                _uiRunning = running;
+                HomeStart.Style = (Style)FindResource(running ? "GhostButton" : "AccentButton");
+                HomeStop.Style = (Style)FindResource(running ? "AccentButton" : "GhostButton");
+            }
+            if (running && !_pulseOn) { StartPulse(StatusHalo); _pulseOn = true; }
+            else if (!running && _pulseOn) { StopPulse(StatusHalo); _pulseOn = false; }
             // 只刷新"当前正看着的那一页"。本方法会被托盘每 10 秒的轮询触发，而无差别刷新代价很大：
             // UpdateTierTable 要起两次 hermes CLI——更要命的是 hermes 调用全局串行，
             // 用户点的按钮会排在轮询发起的 config get 后面等锁，表现为"按下去几秒才反应"。
@@ -152,6 +166,8 @@ namespace HerMemory
             catch { }
         }
 
+        private bool? _uiRunning;          // 上一次渲染时网关是否在线（决定哪个按钮是主按钮）
+        private bool _pulseOn;             // 呼吸灯是否已在跑（托盘每 10 秒刷状态，重复 BeginAnimation 会让它每次重新起跳）
         private string _cfgState = "";
         private bool _cfgSaving;
         private string _lastState = "unknown";
@@ -1064,10 +1080,16 @@ namespace HerMemory
         {
             BtnHealthRefresh.IsEnabled = false;
             HealthStatus.Text = "正在检查……";
+            RenderHealthSkeleton();
             try
             {
                 var items = await Task.Run(() => HealthCheck.Run());
                 RenderHealth(items);
+                // 刚 Add 完子项时布局还没跑，同步 ScrollToTop 有时落在旧 Extent 上（表现为一进页就在底部）。
+                // 交给 Background 优先级再滚一次，此时 Extent 已按新内容算好。
+                HealthScroll.ScrollToTop();
+                Dispatcher.BeginInvoke(new Action(() => HealthScroll.ScrollToTop()),
+                    System.Windows.Threading.DispatcherPriority.Background);
                 var fails = items.Count(i => i.Status == "fail");
                 var warns = items.Count(i => i.Status == "warn");
                 HealthStatus.Text = fails == 0 && warns == 0
@@ -1078,41 +1100,86 @@ namespace HerMemory
             finally { BtnHealthRefresh.IsEnabled = true; }
         }
 
+        /// <summary>检查期间的占位骨架：体检要跑十来次 CLI，慢的时候 5~10 秒。
+        /// 空白页会让用户以为坏了——四条呼吸的灰条足以表达"在干活"。</summary>
+        private void RenderHealthSkeleton()
+        {
+            HealthList.Children.Clear();
+            var cardStyle = System.Windows.Application.Current.Resources["Card"] as Style;
+            for (var i = 0; i < 4; i++)
+            {
+                var bar = new Border
+                {
+                    Height = 9,
+                    Width = 280 - i * 42,
+                    CornerRadius = new CornerRadius(4),
+                    Background = Res("CardBorder"),
+                    HorizontalAlignment = System.Windows.HorizontalAlignment.Left,
+                };
+                var card = new Border
+                {
+                    Style = cardStyle,
+                    Height = 58,
+                    Margin = new Thickness(0, 0, 0, 8),
+                    Child = new Grid { Margin = new Thickness(18, 0, 16, 0), Children = { bar } },
+                };
+                card.Opacity = 0.35;
+                card.BeginAnimation(OpacityProperty,
+                    new DoubleAnimation(0.25, 0.7, new Duration(TimeSpan.FromMilliseconds(900)))
+                    {
+                        AutoReverse = true,
+                        RepeatBehavior = RepeatBehavior.Forever,
+                        EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut },
+                    });
+                HealthList.Children.Add(card);
+            }
+        }
+
         private void RenderHealth(List<HealthItem> items)
         {
             HealthList.Children.Clear();
-            foreach (var item in items)
+            var cardStyle = System.Windows.Application.Current.Resources["Card"] as Style;
+            for (var i = 0; i < items.Count; i++)
             {
-                var color = item.Status == "fail" ? "#C62828" : item.Status == "warn" ? "#EF6C00" : "#2E7D32";
-                var mark = item.Status == "fail" ? "●" : item.Status == "warn" ? "●" : "●";
+                var item = items[i];
+                var color = item.Status == "fail" ? Res("Danger")
+                          : item.Status == "warn" ? Res("Warn")
+                          : Res("Success");
 
-                var grid = new Grid { Margin = new Thickness(0, 0, 0, 0) };
-                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(18) });
-                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-                var dot = new TextBlock
+                // 左侧 3px 色条：扫一眼就知道哪几行要处理，比给整张卡染色安静得多。
+                var stripe = new Border
                 {
-                    Text = mark, FontSize = 10, Foreground = Brush(color),
-                    VerticalAlignment = VerticalAlignment.Center,
+                    Width = 3, Background = color, CornerRadius = new CornerRadius(2),
+                    HorizontalAlignment = System.Windows.HorizontalAlignment.Left, Margin = new Thickness(0, 10, 0, 10),
                 };
-                Grid.SetColumn(dot, 0);
 
-                var text = new StackPanel { Margin = new Thickness(6, 0, 0, 0) };
-                text.Children.Add(new TextBlock
+                var titleRow = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal };
+                titleRow.Children.Add(new System.Windows.Shapes.Ellipse
+                {
+                    Width = 7, Height = 7, Fill = color, VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 0, 8, 0),
+                });
+                titleRow.Children.Add(new TextBlock
                 {
                     Text = item.Title, FontSize = 13, FontWeight = FontWeights.SemiBold,
-                    Foreground = Brush("#37474F"),
+                    Foreground = Res("Ink"), VerticalAlignment = VerticalAlignment.Center,
                 });
+
+                var text = new StackPanel();
+                text.Children.Add(titleRow);
                 text.Children.Add(new TextBlock
                 {
-                    Text = item.Detail, FontSize = 12, TextWrapping = TextWrapping.Wrap,
-                    Foreground = Brush(color), Margin = new Thickness(0, 2, 0, 0),
+                    Text = item.Detail, FontSize = 11.5, TextWrapping = TextWrapping.Wrap,
+                    Foreground = Res("Muted"), Margin = new Thickness(15, 4, 0, 0), LineHeight = 18,
                 });
-                Grid.SetColumn(text, 1);
 
-                var row = new DockPanel();
-                if (item.Fix != HealthFix.None)
+                var content = new Grid { Margin = new Thickness(16, 10, 12, 10) };
+                content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                content.Children.Add(text);
+
+                // 检查通过的项目不该再摆一个"修复安装"按钮——那会让用户以为哪里坏了。
+                if (item.Fix != HealthFix.None && item.Status != "ok")
                 {
                     var btn = new System.Windows.Controls.Button
                     {
@@ -1124,26 +1191,36 @@ namespace HerMemory
                         Tag = item,
                     };
                     btn.Click += BtnHealthFix_Click;
-                    DockPanel.SetDock(btn, Dock.Right);
-                    row.Children.Add(btn);
+                    Grid.SetColumn(btn, 1);
+                    content.Children.Add(btn);
                 }
-                row.Children.Add(text);
-
-                grid.Children.Add(dot);
-                grid.Children.Add(row);
-                Grid.SetColumn(row, 1);
 
                 var border = new Border
                 {
-                    CornerRadius = new CornerRadius(8),
-                    Background = (System.Windows.Media.Brush)System.Windows.Application.Current.Resources["FieldBg"],
-                    BorderBrush = Brush("#CFD8DC"),
-                    BorderThickness = new Thickness(1),
-                    Padding = new Thickness(12, 10, 12, 10),
+                    Style = cardStyle,
                     Margin = new Thickness(0, 0, 0, 8),
-                    Child = grid,
+                    Child = new Grid
+                    {
+                        Children = { stripe, content },
+                    },
                 };
                 HealthList.Children.Add(border);
+
+                // 逐条错峰入场（每行 28ms，封顶 12 行）：视线自然从上往下走，
+                // 也让"重新检查"有一个可感知的结束点，而不是所有行同时啪地出现。
+                border.Opacity = 0;
+                var tt = new System.Windows.Media.TranslateTransform(0, 8);
+                border.RenderTransform = tt;
+                var delay = TimeSpan.FromMilliseconds(Math.Min(i, 12) * 28);
+                border.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, new Duration(TimeSpan.FromMilliseconds(220)))
+                {
+                    BeginTime = delay, EasingFunction = EaseOut,
+                });
+                tt.BeginAnimation(System.Windows.Media.TranslateTransform.YProperty,
+                    new DoubleAnimation(8, 0, new Duration(TimeSpan.FromMilliseconds(280)))
+                    {
+                        BeginTime = delay, EasingFunction = EaseOut,
+                    });
             }
         }
 
@@ -1286,6 +1363,10 @@ namespace HerMemory
             Theme.SetDark(!Theme.IsDark);
             ThemeGlyph.Text = Theme.IsDark ? "☾" : "☀";
             ApplyGirlIcon();
+            Theme.ApplyTitleBar(this);
+            FlashForTheme();
+            // 首页状态文字/圆点是代码写进去的本地颜色，不随 DynamicResource 走，这里补刷一次。
+            if (PageHome.Visibility == Visibility.Visible) UpdateHomeStatus(_lastState);
         }
 
         // —— 女孩图标（右上角）：全透明底（窗口背景透出=与软件背景同色），深=白线稿/浅=黑线稿；logo 嵌入色两版一致 ——
@@ -1305,6 +1386,7 @@ namespace HerMemory
                 bmp.EndInit();
                 bmp.Freeze();
                 GirlIcon.Source = bmp;
+                GirlWatermark.Source = bmp;
             }
             catch { }
         }
@@ -1463,6 +1545,8 @@ namespace HerMemory
         private async Task RunPrecheckAsync()
         {
             var notes = new List<string>();
+            PrecheckDot.Fill = Res("Accent");
+            StartPulse(PrecheckHalo);
 
             // 权限前置。两个理由，安装器形态命中第一个、程序本体形态命中第二个：
             //   ① 拆包后程序本体要落进 Program Files，卸载项要写 HKLM —— 都必须管理员令牌。
@@ -1513,6 +1597,8 @@ namespace HerMemory
             if (brokenInstall) notes.Add("检测到安装不完整（解释器缺失），重新安装即可修复");
 
             bool allOk = _repoRoot != null;
+            StopPulse(PrecheckHalo);
+            PrecheckDot.Fill = brokenInstall ? Res("Warn") : allOk ? Res("Success") : Res("Danger");
             PrecheckStatus.Text = string.Join(Environment.NewLine, notes);
             PrecheckStatus.Foreground = new System.Windows.Media.SolidColorBrush(
                 (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(
@@ -1620,7 +1706,9 @@ namespace HerMemory
         }
 
         /// <summary>切换页面：只认有名字的直接子 Grid（页面），未命名的容器不参与。
-        /// 页面名写错时不能静默留一片空白——记日志便于以后定位。</summary>
+        /// 页面名写错时不能静默留一片空白——记日志便于以后定位。
+        /// **进入动画只对"从隐藏变可见"的那一页播放**：同一页重复 Show（如托盘每次唤起首页）
+        /// 不会再抖一下，否则用户会以为界面在闪。</summary>
         private void ShowPage(string name)
         {
             var matched = false;
@@ -1628,11 +1716,88 @@ namespace HerMemory
             {
                 if (child is not Grid g || g.Name.Length == 0) continue;
                 var on = g.Name == name;
-                g.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
-                if (on) matched = true;
+                if (on)
+                {
+                    matched = true;
+                    if (g.Visibility != Visibility.Visible)
+                    {
+                        g.Visibility = Visibility.Visible;
+                        AnimatePageIn(g);
+                    }
+                }
+                else if (g.Visibility == Visibility.Visible)
+                {
+                    g.Visibility = Visibility.Collapsed;
+                }
             }
+            // 品牌图只留在向导页；首页用右下角水印，其余页留白给内容。
+            GirlIcon.Visibility = name is "PageWelcome" or "PageDone" or "PageParams" or "PageInstall"
+                ? Visibility.Visible : Visibility.Collapsed;
             if (!matched) ReportUiError("切换页面", new InvalidOperationException("未找到页面：" + name));
         }
+
+        // ================= 动效 =================
+        // 统一口径：淡入 200ms + 上浮 10px/260ms，CubicEase-Out。只碰 Opacity 与 RenderTransform，
+        // 不触发布局（Measure/Arrange 一次都不重跑），所以老机器上也不会卡。
+
+        private static readonly Duration FadeIn = new(TimeSpan.FromMilliseconds(200));
+        private static readonly Duration SlideIn = new(TimeSpan.FromMilliseconds(280));
+
+        private static CubicEase EaseOut => new() { EasingMode = EasingMode.EaseOut };
+
+        private void PlayWindowIntro()
+        {
+            RootGrid.Opacity = 0;
+            var tt = new System.Windows.Media.TranslateTransform(0, 12);
+            RootGrid.RenderTransform = tt;
+            RootGrid.BeginAnimation(OpacityProperty,
+                new DoubleAnimation(0, 1, new Duration(TimeSpan.FromMilliseconds(260))) { EasingFunction = EaseOut });
+            tt.BeginAnimation(System.Windows.Media.TranslateTransform.YProperty,
+                new DoubleAnimation(12, 0, new Duration(TimeSpan.FromMilliseconds(360))) { EasingFunction = EaseOut });
+        }
+
+        private static void AnimatePageIn(FrameworkElement page)
+        {
+            page.Opacity = 0;
+            var tt = new System.Windows.Media.TranslateTransform(0, 10);
+            page.RenderTransform = tt;
+            page.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, FadeIn) { EasingFunction = EaseOut });
+            tt.BeginAnimation(System.Windows.Media.TranslateTransform.YProperty,
+                new DoubleAnimation(10, 0, SlideIn) { EasingFunction = EaseOut });
+        }
+
+        /// <summary>状态灯呼吸：只动透明度。18px 的光晕在 9px 圆点外一涨一落，就是"活着"的感觉。</summary>
+        private static void StartPulse(System.Windows.Shapes.Ellipse halo)
+        {
+            var anim = new DoubleAnimation(0.5, 0.0, new Duration(TimeSpan.FromMilliseconds(1500)))
+            {
+                RepeatBehavior = RepeatBehavior.Forever,
+                EasingFunction = new SineEase { EasingMode = EasingMode.EaseOut },
+            };
+            halo.BeginAnimation(OpacityProperty, anim);
+        }
+
+        private static void StopPulse(System.Windows.Shapes.Ellipse halo)
+        {
+            halo.BeginAnimation(OpacityProperty, null);
+            halo.Opacity = 0;
+        }
+
+        /// <summary>换主题时的交叉淡入：整页压暗一瞬再回来，比"颜色啪地跳变"柔和得多。</summary>
+        private void FlashForTheme()
+        {
+            var fade = new DoubleAnimationUsingKeyFrames();
+            fade.KeyFrames.Add(new EasingDoubleKeyFrame(1.0, KeyTime.FromTimeSpan(TimeSpan.Zero)));
+            fade.KeyFrames.Add(new EasingDoubleKeyFrame(0.35, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(90))));
+            fade.KeyFrames.Add(new EasingDoubleKeyFrame(1.0, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(280))));
+            RootGrid.BeginAnimation(OpacityProperty, fade);
+        }
+
+        /// <summary>取主题令牌。主题切换后 DynamicResource 会自动刷新 XAML，但代码里 set 过的
+        /// Foreground/Fill 是本地值，必须重新取一次——所以状态刷新路径统一走这里。</summary>
+        private static System.Windows.Media.Brush Res(string key) =>
+            System.Windows.Application.Current?.Resources[key] as System.Windows.Media.Brush
+            ?? System.Windows.Media.Brushes.Gray;
 
         // ================= 页 2：参数 =================
         private void BtnStart_Click(object sender, RoutedEventArgs e)
@@ -3175,9 +3340,19 @@ namespace HerMemory
         private static string CleanAscii(string s) =>
             new string(s.Where(c => c >= 0x21 && c <= 0x7E).ToArray());
 
-        private static System.Windows.Media.Brush Brush(string hex) =>
-            new System.Windows.Media.SolidColorBrush(
-                (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(hex));
+        /// <summary>语义色 → 主题令牌。深色主题下 #C62828 这类深红/深灰几乎看不见，
+        /// 所以凡是"红/橙/绿/灰"的写法统一折到 Danger/Warn/Success/Muted/Subtle，
+        /// 由 Theme.Apply 按当前主题给出实际色值；其余颜色照常按字面解析。</summary>
+        private static System.Windows.Media.Brush Brush(string hex) => hex switch
+        {
+            "#C62828" => Res("Danger"),
+            "#2E7D32" => Res("Success"),
+            "#EF6C00" => Res("Warn"),
+            "#90A4AE" or "#78909C" or "#B0BEC5" => Res("Subtle"),
+            "#546E7A" or "#455A64" or "#37474F" => Res("Muted"),
+            _ => new System.Windows.Media.SolidColorBrush(
+                (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(hex)),
+        };
 
         private static string? RunCapture(string exe, string args, int timeoutSec = 30)
         {

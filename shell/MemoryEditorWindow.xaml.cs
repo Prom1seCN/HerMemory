@@ -73,6 +73,8 @@ namespace HerMemory
 
         private void OnLoaded(object sender, RoutedEventArgs e)
         {
+            FadeInWindow();
+            Theme.ApplyTitleBar(this);
             if (_entries.Count > 0) FileList.SelectedIndex = 0;
             // 记忆预算要问一次 CLI（约 1 秒），放到后台，不挡窗口出现
             _ = System.Threading.Tasks.Task.Run(() =>
@@ -394,8 +396,39 @@ namespace HerMemory
             if (r == MessageBoxResult.Yes && !Save(quiet: false)) e.Cancel = true;
         }
 
-        private static System.Windows.Media.Brush Brush(string hex) =>
-            new System.Windows.Media.SolidColorBrush(
-                (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(hex));
+        /// <summary>窗口淡入：260ms 内从 0 到 1，并轻微上浮。
+        /// 编辑器是"点一下就弹出来"的窗口，直接出现会有硬切感。</summary>
+        private void FadeInWindow()
+        {
+            Root.Opacity = 0;
+            var tt = new System.Windows.Media.TranslateTransform(0, 8);
+            Root.RenderTransform = tt;
+            var ease = new System.Windows.Media.Animation.CubicEase
+            {
+                EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut,
+            };
+            Root.BeginAnimation(OpacityProperty,
+                new System.Windows.Media.Animation.DoubleAnimation(0, 1,
+                    new Duration(TimeSpan.FromMilliseconds(240))) { EasingFunction = ease });
+            tt.BeginAnimation(System.Windows.Media.TranslateTransform.YProperty,
+                new System.Windows.Media.Animation.DoubleAnimation(8, 0,
+                    new Duration(TimeSpan.FromMilliseconds(320))) { EasingFunction = ease });
+        }
+
+        private static System.Windows.Media.Brush Res(string key) =>
+            System.Windows.Application.Current?.Resources[key] as System.Windows.Media.Brush
+            ?? System.Windows.Media.Brushes.Gray;
+
+        /// <summary>语义色折到主题令牌（深色下 #C62828 这类深红看不清）。</summary>
+        private static System.Windows.Media.Brush Brush(string hex) => hex switch
+        {
+            "#C62828" => Res("Danger"),
+            "#2E7D32" => Res("Success"),
+            "#EF6C00" => Res("Warn"),
+            "#90A4AE" or "#78909C" or "#B0BEC5" => Res("Subtle"),
+            "#546E7A" or "#455A64" or "#37474F" => Res("Muted"),
+            _ => new System.Windows.Media.SolidColorBrush(
+                (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(hex)),
+        };
     }
 }

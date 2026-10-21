@@ -1,38 +1,49 @@
 <Window x:Class="HerMemory.MemoryEditorWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="编辑记忆" Height="660" Width="1040"
+        Title="编辑记忆" Height="680" Width="1080"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource WindowBg}"
-        FontFamily="Microsoft YaHei UI, Segoe UI">
+        Foreground="{DynamicResource Ink}"
+        FontFamily="{DynamicResource UiFont}"
+        TextOptions.TextFormattingMode="Display"
+        UseLayoutRounding="True">
     <Window.Resources>
         <Style x:Key="FileItem" TargetType="ListBoxItem">
-            <Setter Property="Padding" Value="10,7"/>
+            <Setter Property="Padding" Value="10,8"/>
             <Setter Property="Margin" Value="0,1"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="ListBoxItem">
-                        <Border x:Name="bd" CornerRadius="6" Padding="{TemplateBinding Padding}"
-                                Background="Transparent">
+                        <Border x:Name="bd" CornerRadius="7" Padding="{TemplateBinding Padding}"
+                                Background="Transparent" BorderThickness="1" BorderBrush="Transparent">
                             <ContentPresenter/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="bd" Property="Background" Value="#2288AACC"/>
+                                <Setter TargetName="bd" Property="Background" Value="{DynamicResource AccentSoft}"/>
                             </Trigger>
                             <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="bd" Property="Background" Value="#3344CCEE"/>
+                                <Setter TargetName="bd" Property="Background" Value="{DynamicResource AccentSoft}"/>
+                                <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource Accent}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
         </Style>
+        <Style x:Key="PaneHeader" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{DynamicResource Subtle}"/>
+            <Setter Property="Margin" Value="14,10,0,8"/>
+        </Style>
     </Window.Resources>
 
-    <Grid Margin="18,14,18,12">
+    <Grid x:Name="Root" Margin="20,16,20,14">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
@@ -40,74 +51,76 @@
         </Grid.RowDefinitions>
 
         <!-- 顶部：标题 + 动作 -->
-        <Grid Grid.Row="0" Margin="0,0,0,12">
+        <Grid Grid.Row="0" Margin="0,0,0,14">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
             <StackPanel>
-                <TextBlock Text="编辑记忆" FontSize="19" FontWeight="SemiBold" Foreground="{DynamicResource Ink}"/>
-                <TextBlock x:Name="HeaderHint" FontSize="12" Margin="0,3,0,0" Foreground="#90A4AE"
+                <TextBlock Text="编辑记忆" FontSize="20" FontWeight="SemiBold" Foreground="{DynamicResource Ink}"/>
+                <TextBlock x:Name="HeaderHint" FontSize="11.5" Margin="0,4,0,0" Foreground="{DynamicResource Subtle}"
                            Text="这些就是 AI 的记忆本体（纯文本）。保存后开启新对话生效。"/>
             </StackPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                <Button x:Name="BtnHistory" Content="历史" Padding="14,7" Margin="10,0,0,0"
-                        Cursor="Hand" FontSize="12.5" Click="BtnHistory_Click"
-                        Style="{StaticResource GhostButton}"/>
-                <ToggleButton x:Name="PreviewToggle" Content="预览" IsChecked="True" Padding="14,7"
-                              Cursor="Hand" FontSize="12.5" Click="PreviewToggle_Click"
-                              Background="Transparent" Foreground="{DynamicResource Accent}"
-                              BorderBrush="#CFD8DC" BorderThickness="1"/>
+                <Button x:Name="BtnHistory" Content="历史" Margin="0,0,8,0"
+                        Style="{StaticResource GhostButton}" Click="BtnHistory_Click"/>
+                <ToggleButton x:Name="PreviewToggle" Content="预览" IsChecked="True"
+                              Style="{StaticResource ChipToggle}" Click="PreviewToggle_Click"/>
                 <Button x:Name="BtnSave" Content="保存" Style="{StaticResource AccentButton}"
-                        Padding="20,7,20,7" Margin="10,0,0,0" Click="BtnSave_Click"/>
+                        Padding="24,8,24,8" Margin="8,0,0,0" Click="BtnSave_Click"/>
             </StackPanel>
         </Grid>
 
         <!-- 主体：文件列表 | 编辑器 | 预览 -->
         <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="212" MinWidth="150"/>
+                <ColumnDefinition Width="272" MinWidth="190"/>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*" MinWidth="260"/>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*" MinWidth="220"/>
             </Grid.ColumnDefinitions>
 
-            <Border Grid.Column="0" CornerRadius="8" Background="{DynamicResource FieldBg}"
-                    BorderBrush="#CFD8DC" BorderThickness="1" Padding="6">
+            <Border Grid.Column="0" Style="{StaticResource Card}">
                 <DockPanel>
-                    <TextBlock DockPanel.Dock="Top" Text="记忆文件" FontSize="11.5"
-                               Foreground="#90A4AE" Margin="8,6,0,6"/>
-                    <ListBox x:Name="FileList" Background="Transparent" BorderThickness="0"
+                    <TextBlock DockPanel.Dock="Top" Text="记忆文件" Style="{StaticResource PaneHeader}"/>
+                    <Border DockPanel.Dock="Top" Height="1" Background="{DynamicResource Hairline}" Margin="8,0,8,0"/>
+                    <ListBox x:Name="FileList" Background="Transparent" BorderThickness="0" Margin="6"
                              ItemContainerStyle="{StaticResource FileItem}"
                              SelectionChanged="FileList_SelectionChanged"
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
                 </DockPanel>
             </Border>
 
-            <GridSplitter Grid.Column="1" Width="8" HorizontalAlignment="Center"
+            <GridSplitter Grid.Column="1" Width="10" HorizontalAlignment="Center"
                           VerticalAlignment="Stretch" Background="Transparent"/>
 
-            <Border Grid.Column="2" CornerRadius="8" Background="{DynamicResource FieldBg}"
-                    BorderBrush="#CFD8DC" BorderThickness="1">
-                <TextBox x:Name="Editor" AcceptsReturn="True" AcceptsTab="True"
-                         FontFamily="Cascadia Mono, Consolas, Courier New" FontSize="13.5"
-                         Background="Transparent" BorderThickness="0" Padding="12,10"
-                         VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
-                         TextWrapping="Wrap" Foreground="{DynamicResource Ink}"
-                         CaretBrush="{DynamicResource Ink}"
-                         TextChanged="Editor_TextChanged"
-                         PreviewKeyDown="Editor_PreviewKeyDown"/>
+            <Border Grid.Column="2" Style="{StaticResource Card}">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Text="正文" Style="{StaticResource PaneHeader}"/>
+                    <Border DockPanel.Dock="Top" Height="1" Background="{DynamicResource Hairline}" Margin="8,0,8,0"/>
+                    <TextBox x:Name="Editor" AcceptsReturn="True" AcceptsTab="True"
+                             FontFamily="Cascadia Mono, Consolas, Courier New" FontSize="13.5"
+                             Background="Transparent" BorderThickness="0" Padding="14,12"
+                             VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                             TextWrapping="Wrap" Foreground="{DynamicResource Ink}"
+                             CaretBrush="{DynamicResource Ink}"
+                             TextChanged="Editor_TextChanged"
+                             PreviewKeyDown="Editor_PreviewKeyDown"/>
+                </DockPanel>
             </Border>
 
-            <GridSplitter Grid.Column="3" Width="8" HorizontalAlignment="Center"
+            <GridSplitter Grid.Column="3" Width="10" HorizontalAlignment="Center"
                           VerticalAlignment="Stretch" Background="Transparent"
                           x:Name="PreviewSplitter"/>
 
-            <Border Grid.Column="4" x:Name="PreviewHost" CornerRadius="8"
-                    Background="{DynamicResource FieldBg}" BorderBrush="#CFD8DC" BorderThickness="1">
-                <FlowDocumentScrollViewer x:Name="Preview" VerticalScrollBarVisibility="Auto"
-                                          Padding="10,8" IsToolBarVisible="False"/>
+            <Border Grid.Column="4" x:Name="PreviewHost" Style="{StaticResource Card}">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Text="预览" Style="{StaticResource PaneHeader}"/>
+                    <Border DockPanel.Dock="Top" Height="1" Background="{DynamicResource Hairline}" Margin="8,0,8,0"/>
+                    <FlowDocumentScrollViewer x:Name="Preview" VerticalScrollBarVisibility="Auto"
+                                              Padding="14,10" IsToolBarVisible="False"/>
+                </DockPanel>
             </Border>
         </Grid>
 
@@ -117,14 +130,14 @@
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
-            <TextBlock x:Name="StatusPath" FontSize="11.5" Foreground="#90A4AE"
+            <TextBlock x:Name="StatusPath" FontSize="11" Foreground="{DynamicResource Subtle}"
                        TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                <TextBlock x:Name="CountText" FontSize="11.5" Foreground="#78909C" VerticalAlignment="Center"/>
-                <Button x:Name="BtnReveal" Content="打开所在文件夹" Style="{StaticResource GhostButton}"
-                        Margin="12,0,0,0" Padding="12,5,12,5" FontSize="12" Click="BtnReveal_Click"/>
-                <TextBlock x:Name="SaveState" FontSize="11.5" Margin="12,0,0,0"
-                           Foreground="#90A4AE" VerticalAlignment="Center"/>
+                <TextBlock x:Name="CountText" FontSize="11" Foreground="{DynamicResource Subtle}" VerticalAlignment="Center"/>
+                <Button x:Name="BtnReveal" Content="打开所在文件夹" Style="{StaticResource LinkButton}"
+                        Margin="14,0,0,0" Click="BtnReveal_Click"/>
+                <TextBlock x:Name="SaveState" FontSize="11" Margin="14,0,0,0"
+                           Foreground="{DynamicResource Subtle}" VerticalAlignment="Center"/>
             </StackPanel>
         </Grid>
     </Grid>
