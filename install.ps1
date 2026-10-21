@@ -1,4 +1,4 @@
-# ============================================================
+﻿# ============================================================
 # HerMemory installer (Windows native) — v0.2.0
 # 基于 Hermes Agent v0.22.2 (commit d923a5e)，MIT。
 # 上游官方 PowerShell 安装器负责内核（git bundle → checkout → PM 装 Python/Node/依赖 →

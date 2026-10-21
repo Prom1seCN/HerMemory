@@ -1,4 +1,4 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 <#
   HerMemory 随包素材构建（v0.22 架构：只产两件 + 两个戳）
 
