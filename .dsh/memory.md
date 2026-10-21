@@ -187,3 +187,10 @@ export HERMES_HOME=<spike>/home
 - 备份配置的代码曾经是一个裸 `{ ... }` ScriptBlock（从未执行），已改成顺序执行。
 - 接管别人的 Hermes：`memories\` 先整目录改名备份，再按"缺则补、空则填、冲突并存"合并，
   绝不再 `Remove-Item -Recurse` 旧目录（旧逻辑会把真记忆换成出厂空模板）。
+
+## 体验决策（2026-10-21 用户拍板）
+
+- **API Key 默认遮挡**：`shell/SecretBox.cs`（PasswordBox + 可切换 TextBox），向导与 API 设置页都用它；右侧「显示/隐藏」。
+- **没有 Key 不能跳过**：保持"必须填完才能继续"，不提供稍后配置入口。
+- **接管已有 Hermes 时保留原人格**：`install.ps1` §4.6 先把对方 `SOUL.md` / `.hermes.md` 收进记忆库（仅当目标为空或仍是出厂内容），再建链。
+- **记忆历史**：一键导出包含 `history/`；卸载会删除 `%LOCALAPPDATA%\HerMemory\history`；reset-backup 保留（未选删除）。

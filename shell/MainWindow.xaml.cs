@@ -806,6 +806,15 @@ namespace HerMemory
                     return (false, "导出中止：hermes backup 产出的包不完整（" + zex.Message + "）。", null);
                 }
 
+                // 记忆时光机的快照放本机、不在 vault；导出时单独收一份，换机后还能翻历史。
+                var histDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "HerMemory", "history");
+                if (Directory.Exists(histDir))
+                {
+                    report("②½ 打包记忆历史快照……");
+                    CopyDirTolerant(histDir, Path.Combine(stage, "history"), ref skipped);
+                }
+
                 var reborn = Path.Combine(vault, "HerMemory", "docs", "README_REBORN.md");
                 if (!File.Exists(reborn) && _repoRoot != null)
                 {
@@ -3293,6 +3302,8 @@ namespace HerMemory
             var payloadCache = Path.Combine(localAppData, "HerMemory", "payload");
             SetUnins("移除内嵌发行包缓存……", 26);
             DeleteTreeSafe(payloadCache);
+            // 记忆时光机的本地 git 仓库（用户已选"卸载即清干净"）
+            DeleteTreeSafe(Path.Combine(localAppData, "HerMemory", "history"));
 
             SetUnins("移除注入槽位……", 32);
             try

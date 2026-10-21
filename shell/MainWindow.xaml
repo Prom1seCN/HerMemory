@@ -1,6 +1,7 @@
 <Window x:Class="HerMemory.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:HerMemory"
         Title="HerMemory" Height="620" Width="820"
         WindowStartupLocation="CenterScreen" Background="{DynamicResource WindowBg}"
         Foreground="{DynamicResource Ink}"
@@ -359,7 +360,7 @@
                             </Grid>
 
                             <TextBlock Text="API Key" Style="{StaticResource Label}" Margin="0,14,0,6"/>
-                            <TextBox x:Name="CfgKey" Style="{StaticResource FieldBox}"/>
+                            <local:SecretBox x:Name="CfgKey"/>
 
                             <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
                                 <Button x:Name="CfgFetchModels" Content="获取模型列表" Style="{StaticResource GhostButton}"
@@ -505,7 +506,7 @@
                                        Text="服务商控制台的 OpenAI 兼容地址，通常以 /v1 结尾。"/>
 
                             <TextBlock Text="API Key" Style="{StaticResource Label}" Margin="0,12,0,6"/>
-                            <TextBox x:Name="KeyBox" Style="{StaticResource FieldBox}"/>
+                            <local:SecretBox x:Name="KeyBox"/>
                             <TextBlock Style="{StaticResource Hint}" Margin="2,6,0,0" Text="在服务商控制台生成。"/>
                         </StackPanel>
                     </Border>

@@ -567,6 +567,28 @@ Copy-Item "$SRC\docs\*" "$VaultDir\HerMemory\docs\" -Recurse -Force
 Ok "使用文档已就位：HerMemory\docs\"
 Progress "files"
 
+# ---------- 4.6 接管既有身份：先把对方的 SOUL/AGENTS 收进记忆库 ----------
+# 否则下面 LinkOne 会把 Hermes 原有的 SOUL.md / .hermes.md 挪成备份，再用**出厂**人格建链，
+# 用户的 AI 性格与规则就被悄悄换掉了（文件还在备份里，但 AI 读不到）。
+function AdoptExistingIdentity([string]$srcFile, [string]$vaultFile) {
+    try {
+        if (-not (Test-Path -LiteralPath $srcFile)) { return }
+        $it = Get-Item -LiteralPath $srcFile -Force
+        if ($it.LinkType -eq "SymbolicLink" -or $it.Length -eq 0) { return }
+        $existing = Get-Content -LiteralPath $srcFile -Raw -ErrorAction Stop
+        if ([string]::IsNullOrWhiteSpace($existing)) { return }
+        $factoryPath = Join-Path $SRC ("memory\" + (Split-Path -Leaf $vaultFile))
+        $factory = if (Test-Path -LiteralPath $factoryPath) { Get-Content -LiteralPath $factoryPath -Raw } else { "" }
+        $target = if (Test-Path -LiteralPath $vaultFile) { Get-Content -LiteralPath $vaultFile -Raw } else { "" }
+        if ([string]::IsNullOrWhiteSpace($target) -or $target.Trim() -eq $factory.Trim()) {
+            Copy-Item -LiteralPath $srcFile -Destination $vaultFile -Force
+            Ok "保留既有身份文件：$vaultFile（来自 $srcFile）"
+        }
+    } catch { Warn "读取既有身份文件失败：$srcFile" }
+}
+AdoptExistingIdentity (Join-Path $HermesHome "SOUL.md")   "$VaultDir\HerMemory\memory\SOUL.md"
+AdoptExistingIdentity (Join-Path $HOME ".hermes.md")      "$VaultDir\HerMemory\memory\AGENTS.md"
+
 # ---------- 5. 软链四件（官方注入槽位）----------
 # NTFS 符号链接需要管理员权限或开发者模式（Win10 1703+ 设置→更新→开发者选项）。
 function LinkOne([string]$src, [string]$dst) {
