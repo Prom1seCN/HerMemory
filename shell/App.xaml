@@ -29,6 +29,17 @@
         <SolidColorBrush x:Key="Success" Color="#2E7D32"/>
         <SolidColorBrush x:Key="Warn" Color="#EF6C00"/>
 
+        <!-- 品牌标记：双菱叠影的两个面。品牌色是常量，不随主题替换
+             （取值与 icons/logo-candidates/2-修正-分距200.png 完全一致）。 -->
+        <LinearGradientBrush x:Key="LogoBack" StartPoint="0,0" EndPoint="0,1">
+            <GradientStop Color="#0EA5E9" Offset="0"/>
+            <GradientStop Color="#164E63" Offset="1"/>
+        </LinearGradientBrush>
+        <LinearGradientBrush x:Key="LogoFront" StartPoint="0,0" EndPoint="0,1">
+            <GradientStop Color="#38BDF8" Offset="0"/>
+            <GradientStop Color="#0891B2" Offset="1"/>
+        </LinearGradientBrush>
+
         <!-- 主按钮的底色渐变：比纯色多一点体积感，主题切换时整体替换 -->
         <LinearGradientBrush x:Key="AccentGradient" StartPoint="0,0" EndPoint="0,1">
             <GradientStop Color="#0AA0C2" Offset="0"/>

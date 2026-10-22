@@ -170,6 +170,9 @@ export HERMES_HOME=<spike>/home
   事件；另外模板没实例化就写 `IsChecked`，事件里的 Storyboard 找不到 `nightBg` 会直接抛
   “无法在 ControlTemplate 名称范围内找到…”。所以 `ChkDark.IsChecked` 在 `Loaded` 里设，
   `_themeUiReady` 吃掉这一次事件。
+- 顶栏品牌标记是**双菱叠影**的矢量版（两个 Polygon + `LogoBack`/`LogoFront` 两个品牌渐变常量，
+  与 `icons/logo-candidates/2-修正-分距200.png` / `app.ico` / 托盘图标同构图：后菱暗一档在左，
+  前菱亮一档在右，中心距 200/1024）。不要再拿书签之类的替代图形。
 - 排版：窗口 880×620，内容区 800px。顶栏 = 品牌标记 + 版本胶囊 + 明暗开关（每页常驻）；
   首页 = 状态卡 + 3×2 图标磁贴 + 动作行 + 底部路径卡；子页 = 返回键 + 标题 + 说明 + 发丝线 + 内容。
 - **深色主题下强调色是亮青 `#22D3EE`，主按钮文字必须用 `OnAccent`（深色 `#06141A`）**，白字对比度不够。

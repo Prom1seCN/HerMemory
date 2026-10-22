@@ -66,11 +66,14 @@
         <!-- ===== 顶栏：品牌 + 版本 + 明暗开关（每一页都在，随时可切） ===== -->
         <Grid Grid.Row="0" Margin="0,0,0,20">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                <Border Width="26" Height="26" CornerRadius="8" Background="{DynamicResource AccentGradient}">
-                    <Path Width="13" Height="15" Stretch="Uniform" Fill="{DynamicResource OnAccent}"
-                          HorizontalAlignment="Center" VerticalAlignment="Center"
-                          Data="M 4 2 H 16 V 22 L 10 17.6 L 4 22 Z"/>
-                </Border>
+                <!-- 品牌标记 = 双菱叠影（与 app.ico / 托盘图标同构图）：
+                     后菱暗一档、前菱亮一档，右前左后、中心距 200/1024。矢量绘制，任意 DPI 都清晰。 -->
+                <Viewbox Width="30" Height="29" VerticalAlignment="Center" Stretch="Uniform">
+                    <Canvas Width="630" Height="610">
+                        <Polygon Points="0,305 215,0 430,305 215,610" Fill="{DynamicResource LogoBack}"/>
+                        <Polygon Points="200,305 415,0 630,305 415,610" Fill="{DynamicResource LogoFront}"/>
+                    </Canvas>
+                </Viewbox>
                 <TextBlock Text="HerMemory" FontSize="14" FontWeight="SemiBold" Margin="9,0,0,0"
                            VerticalAlignment="Center" Foreground="{DynamicResource Ink}"/>
                 <Border Background="{DynamicResource Hairline}" CornerRadius="6" Padding="7,2,7,3"
