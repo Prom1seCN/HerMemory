@@ -62,8 +62,10 @@ namespace HerMemory
         {
             InitializeComponent();
             // 标题栏保持纯名字（用户定：不显示构建时间戳）
-            ThemeGlyph.Text = Theme.IsDark ? "☾" : "☀";
             AppVersion.Text = AppVersionText;
+            // 开关状态等 Loaded 再写：ControlTemplate 还没实例化时写 IsChecked，
+            // Checked 事件里的 Storyboard 找不到模板内的名字（nightBg 等），会直接抛异常。
+            // _themeUiReady 用来吃掉"启动时同步状态"这一次 Checked 事件。
             // 安装器形态必须一眼可辨：桌面上可能同时躺着安装包与已装好的程序，
             // 标题都叫 HerMemory 会让人分不清自己在跟哪一个打交道。
             if (AppPaths.IsSetup)
@@ -77,6 +79,8 @@ namespace HerMemory
             Loaded += async (_, _) =>
             {
                 PlayWindowIntro();
+                ChkDark.IsChecked = Theme.IsDark;
+                _themeUiReady = true;
                 ApplyGirlIcon();
                 Theme.ApplyTitleBar(this);   // 右上角女孩图标：随主题（Assets 为相对路径，用绝对资源文件流加载）
                 if (HomeMode) GoHome();
@@ -1418,16 +1422,21 @@ namespace HerMemory
         // 管理器窗口不提供安装入口。GoWelcome() 仍保留——它服务于 App.OnStartup 里
         // "运行时缺失/损坏 → 自动落到向导页自助修复" 那条路径（不是用户主动点进来的）。
 
-        private void BtnTheme_Click(object sender, RoutedEventArgs e)
+        /// <summary>明暗开关：Checked=深色。用户点一下，整个界面在 280ms 内换色。</summary>
+        private void ChkDark_Changed(object sender, RoutedEventArgs e)
         {
-            Theme.SetDark(!Theme.IsDark);
-            ThemeGlyph.Text = Theme.IsDark ? "☾" : "☀";
+            if (!_themeUiReady) return;
+            var dark = ChkDark.IsChecked == true;
+            if (dark == Theme.IsDark) return;
+            Theme.SetDark(dark);
             ApplyGirlIcon();
             Theme.ApplyTitleBar(this);
             FlashForTheme();
             // 首页状态文字/圆点是代码写进去的本地颜色，不随 DynamicResource 走，这里补刷一次。
             if (PageHome.Visibility == Visibility.Visible) UpdateHomeStatus(_lastState);
         }
+
+        private bool _themeUiReady;
 
         // —— 女孩图标（右上角）：全透明底（窗口背景透出=与软件背景同色），深=白线稿/浅=黑线稿；logo 嵌入色两版一致 ——
         // 从嵌入资源加载（单文件分发）；Theme.SetDark 只换资源字典，图标需手动重载。
@@ -1790,9 +1799,8 @@ namespace HerMemory
                     g.Visibility = Visibility.Collapsed;
                 }
             }
-            // 品牌图只留在向导页；首页用右下角水印，其余页留白给内容。
-            GirlIcon.Visibility = name is "PageWelcome" or "PageDone" or "PageParams" or "PageInstall"
-                ? Visibility.Visible : Visibility.Collapsed;
+            // 品牌图只在欢迎页的页头里（它是 PageWelcome 的子元素，其余页自然跟着隐藏）。
+            GirlIcon.Visibility = name is "PageWelcome" ? Visibility.Visible : Visibility.Collapsed;
             if (!matched) ReportUiError("切换页面", new InvalidOperationException("未找到页面：" + name));
         }
 
@@ -1819,11 +1827,20 @@ namespace HerMemory
         private static void AnimatePageIn(FrameworkElement page)
         {
             page.Opacity = 0;
-            var tt = new System.Windows.Media.TranslateTransform(0, 10);
-            page.RenderTransform = tt;
+            var scale = new System.Windows.Media.ScaleTransform(0.994, 0.994);
+            var tt = new System.Windows.Media.TranslateTransform(0, 12);
+            var group = new System.Windows.Media.TransformGroup();
+            group.Children.Add(scale);
+            group.Children.Add(tt);
+            page.RenderTransform = group;
+            page.RenderTransformOrigin = new System.Windows.Point(0.5, 0.5);
             page.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, FadeIn) { EasingFunction = EaseOut });
             tt.BeginAnimation(System.Windows.Media.TranslateTransform.YProperty,
-                new DoubleAnimation(10, 0, SlideIn) { EasingFunction = EaseOut });
+                new DoubleAnimation(12, 0, SlideIn) { EasingFunction = EaseOut });
+            scale.BeginAnimation(System.Windows.Media.ScaleTransform.ScaleXProperty,
+                new DoubleAnimation(0.994, 1, SlideIn) { EasingFunction = EaseOut });
+            scale.BeginAnimation(System.Windows.Media.ScaleTransform.ScaleYProperty,
+                new DoubleAnimation(0.994, 1, SlideIn) { EasingFunction = EaseOut });
         }
 
         /// <summary>状态灯呼吸：只动透明度。18px 的光晕在 9px 圆点外一涨一落，就是"活着"的感觉。</summary>

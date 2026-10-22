@@ -154,25 +154,37 @@ export HERMES_HOME=<spike>/home
   体检里的「同步服务（WebDAV）」检查项与 `HermesCtl.WebDavRunning` / `TcpReachable` 一并删除（现为九项）。
 - 核心卖点收敛为一条：**记忆是明文文件，可见、可改、可带走。**
 
-## 界面层（v0.2.0 重做）
+## 界面层（v0.3「安静的工具」重做）
 
 - 语义色令牌在 `shell/App.xaml`（默认浅色）与 `shell/Theme.cs`（按偏好整体替换同名键）。
-  新增键必须两处同时加：`CardBg` / `CardBorder` / `Muted` / `Subtle` / `AccentSoft` / `Hairline` /
-  `ScrollThumb` / `OnAccent` / `Danger` / `Success` / `Warn`。
-- 控件模板全在 `App.xaml`：`AccentButton`（主行动）/ `GhostButton`（次级）/ `TileButton`（首页六宫格）/
-  `LinkButton`（返回、卸载）/ `IconButton`（圆形主题键）/ `ChipToggle`（编辑器「预览」）/ `Card` / `SoftCard`，
-  以及隐式 `CheckBox`、`ProgressBar`、`ScrollBar` 模板。
-- 动效：页面切换 200ms 淡入 + 10px 上浮（`MainWindow.AnimatePageIn`，只对"从隐藏变可见"播放）；
-  窗口 260ms 淡入（`PlayWindowIntro` / `FadeInWindow`）；按钮悬停 140~180ms 叠层染色 + 上移 1~2px；
-  状态灯 1.5s 呼吸；换主题时 280ms 交叉淡入 + `Theme.ApplyTitleBar` 切深色标题栏。
-- 排版：窗口 820×620，内容区 712px；首页 = 标题 + 状态卡 + 3×2 磁贴 + 动作行 + 页脚。
-- **深色主题下强调色是亮青 `#22D3EE`，主按钮文字必须用 `OnAccent`（深色 `#08151C`）**，白字对比度不够。
+  纯色之外还有三样随主题整体换：`AccentGradient`（主按钮渐变）、`HeroWash`（首页状态卡水洗底）、
+  `CardShadow`（DropShadowEffect，深色下更黑更远）。新增键必须两处同时加。
+- 控件模板全在 `App.xaml`：`AccentButton`（渐变+柔光+按压回弹）/ `GhostButton` / `TileButton`（六宫格）/
+  `BackButton`（圆形底 + 矢量 chevron，悬停左移）/ `ThemeSwitch`（日/夜矢量开关）/ `IconButton` /
+  `LinkButton` / `ChipToggle` / `Card` / `SoftCard`；隐式 `CheckBox`、`RadioButton`、`ProgressBar`、
+  `ScrollBar`、`ToolTip`、`ComboBoxItem`，`FieldCombo` 是自绘模板（默认 Aero2 太丑）。
+- **明暗开关**是 ToggleButton：58×30 轨道，白天奶油渐变 + 太阳，夜里深海渐变 + 三颗星 + 月亮，
+  滑块 24px 沿 Canvas.Left 3→31 滑动（340ms QuarticEase）。
+  坑：`ControlTemplate.Triggers` 的 `EnterActions` 在模板加载时**不会**补播——启动即深色时开关会停在白天态，
+  所以静止态必须用 `Setter`（nightBg/sun/moon/星星/Canvas.Left），动画改挂 `ToggleButton.Checked/Unchecked`
+  事件；另外模板没实例化就写 `IsChecked`，事件里的 Storyboard 找不到 `nightBg` 会直接抛
+  “无法在 ControlTemplate 名称范围内找到…”。所以 `ChkDark.IsChecked` 在 `Loaded` 里设，
+  `_themeUiReady` 吃掉这一次事件。
+- 排版：窗口 880×620，内容区 800px。顶栏 = 品牌标记 + 版本胶囊 + 明暗开关（每页常驻）；
+  首页 = 状态卡 + 3×2 图标磁贴 + 动作行 + 底部路径卡；子页 = 返回键 + 标题 + 说明 + 发丝线 + 内容。
+- **深色主题下强调色是亮青 `#22D3EE`，主按钮文字必须用 `OnAccent`（深色 `#06141A`）**，白字对比度不够。
 - **自定义 TextBox 模板的坑**：`ScrollViewer x:Name="PART_ContentHost"` 不能设
   `VerticalContentAlignment=Center` —— TextBoxView 会按控件全高排版却被内容区裁掉下半截
   （真机截图里 "04:00" 只剩上半截）。用 `MinHeight` + `VerticalContentAlignment=Top`，Padding 压在 Border 上。
-- 界面真机验证：`pc` 上建一次性计划任务（`/it`，交互会话）跑 PowerShell 截图脚本，
-  `SetWindowPos(HWND_TOPMOST)` 才能把窗口抬到前台（脚本进程拿不到前台锁）。
-  脚本本身含中文时必须存成 **UTF-8 带 BOM**，否则 PS 5.1 按 GBK 读会把引号吞掉。
+- **MaxWidth + 默认 Stretch 会居中**：TextBlock 设了 `MaxWidth` 又没写 `HorizontalAlignment="Left"`，
+  在 StackPanel 里会被水平居中（设置页/卸载页的描述文字就是这么飘到中间的）。
+- 界面验证两套：
+  1) 离屏逐页渲染：`pc` 上 `D:\Projects\HerMemory\.uiprobe\UiProbe`（不进 git）引用 shell 工程，
+     构造 App + MainWindow，逐个页面设 Visibility，`RenderTargetBitmap` 2× 出图，一次跑完 13 页 × 浅/深；
+     framework-dependent exe 要设 `DOTNET_ROOT=C:\Users\HCN\.dotnet` 才能起。
+  2) 真机：一次性计划任务（`/it`）跑 PowerShell，`SetProcessDPIAware()` 后再 `GetWindowRect`，
+     否则 125% 缩放下拿到的是虚拟化尺寸、`PrintWindow` 会裁掉右下角；UIA 按
+     `AutomationProperties.Name="切换深浅色"` 找 ToggleButton 可以验证换主题全链路。
 
 ## 升级路径（0.1.0 → 0.2.0，2026-10-21 实测）
 

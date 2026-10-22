@@ -1,72 +1,106 @@
 <Application x:Class="HerMemory.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <!-- 视觉语言（v0.2.0 重做）：
-         1) 一套语义色令牌，深/浅两套由 Theme.Apply 整体替换同名键，XAML 里一律 DynamicResource；
-         2) 卡片化排版：内容装进 Card，按钮按 importance 分 Accent / Ghost / Tile / Link 四级；
-         3) 动效只做三件事——悬停染色、按压回弹、页面淡入上浮。动效时长 120~260ms，
-            不排队、不阻塞，关掉也不影响任何功能（纯装饰）。 -->
+    <!-- 视觉语言 v0.3「安静的工具」：
+         1) 语义色令牌 —— 深/浅两套由 Theme.Apply 整体替换同名键，XAML 一律 DynamicResource；
+         2) 排版按尺度走：标题 22 / 正文 12.5 / 说明 11.5，行高固定，间距只用 4 的倍数；
+         3) 层次靠"一张抬起来的卡片"，不靠线框堆叠：卡片有 1px 描边 + 极淡投影，
+            悬停时只加一层染色与 1px 位移，不做夸张的缩放；
+         4) 动效只服务三件事——悬停反馈、按压回弹、页面淡入。时长 120~340ms，
+            全部只碰 Opacity / RenderTransform，不触发布局。 -->
     <Application.Resources>
         <FontFamily x:Key="UiFont">Microsoft YaHei UI, Segoe UI</FontFamily>
 
-        <!-- ===== 色板（浅色默认值；Theme.Apply 启动时会按偏好覆盖） ===== -->
-        <SolidColorBrush x:Key="WindowBg" Color="#F6F8FA"/>
-        <SolidColorBrush x:Key="Ink" Color="#0F172A"/>
+        <!-- ===== 色板（浅色默认值；Theme.Apply 启动时按偏好覆盖） ===== -->
+        <SolidColorBrush x:Key="WindowBg" Color="#F5F7FA"/>
+        <SolidColorBrush x:Key="Ink" Color="#101828"/>
         <SolidColorBrush x:Key="FieldBg" Color="#FFFFFF"/>
         <SolidColorBrush x:Key="Accent" Color="#0891B2"/>
         <SolidColorBrush x:Key="AccentHover" Color="#0EA5E9"/>
         <SolidColorBrush x:Key="CardBg" Color="#FFFFFF"/>
-        <SolidColorBrush x:Key="CardBorder" Color="#E3EAF1"/>
-        <SolidColorBrush x:Key="Muted" Color="#55677A"/>
-        <SolidColorBrush x:Key="Subtle" Color="#8C9CAC"/>
-        <SolidColorBrush x:Key="AccentSoft" Color="#E7F6FA"/>
-        <SolidColorBrush x:Key="Hairline" Color="#EDF1F5"/>
-        <SolidColorBrush x:Key="ScrollThumb" Color="#C8D3DD"/>
+        <SolidColorBrush x:Key="CardBorder" Color="#E4EAF1"/>
+        <SolidColorBrush x:Key="Muted" Color="#5A6B7C"/>
+        <SolidColorBrush x:Key="Subtle" Color="#8B9AAA"/>
+        <SolidColorBrush x:Key="AccentSoft" Color="#E8F6FA"/>
+        <SolidColorBrush x:Key="Hairline" Color="#EEF2F6"/>
+        <SolidColorBrush x:Key="ScrollThumb" Color="#C9D4DF"/>
         <SolidColorBrush x:Key="OnAccent" Color="#FFFFFF"/>
         <SolidColorBrush x:Key="Danger" Color="#C62828"/>
         <SolidColorBrush x:Key="Success" Color="#2E7D32"/>
         <SolidColorBrush x:Key="Warn" Color="#EF6C00"/>
 
-        <!-- 主按钮的柔光：固定青蓝色。深色主题下这点辉光正好把按钮从背景里托起来。 -->
+        <!-- 主按钮的底色渐变：比纯色多一点体积感，主题切换时整体替换 -->
+        <LinearGradientBrush x:Key="AccentGradient" StartPoint="0,0" EndPoint="0,1">
+            <GradientStop Color="#0AA0C2" Offset="0"/>
+            <GradientStop Color="#0891B2" Offset="1"/>
+        </LinearGradientBrush>
+        <!-- 首页状态卡的水洗底：从卡片色过渡到一点极淡的青，视线自然落在状态上 -->
+        <LinearGradientBrush x:Key="HeroWash" StartPoint="0,0" EndPoint="1,1">
+            <GradientStop Color="#FFFFFF" Offset="0"/>
+            <GradientStop Color="#F0FAFD" Offset="1"/>
+        </LinearGradientBrush>
+
+        <!-- 卡片投影：浅色下是"纸抬起来 1mm"，深色下是"离背景远一点"。只在 Card 上用。 -->
+        <DropShadowEffect x:Key="CardShadow" Color="#10243A" BlurRadius="18" ShadowDepth="2"
+                          Direction="270" Opacity="0.055" RenderingBias="Performance"/>
+        <!-- 主按钮的柔光：固定青蓝色 -->
         <DropShadowEffect x:Key="ButtonGlow" Color="#0E7490" BlurRadius="14" ShadowDepth="2"
                           Opacity="0.28" RenderingBias="Performance"/>
+
+        <!-- ===== 键盘焦点：一个不刺眼的青色环，只在 Tab 进入时出现 ===== -->
+        <Style x:Key="FocusRing">
+            <Setter Property="Control.Template">
+                <Setter.Value>
+                    <ControlTemplate>
+                        <Border Margin="-3" CornerRadius="10" BorderThickness="2"
+                                BorderBrush="{DynamicResource Accent}" Opacity="0.55"/>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
 
         <!-- ===== 卡片 ===== -->
         <Style x:Key="Card" TargetType="Border">
             <Setter Property="Background" Value="{DynamicResource CardBg}"/>
             <Setter Property="BorderBrush" Value="{DynamicResource CardBorder}"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="CornerRadius" Value="12"/>
+            <Setter Property="CornerRadius" Value="14"/>
             <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="Effect" Value="{DynamicResource CardShadow}"/>
         </Style>
         <Style x:Key="SoftCard" TargetType="Border" BasedOn="{StaticResource Card}">
             <Setter Property="Background" Value="{DynamicResource Hairline}"/>
             <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Effect" Value="{x:Null}"/>
         </Style>
 
         <!-- ===== 按钮：主行动 ===== -->
         <Style x:Key="AccentButton" TargetType="Button">
-            <Setter Property="Background" Value="{DynamicResource Accent}"/>
+            <Setter Property="Background" Value="{DynamicResource AccentGradient}"/>
             <Setter Property="Foreground" Value="{DynamicResource OnAccent}"/>
-            <Setter Property="FontSize" Value="13.5"/>
+            <Setter Property="FontSize" Value="13"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Padding" Value="22,9"/>
+            <Setter Property="Padding" Value="20,0"/>
+            <Setter Property="MinHeight" Value="38"/>
+            <Setter Property="MinWidth" Value="76"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing}"/>
             <Setter Property="SnapsToDevicePixels" Value="True"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
                         <Grid RenderTransformOrigin="0.5,0.5">
                             <Grid.RenderTransform>
-                                <TranslateTransform x:Name="tr"/>
+                                <TransformGroup>
+                                    <ScaleTransform x:Name="sc" ScaleX="1" ScaleY="1"/>
+                                    <TranslateTransform x:Name="tr"/>
+                                </TransformGroup>
                             </Grid.RenderTransform>
-                            <Border CornerRadius="8" Background="{TemplateBinding Background}"
+                            <Border CornerRadius="9" Background="{TemplateBinding Background}"
                                     Effect="{DynamicResource ButtonGlow}"/>
-                            <!-- 悬停/按压统一用白色叠层：背景色可以是强调蓝，也可以是卸载的红，
-                                 都不必为每种底色再配一套 hover 色。 -->
-                            <Border x:Name="tint" CornerRadius="8" Background="#FFFFFF" Opacity="0"/>
+                            <!-- 悬停/按压统一用白色叠层：背景可以是强调青，也可以是卸载的红 -->
+                            <Border x:Name="tint" CornerRadius="9" Background="#FFFFFF" Opacity="0"/>
                             <ContentPresenter Margin="{TemplateBinding Padding}"
                                               HorizontalAlignment="Center" VerticalAlignment="Center"
                                               RecognizesAccessKey="True"/>
@@ -76,7 +110,7 @@
                                 <BeginStoryboard>
                                     <Storyboard>
                                         <DoubleAnimation Storyboard.TargetName="tint" Storyboard.TargetProperty="Opacity"
-                                                         To="0.14" Duration="0:0:0.14"/>
+                                                         To="0.13" Duration="0:0:0.14"/>
                                         <DoubleAnimation Storyboard.TargetName="tr" Storyboard.TargetProperty="Y"
                                                          To="-1" Duration="0:0:0.16"/>
                                     </Storyboard>
@@ -93,7 +127,26 @@
                                 </BeginStoryboard>
                             </EventTrigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter Property="Opacity" Value="0.88"/>
+                                <Trigger.EnterActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="sc" Storyboard.TargetProperty="ScaleX"
+                                                             To="0.975" Duration="0:0:0.08"/>
+                                            <DoubleAnimation Storyboard.TargetName="sc" Storyboard.TargetProperty="ScaleY"
+                                                             To="0.975" Duration="0:0:0.08"/>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.EnterActions>
+                                <Trigger.ExitActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="sc" Storyboard.TargetProperty="ScaleX"
+                                                             To="1" Duration="0:0:0.16"/>
+                                            <DoubleAnimation Storyboard.TargetName="sc" Storyboard.TargetProperty="ScaleY"
+                                                             To="1" Duration="0:0:0.16"/>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.ExitActions>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Background" Value="{DynamicResource CardBorder}"/>
@@ -111,11 +164,12 @@
         <Style x:Key="GhostButton" TargetType="Button">
             <Setter Property="Background" Value="{DynamicResource FieldBg}"/>
             <Setter Property="Foreground" Value="{DynamicResource Ink}"/>
-            <Setter Property="FontSize" Value="13"/>
-            <Setter Property="Padding" Value="16,8"/>
+            <Setter Property="FontSize" Value="12.5"/>
+            <Setter Property="Padding" Value="16,0"/>
+            <Setter Property="MinHeight" Value="36"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing}"/>
             <Setter Property="SnapsToDevicePixels" Value="True"/>
             <Setter Property="Template">
                 <Setter.Value>
@@ -124,12 +178,11 @@
                             <Grid.RenderTransform>
                                 <TranslateTransform x:Name="tr"/>
                             </Grid.RenderTransform>
-                            <Border CornerRadius="8" Background="{TemplateBinding Background}"
+                            <Border x:Name="bd" CornerRadius="9" Background="{TemplateBinding Background}"
                                     BorderBrush="{DynamicResource CardBorder}" BorderThickness="1"/>
-                            <Border x:Name="tint" CornerRadius="8" Background="{DynamicResource AccentSoft}" Opacity="0"/>
-                            <ContentPresenter Margin="{TemplateBinding Padding}"
-                                              HorizontalAlignment="Center" VerticalAlignment="Center"
-                                              RecognizesAccessKey="True"/>
+                            <Border x:Name="tint" CornerRadius="9" Background="{DynamicResource AccentSoft}" Opacity="0"/>
+                            <ContentPresenter Margin="{TemplateBinding Padding}" HorizontalAlignment="Center"
+                                              VerticalAlignment="Center" RecognizesAccessKey="True"/>
                         </Grid>
                         <ControlTemplate.Triggers>
                             <EventTrigger RoutedEvent="MouseEnter">
@@ -152,12 +205,80 @@
                                     </Storyboard>
                                 </BeginStoryboard>
                             </EventTrigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                            </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter Property="Opacity" Value="0.85"/>
+                                <Setter Property="Opacity" Value="0.82"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
-                                <Setter Property="Opacity" Value="0.45"/>
+                                <Setter Property="Opacity" Value="0.5"/>
                                 <Setter Property="Cursor" Value="Arrow"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ===== 按钮：返回（子页统一用这一颗，不再拿字符箭头凑） ===== -->
+        <Style x:Key="BackButton" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{DynamicResource Muted}"/>
+            <Setter Property="FontSize" Value="12.5"/>
+            <Setter Property="Padding" Value="5,3,12,3"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing}"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="Transparent" CornerRadius="16" Padding="{TemplateBinding Padding}">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <Grid Width="20" Height="20" VerticalAlignment="Center">
+                                    <Ellipse x:Name="disc" Width="22" Height="22" Fill="{DynamicResource AccentSoft}" Opacity="0"
+                                             HorizontalAlignment="Right" Margin="0,0,1,0"/>
+                                    <Path x:Name="chev" Data="M 0 0 L -6 5.5 L 0 11"
+                                          Stroke="{DynamicResource Muted}" StrokeThickness="1.8"
+                                          StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                          StrokeLineJoin="Round"
+                                          HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,3,0">
+                                        <Path.RenderTransform>
+                                            <TranslateTransform x:Name="shift"/>
+                                        </Path.RenderTransform>
+                                    </Path>
+                                </Grid>
+                                <ContentPresenter Margin="3,0,0,0" VerticalAlignment="Center"
+                                                  RecognizesAccessKey="True"/>
+                            </StackPanel>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <EventTrigger RoutedEvent="MouseEnter">
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="disc" Storyboard.TargetProperty="Opacity"
+                                                         To="1" Duration="0:0:0.15"/>
+                                        <DoubleAnimation Storyboard.TargetName="shift" Storyboard.TargetProperty="X"
+                                                         To="-2" Duration="0:0:0.18"/>
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </EventTrigger>
+                            <EventTrigger RoutedEvent="MouseLeave">
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="disc" Storyboard.TargetProperty="Opacity"
+                                                         To="0" Duration="0:0:0.2"/>
+                                        <DoubleAnimation Storyboard.TargetName="shift" Storyboard.TargetProperty="X"
+                                                         To="0" Duration="0:0:0.2"/>
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </EventTrigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Foreground" Value="{DynamicResource Ink}"/>
+                                <Setter TargetName="chev" Property="Stroke" Value="{DynamicResource Accent}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter Property="Opacity" Value="0.7"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -169,27 +290,25 @@
         <Style x:Key="TileButton" TargetType="Button">
             <Setter Property="Background" Value="{DynamicResource CardBg}"/>
             <Setter Property="Foreground" Value="{DynamicResource Ink}"/>
-            <Setter Property="Padding" Value="14,10"/>
-            <Setter Property="Margin" Value="0"/>
-            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="Padding" Value="15,0"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
             <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing}"/>
             <Setter Property="SnapsToDevicePixels" Value="True"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="bd" CornerRadius="10" Background="{TemplateBinding Background}"
+                        <Border x:Name="bd" CornerRadius="12" Background="{TemplateBinding Background}"
                                 BorderBrush="{DynamicResource CardBorder}" BorderThickness="1"
-                                RenderTransformOrigin="0.5,0.5">
+                                RenderTransformOrigin="0.5,0.5" Effect="{DynamicResource CardShadow}">
                             <Border.RenderTransform>
                                 <TranslateTransform x:Name="tr"/>
                             </Border.RenderTransform>
                             <Grid>
-                                <Border x:Name="tint" CornerRadius="10" Background="{DynamicResource AccentSoft}" Opacity="0"/>
-                                <!-- 左侧强调条：悬停时从 0 长到 3px，给"这一块被选中了"的即时反馈 -->
-                                <Border x:Name="bar" Width="3" HorizontalAlignment="Left" CornerRadius="2"
-                                        Background="{DynamicResource Accent}" Opacity="0" Margin="0,10"/>
-                                <ContentPresenter Margin="{TemplateBinding Padding}" HorizontalAlignment="Left"
+                                <Border x:Name="tint" CornerRadius="12" Background="{DynamicResource AccentSoft}" Opacity="0"/>
+                                <ContentPresenter Margin="{TemplateBinding Padding}"
+                                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                                                   VerticalAlignment="Center" RecognizesAccessKey="True"/>
                             </Grid>
                         </Border>
@@ -198,8 +317,6 @@
                                 <BeginStoryboard>
                                     <Storyboard>
                                         <DoubleAnimation Storyboard.TargetName="tint" Storyboard.TargetProperty="Opacity"
-                                                         To="1" Duration="0:0:0.15"/>
-                                        <DoubleAnimation Storyboard.TargetName="bar" Storyboard.TargetProperty="Opacity"
                                                          To="1" Duration="0:0:0.15"/>
                                         <DoubleAnimation Storyboard.TargetName="tr" Storyboard.TargetProperty="Y"
                                                          To="-2" Duration="0:0:0.16"/>
@@ -211,18 +328,20 @@
                                     <Storyboard>
                                         <DoubleAnimation Storyboard.TargetName="tint" Storyboard.TargetProperty="Opacity"
                                                          To="0" Duration="0:0:0.2"/>
-                                        <DoubleAnimation Storyboard.TargetName="bar" Storyboard.TargetProperty="Opacity"
-                                                         To="0" Duration="0:0:0.2"/>
                                         <DoubleAnimation Storyboard.TargetName="tr" Storyboard.TargetProperty="Y"
                                                          To="0" Duration="0:0:0.2"/>
                                     </Storyboard>
                                 </BeginStoryboard>
                             </EventTrigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                            </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter Property="Opacity" Value="0.9"/>
+                                <Setter Property="Opacity" Value="0.88"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Opacity" Value="0.5"/>
+                                <Setter Property="Cursor" Value="Arrow"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -230,14 +349,277 @@
             </Setter>
         </Style>
 
-        <!-- ===== 按钮：纯文字（返回 / 卸载 这类不该抢视线的动作） ===== -->
+        <!-- ===== 按钮：圆形图标（刷新这类无文字动作） ===== -->
+        <Style x:Key="IconButton" TargetType="Button">
+            <Setter Property="Width" Value="34"/>
+            <Setter Property="Height" Value="34"/>
+            <Setter Property="Background" Value="{DynamicResource FieldBg}"/>
+            <Setter Property="Foreground" Value="{DynamicResource Muted}"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Grid RenderTransformOrigin="0.5,0.5">
+                            <Ellipse Fill="{TemplateBinding Background}"
+                                     Stroke="{DynamicResource CardBorder}" StrokeThickness="1"/>
+                            <Ellipse x:Name="tint" Fill="{DynamicResource AccentSoft}" Opacity="0"/>
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <EventTrigger RoutedEvent="MouseEnter">
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="tint" Storyboard.TargetProperty="Opacity"
+                                                         To="1" Duration="0:0:0.15"/>
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </EventTrigger>
+                            <EventTrigger RoutedEvent="MouseLeave">
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="tint" Storyboard.TargetProperty="Opacity"
+                                                         To="0" Duration="0:0:0.18"/>
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </EventTrigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter Property="Opacity" Value="0.8"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ===== 明暗开关：一颗会真的"日落入夜"的开关 =====
+             结构：轨道（白天渐变 / 夜空渐变两层交叉淡入）→ 三颗星星 → 滑块（白色圆片，
+             里面同时躺着太阳和月亮，靠透明度互换）→ 滑块横向滑动。
+             太阳/月亮都先画在 24×24 的画布里再整体缩到 0.72/0.8——直接画会顶满滑块，
+             看起来像一颗"糊在按钮上的大橙子"。全部矢量，不依赖字体符号。 -->
+        <Style x:Key="ThemeSwitch" TargetType="ToggleButton">
+            <Setter Property="Width" Value="58"/>
+            <Setter Property="Height" Value="30"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Grid RenderTransformOrigin="0.5,0.5">
+                            <Grid.RenderTransform>
+                                <ScaleTransform x:Name="press" ScaleX="1" ScaleY="1"/>
+                            </Grid.RenderTransform>
+
+                            <!-- 白天：奶油色到浅天蓝 -->
+                            <Border CornerRadius="15" BorderThickness="1" BorderBrush="#E2D9C4">
+                                <Border.Background>
+                                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                        <GradientStop Color="#FFF6DF" Offset="0"/>
+                                        <GradientStop Color="#E9F5FB" Offset="1"/>
+                                    </LinearGradientBrush>
+                                </Border.Background>
+                            </Border>
+
+                            <!-- 夜晚：深海蓝到墨蓝 -->
+                            <Border x:Name="nightBg" CornerRadius="15" Opacity="0"
+                                    BorderThickness="1" BorderBrush="#33465A">
+                                <Border.Background>
+                                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                        <GradientStop Color="#0B1724" Offset="0"/>
+                                        <GradientStop Color="#1A2A39" Offset="1"/>
+                                    </LinearGradientBrush>
+                                </Border.Background>
+                            </Border>
+
+                            <!-- 星星：入夜后逐颗亮起 -->
+                            <Canvas>
+                                <Ellipse x:Name="s1" Canvas.Left="38" Canvas.Top="7" Width="2.4" Height="2.4"
+                                         Fill="#D6ECFF" Opacity="0"/>
+                                <Ellipse x:Name="s2" Canvas.Left="46" Canvas.Top="18" Width="1.9" Height="1.9"
+                                         Fill="#D6ECFF" Opacity="0"/>
+                                <Ellipse x:Name="s3" Canvas.Left="33" Canvas.Top="21" Width="1.5" Height="1.5"
+                                         Fill="#D6ECFF" Opacity="0"/>
+                            </Canvas>
+
+                            <!-- 滑块 -->
+                            <Canvas>
+                                <Grid x:Name="knob" Canvas.Left="3" Canvas.Top="3" Width="24" Height="24">
+                                    <Ellipse Fill="#FFFFFF" Stroke="#E7EDF3" StrokeThickness="1">
+                                        <Ellipse.Effect>
+                                            <DropShadowEffect Color="#0B1B2B" BlurRadius="6" ShadowDepth="1"
+                                                              Opacity="0.2" RenderingBias="Performance"/>
+                                        </Ellipse.Effect>
+                                    </Ellipse>
+
+                                    <!-- 太阳 -->
+                                    <Grid x:Name="sun" RenderTransformOrigin="0.5,0.5">
+                                        <Grid.RenderTransform>
+                                            <TransformGroup>
+                                                <ScaleTransform ScaleX="0.72" ScaleY="0.72"/>
+                                                <RotateTransform x:Name="sunRot" Angle="0"/>
+                                            </TransformGroup>
+                                        </Grid.RenderTransform>
+                                        <Ellipse Width="10" Height="10" Fill="#F59E0B"/>
+                                        <Path Width="24" Height="24" Stretch="None"
+                                              HorizontalAlignment="Center" VerticalAlignment="Center"
+                                              Stroke="#F59E0B" StrokeThickness="1.6"
+                                              StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                              Data="M 12 5 V 2.5 M 12 19 V 21.5 M 5 12 H 2.5 M 19 12 H 21.5 M 16.95 7.05 L 18.72 5.28 M 7.05 16.95 L 5.28 18.72 M 7.05 7.05 L 5.28 5.28 M 16.95 16.95 L 18.72 18.72"/>
+                                    </Grid>
+
+                                    <!-- 月亮：外圆减去一个偏移的内圆 -->
+                                    <Grid x:Name="moon" Opacity="0" RenderTransformOrigin="0.5,0.5">
+                                        <Grid.RenderTransform>
+                                            <TransformGroup>
+                                                <ScaleTransform ScaleX="0.84" ScaleY="0.84"/>
+                                                <RotateTransform x:Name="moonRot" Angle="-25"/>
+                                            </TransformGroup>
+                                        </Grid.RenderTransform>
+                                        <Path Fill="#12202D" Width="24" Height="24" Stretch="None"
+                                              HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <Path.Data>
+                                                <CombinedGeometry GeometryCombineMode="Exclude">
+                                                    <CombinedGeometry.Geometry1>
+                                                        <EllipseGeometry Center="12,12" RadiusX="6.4" RadiusY="6.4"/>
+                                                    </CombinedGeometry.Geometry1>
+                                                    <CombinedGeometry.Geometry2>
+                                                        <EllipseGeometry Center="15.1,10.1" RadiusX="5.6" RadiusY="5.6"/>
+                                                    </CombinedGeometry.Geometry2>
+                                                </CombinedGeometry>
+                                            </Path.Data>
+                                        </Path>
+                                    </Grid>
+                                </Grid>
+                            </Canvas>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <!-- 静止状态用 Setter 兜底：启动时 IsChecked 已经是 true 的话，
+                                 EnterActions 不会补播，只有 Setter 才能保证一打开就是夜景。
+                                 动画走 Checked/Unchecked 事件，只在用户真的拨动时播放。 -->
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="nightBg" Property="Opacity" Value="1"/>
+                                <Setter TargetName="sun" Property="Opacity" Value="0"/>
+                                <Setter TargetName="moon" Property="Opacity" Value="1"/>
+                                <Setter TargetName="s1" Property="Opacity" Value="0.9"/>
+                                <Setter TargetName="s2" Property="Opacity" Value="0.75"/>
+                                <Setter TargetName="s3" Property="Opacity" Value="0.6"/>
+                                <Setter TargetName="knob" Property="Canvas.Left" Value="31"/>
+                            </Trigger>
+                            <EventTrigger RoutedEvent="ToggleButton.Checked">
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="nightBg" Storyboard.TargetProperty="Opacity"
+                                                         From="0" To="1" Duration="0:0:0.3"/>
+                                        <DoubleAnimation Storyboard.TargetName="knob" Storyboard.TargetProperty="(Canvas.Left)"
+                                                         From="3" To="31" Duration="0:0:0.34">
+                                            <DoubleAnimation.EasingFunction>
+                                                <QuarticEase EasingMode="EaseOut"/>
+                                            </DoubleAnimation.EasingFunction>
+                                        </DoubleAnimation>
+                                        <DoubleAnimation Storyboard.TargetName="sun" Storyboard.TargetProperty="Opacity"
+                                                         From="1" To="0" Duration="0:0:0.12"/>
+                                        <DoubleAnimation Storyboard.TargetName="sunRot" Storyboard.TargetProperty="Angle"
+                                                         From="0" To="-90" Duration="0:0:0.28">
+                                            <DoubleAnimation.EasingFunction>
+                                                <CubicEase EasingMode="EaseIn"/>
+                                            </DoubleAnimation.EasingFunction>
+                                        </DoubleAnimation>
+                                        <DoubleAnimation Storyboard.TargetName="moon" Storyboard.TargetProperty="Opacity"
+                                                         From="0" To="1" BeginTime="0:0:0.11" Duration="0:0:0.22"/>
+                                        <DoubleAnimation Storyboard.TargetName="moonRot" Storyboard.TargetProperty="Angle"
+                                                         From="-25" To="0" BeginTime="0:0:0.11" Duration="0:0:0.34">
+                                            <DoubleAnimation.EasingFunction>
+                                                <QuarticEase EasingMode="EaseOut"/>
+                                            </DoubleAnimation.EasingFunction>
+                                        </DoubleAnimation>
+                                        <DoubleAnimation Storyboard.TargetName="s1" Storyboard.TargetProperty="Opacity"
+                                                         From="0" To="0.9" BeginTime="0:0:0.14" Duration="0:0:0.25"/>
+                                        <DoubleAnimation Storyboard.TargetName="s2" Storyboard.TargetProperty="Opacity"
+                                                         From="0" To="0.75" BeginTime="0:0:0.2" Duration="0:0:0.25"/>
+                                        <DoubleAnimation Storyboard.TargetName="s3" Storyboard.TargetProperty="Opacity"
+                                                         From="0" To="0.6" BeginTime="0:0:0.25" Duration="0:0:0.25"/>
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </EventTrigger>
+                            <EventTrigger RoutedEvent="ToggleButton.Unchecked">
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="nightBg" Storyboard.TargetProperty="Opacity"
+                                                         From="1" To="0" Duration="0:0:0.3"/>
+                                        <DoubleAnimation Storyboard.TargetName="knob" Storyboard.TargetProperty="(Canvas.Left)"
+                                                         From="31" To="3" Duration="0:0:0.34">
+                                            <DoubleAnimation.EasingFunction>
+                                                <QuarticEase EasingMode="EaseOut"/>
+                                            </DoubleAnimation.EasingFunction>
+                                        </DoubleAnimation>
+                                        <DoubleAnimation Storyboard.TargetName="sun" Storyboard.TargetProperty="Opacity"
+                                                         From="0" To="1" BeginTime="0:0:0.12" Duration="0:0:0.2"/>
+                                        <DoubleAnimation Storyboard.TargetName="sunRot" Storyboard.TargetProperty="Angle"
+                                                         From="-90" To="0" BeginTime="0:0:0.12" Duration="0:0:0.34">
+                                            <DoubleAnimation.EasingFunction>
+                                                <QuarticEase EasingMode="EaseOut"/>
+                                            </DoubleAnimation.EasingFunction>
+                                        </DoubleAnimation>
+                                        <DoubleAnimation Storyboard.TargetName="moon" Storyboard.TargetProperty="Opacity"
+                                                         From="1" To="0" Duration="0:0:0.12"/>
+                                        <DoubleAnimation Storyboard.TargetName="moonRot" Storyboard.TargetProperty="Angle"
+                                                         From="0" To="-25" Duration="0:0:0.2"/>
+                                        <DoubleAnimation Storyboard.TargetName="s1" Storyboard.TargetProperty="Opacity"
+                                                         From="0.9" To="0" Duration="0:0:0.16"/>
+                                        <DoubleAnimation Storyboard.TargetName="s2" Storyboard.TargetProperty="Opacity"
+                                                         From="0.75" To="0" Duration="0:0:0.16"/>
+                                        <DoubleAnimation Storyboard.TargetName="s3" Storyboard.TargetProperty="Opacity"
+                                                         From="0.6" To="0" Duration="0:0:0.16"/>
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </EventTrigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Trigger.EnterActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="press" Storyboard.TargetProperty="ScaleX"
+                                                             To="0.94" Duration="0:0:0.09"/>
+                                            <DoubleAnimation Storyboard.TargetName="press" Storyboard.TargetProperty="ScaleY"
+                                                             To="0.94" Duration="0:0:0.09"/>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.EnterActions>
+                                <Trigger.ExitActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="press" Storyboard.TargetProperty="ScaleX"
+                                                             To="1" Duration="0:0:0.2">
+                                                <DoubleAnimation.EasingFunction>
+                                                    <BackEase Amplitude="0.4" EasingMode="EaseOut"/>
+                                                </DoubleAnimation.EasingFunction>
+                                            </DoubleAnimation>
+                                            <DoubleAnimation Storyboard.TargetName="press" Storyboard.TargetProperty="ScaleY"
+                                                             To="1" Duration="0:0:0.2">
+                                                <DoubleAnimation.EasingFunction>
+                                                    <BackEase Amplitude="0.4" EasingMode="EaseOut"/>
+                                                </DoubleAnimation.EasingFunction>
+                                            </DoubleAnimation>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.ExitActions>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ===== 按钮：纯文字（卸载这类不该抢视线的动作） ===== -->
         <Style x:Key="LinkButton" TargetType="Button">
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="Foreground" Value="{DynamicResource Muted}"/>
             <Setter Property="FontSize" Value="12.5"/>
-            <Setter Property="Padding" Value="2,3"/>
+            <Setter Property="Padding" Value="6,4"/>
             <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing}"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
@@ -250,6 +632,9 @@
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter Property="Opacity" Value="0.7"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.5"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -264,7 +649,7 @@
             <Setter Property="FontSize" Value="12.5"/>
             <Setter Property="Padding" Value="14,7"/>
             <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing}"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="ToggleButton">
@@ -294,7 +679,7 @@
 
         <!-- ===== 输入框 ===== -->
         <Style x:Key="FieldBox" TargetType="TextBox">
-            <Setter Property="MinHeight" Value="36"/>
+            <Setter Property="MinHeight" Value="38"/>
             <Setter Property="Padding" Value="11,6"/>
             <Setter Property="FontSize" Value="13"/>
             <Setter Property="BorderThickness" Value="1"/>
@@ -302,18 +687,19 @@
             <Setter Property="Foreground" Value="{DynamicResource Ink}"/>
             <Setter Property="CaretBrush" Value="{DynamicResource Ink}"/>
             <Setter Property="VerticalContentAlignment" Value="Top"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="TextBox">
                         <!-- Padding 必须压在 Border 上：加在 ScrollViewer 上再配 VerticalAlignment=Center，
                              会让内容区被二次收缩，"04:00" 这种短文本会被上下各切掉一半（真机截图复现过）。 -->
-                        <Border x:Name="bd" CornerRadius="8" Background="{TemplateBinding Background}"
+                        <Border x:Name="bd" CornerRadius="9" Background="{TemplateBinding Background}"
                                 BorderBrush="{DynamicResource CardBorder}" BorderThickness="{TemplateBinding BorderThickness}"
                                 Padding="{TemplateBinding Padding}">
                             <ScrollViewer x:Name="PART_ContentHost"/>
                         </Border>
                         <ControlTemplate.Triggers>
-                            <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Trigger Property="IsKeyboardFocusWithin" Value="True">
                                 <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource Accent}"/>
                             </Trigger>
                             <Trigger Property="IsMouseOver" Value="True">
@@ -327,25 +713,116 @@
                 </Setter.Value>
             </Setter>
         </Style>
-        <Style x:Key="FieldCombo" TargetType="ComboBox">
-            <Setter Property="Height" Value="36"/>
-            <Setter Property="FontSize" Value="13"/>
-            <Setter Property="Padding" Value="10,4"/>
-            <Setter Property="VerticalContentAlignment" Value="Center"/>
-        </Style>
-        <Style x:Key="Label" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="12.5"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Foreground" Value="{DynamicResource Muted}"/>
-            <Setter Property="Margin" Value="0,16,0,6"/>
+
+        <!-- ===== 下拉项 ===== -->
+        <Style TargetType="{x:Type ComboBoxItem}">
+            <Setter Property="Padding" Value="10,7"/>
+            <Setter Property="Foreground" Value="{DynamicResource Ink}"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBoxItem">
+                        <Border x:Name="b" CornerRadius="7" Background="Transparent"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="b" Property="Background" Value="{DynamicResource AccentSoft}"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
+                                <Setter Property="FontWeight" Value="SemiBold"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
-        <!-- ===== 勾选框：圆角方块 + 手绘对勾（默认 Win32 样式跟这套界面不搭） ===== -->
-        <Style TargetType="{x:Type CheckBox}">
-            <Setter Property="Foreground" Value="{DynamicResource Ink}"/>
+        <!-- 下拉框：自绘（默认 Aero2 模板跟这套界面不搭） -->
+        <Style x:Key="FieldCombo" TargetType="ComboBox">
+            <Setter Property="Height" Value="38"/>
             <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Foreground" Value="{DynamicResource Ink}"/>
+            <Setter Property="Background" Value="{DynamicResource FieldBg}"/>
+            <Setter Property="Padding" Value="11,0,34,0"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Grid>
+                            <Border x:Name="bd" CornerRadius="9" Background="{TemplateBinding Background}"
+                                    BorderBrush="{DynamicResource CardBorder}" BorderThickness="1"/>
+                            <Grid Margin="{TemplateBinding Padding}">
+                                <TextBox x:Name="PART_EditableTextBox" VerticalAlignment="Center"
+                                         Background="Transparent" BorderThickness="0" Padding="0"
+                                         FontSize="{TemplateBinding FontSize}" Foreground="{TemplateBinding Foreground}"
+                                         CaretBrush="{DynamicResource Ink}" Visibility="Hidden"/>
+                                <ContentPresenter x:Name="content" Content="{TemplateBinding SelectionBoxItem}"
+                                                  ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                                  VerticalAlignment="Center" IsHitTestVisible="False"/>
+                            </Grid>
+                            <ToggleButton x:Name="drop" Width="34" HorizontalAlignment="Right"
+                                          Focusable="False" ClickMode="Press"
+                                          IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+                                <ToggleButton.Template>
+                                    <ControlTemplate TargetType="ToggleButton">
+                                        <Border Background="Transparent">
+                                            <Path Data="M 0 0 L 4 4 L 8 0" Stroke="{DynamicResource Subtle}"
+                                                  StrokeThickness="1.6" StrokeStartLineCap="Round"
+                                                  StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                                  HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                    </ControlTemplate>
+                                </ToggleButton.Template>
+                            </ToggleButton>
+                            <Popup x:Name="PART_Popup" IsOpen="{TemplateBinding IsDropDownOpen}"
+                                   AllowsTransparency="True" Placement="Bottom" VerticalOffset="6"
+                                   PopupAnimation="Fade" Focusable="False">
+                                <Border Background="{DynamicResource CardBg}" BorderBrush="{DynamicResource CardBorder}"
+                                        BorderThickness="1" CornerRadius="10" MinWidth="{TemplateBinding ActualWidth}"
+                                        MaxHeight="240" Effect="{DynamicResource CardShadow}" Padding="4">
+                                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                        <StackPanel IsItemsHost="True"/>
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsEditable" Value="True">
+                                <Setter TargetName="PART_EditableTextBox" Property="Visibility" Value="Visible"/>
+                                <Setter TargetName="content" Property="Visibility" Value="Hidden"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                                <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.55"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="Label" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{DynamicResource Muted}"/>
+            <Setter Property="Margin" Value="2,18,0,7"/>
+        </Style>
+
+        <!-- ===== 勾选框：圆角方块 + 手绘对勾 ===== -->
+        <Style TargetType="{x:Type CheckBox}">
+            <Setter Property="Foreground" Value="{DynamicResource Ink}"/>
+            <Setter Property="FontSize" Value="12.5"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing}"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="CheckBox">
@@ -359,7 +836,7 @@
                             <Border x:Name="box" Width="18" Height="18" CornerRadius="5" BorderThickness="1.5"
                                     BorderBrush="{DynamicResource CardBorder}" Background="{DynamicResource FieldBg}"
                                     VerticalAlignment="Center" Margin="0,2,0,0">
-                                <!-- 对勾用 Stretch 居中：之前用绝对坐标，勾偏左下、看着是歪的 -->
+                                <!-- 对勾用 Stretch 居中：绝对坐标写法的勾会偏左下 -->
                                 <Path x:Name="check" Data="M 1 4.5 L 4 7.5 L 10.5 1"
                                       Stroke="{DynamicResource OnAccent}" StrokeThickness="1.9"
                                       StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
@@ -377,6 +854,46 @@
                             </Trigger>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="box" Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.5"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ===== 单选：细环 + 实心点 ===== -->
+        <Style TargetType="{x:Type RadioButton}">
+            <Setter Property="Foreground" Value="{DynamicResource Ink}"/>
+            <Setter Property="FontSize" Value="12.5"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Grid Background="Transparent">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid Width="16" Height="16" VerticalAlignment="Center">
+                                <Ellipse x:Name="ring" Fill="{DynamicResource FieldBg}"
+                                         Stroke="{DynamicResource CardBorder}" StrokeThickness="1.5"/>
+                                <Ellipse x:Name="dot" Width="7" Height="7" Fill="{DynamicResource Accent}"
+                                         Visibility="Collapsed"/>
+                            </Grid>
+                            <ContentPresenter Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center"
+                                              RecognizesAccessKey="True"/>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="ring" Property="Stroke" Value="{DynamicResource Accent}"/>
+                                <Setter TargetName="dot" Property="Visibility" Value="Visible"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ring" Property="Stroke" Value="{DynamicResource Accent}"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Opacity" Value="0.5"/>
@@ -476,6 +993,21 @@
                     </Setter>
                 </Trigger>
             </Style.Triggers>
+        </Style>
+
+        <!-- ===== 提示气泡：小、深、圆角 ===== -->
+        <Style TargetType="{x:Type ToolTip}">
+            <Setter Property="Foreground" Value="#F2F6FA"/>
+            <Setter Property="FontSize" Value="11.5"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToolTip">
+                        <Border Background="#1B2733" CornerRadius="7" Padding="9,5" Margin="0,4,0,0">
+                            <ContentPresenter/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
     </Application.Resources>
 </Application>

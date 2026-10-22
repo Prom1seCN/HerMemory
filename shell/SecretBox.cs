@@ -32,10 +32,10 @@ namespace HerMemory
 
         public SecretBox()
         {
-            Height = 36;
+            Height = 38;
             var border = new Border
             {
-                CornerRadius = new CornerRadius(8),
+                CornerRadius = new CornerRadius(9),
                 BorderThickness = new Thickness(1),
             };
             border.SetResourceReference(Border.BackgroundProperty, "FieldBg");
