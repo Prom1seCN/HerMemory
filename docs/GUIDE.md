@@ -150,7 +150,7 @@ AI 写入记忆有字符预算。预算越大记忆越细，但注意力越分�
 
 ## 记忆库
 
-记忆库（vault，默认 `~/vault`）就是一个普通文件夹：你的文档在 `HerMemory/docs/`，AI 的记忆在 `HerMemory/memory/`，全部是明文 Markdown。
+记忆库（vault）就是一个普通文件夹：你的文档在 `HerMemory\docs\`，AI 的记忆在 `HerMemory\memory\`，全部是明文 Markdown。位置在安装时选（`AI记忆位置`，默认 `%USERPROFILE%\vault`），装完不再更改；主界面底部一直显示真实路径。
 
 它的意义只有一条：**这些是你的文件，不是软件里的数据。**
 

@@ -197,8 +197,7 @@ namespace HerMemory
             var item = new HealthItem { Title = "记忆库文件", Fix = HealthFix.Reinstall };
             try
             {
-                var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                    "vault", "HerMemory", "memory");
+                var dir = AppPaths.VaultMemoryDir;
                 if (!Directory.Exists(dir))
                 {
                     item.Status = "fail";
@@ -236,8 +235,7 @@ namespace HerMemory
             var item = new HealthItem { Title = "记忆预算", Fix = HealthFix.None };
             try
             {
-                var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                    "vault", "HerMemory", "memory");
+                var dir = AppPaths.VaultMemoryDir;
                 var memFile = Path.Combine(dir, "MEMORY.md");
                 if (!File.Exists(memFile)) { item.Status = "warn"; item.Detail = "找不到 MEMORY.md"; return item; }
                 var chars = File.ReadAllText(memFile).Length;

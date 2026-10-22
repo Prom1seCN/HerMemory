@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Reflection;
+using Microsoft.Win32;
 
 namespace HerMemory
 {
@@ -68,6 +69,58 @@ namespace HerMemory
                 return false;
             }
         }
+
+        // ================= 记忆库（vault）=================
+        // 记忆库是**第三个**位置，与程序目录、运行时目录分开：
+        //   程序目录  Program Files\HerMemory   只放 exe
+        //   运行时    %LOCALAPPDATA%\hermes    内核、venv、state.db、config、凭据
+        //   记忆库    vault                     用户的文档 + AI 的五个记忆文件（明文）
+        // 前两个装完就固定；记忆库在首次安装时可选（可以放到 D 盘或已有的文档目录），
+        // 选择结果记在 HKCU，这样程序、编辑器、体检、导出、卸载读到的都是同一个值。
+
+        private const string RegKey = @"Software\HerMemory";
+        private const string VaultValue = "VaultDir";
+
+        public static string DefaultVaultDir =>
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "vault");
+
+        /// <summary>记忆库根目录。未配置过（0.1.0 升级上来、或还没装）时回落默认位置。</summary>
+        public static string VaultDir
+        {
+            get
+            {
+                try
+                {
+                    using var k = Registry.CurrentUser.OpenSubKey(RegKey, false);
+                    if (k?.GetValue(VaultValue) as string is { Length: > 0 } v)
+                    {
+                        var clean = v.Trim().Trim('"').TrimEnd('\\');
+                        if (clean.Length > 0) return clean;
+                    }
+                }
+                catch { }
+                return DefaultVaultDir;
+            }
+        }
+
+        /// <summary>记住用户选的记忆库位置。传空 = 恢复默认。</summary>
+        public static void SetVaultDir(string? dir)
+        {
+            try
+            {
+                using var k = Registry.CurrentUser.CreateSubKey(RegKey);
+                var clean = (dir ?? "").Trim().Trim('"').TrimEnd('\\');
+                if (clean.Length == 0) k.DeleteValue(VaultValue, false);
+                else k.SetValue(VaultValue, clean, RegistryValueKind.String);
+            }
+            catch { }
+        }
+
+        /// <summary>AI 记忆文件所在目录（记忆库\HerMemory\memory）。</summary>
+        public static string VaultMemoryDir => Path.Combine(VaultDir, "HerMemory", "memory");
+
+        /// <summary>AI 与人共用的文档目录（记忆库\HerMemory\docs）。</summary>
+        public static string VaultDocsDir => Path.Combine(VaultDir, "HerMemory", "docs");
 
         public static string DesktopLnk =>
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "HerMemory.lnk");

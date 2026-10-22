@@ -529,7 +529,7 @@
             <StackPanel VerticalAlignment="Center">
                 <TextBlock Text="选择安装位置" Style="{StaticResource PageTitle}" Margin="0,0,0,0"/>
                 <TextBlock Style="{StaticResource Body}" Margin="0,6,0,0"
-                           Text="程序文件与运行数据分开存放。安装后不可更改。"/>
+                           Text="程序、运行数据与记忆分开存放。安装后不可更改。"/>
 
                 <Border Style="{StaticResource Card}" Margin="0,18,0,0" Padding="20,4,20,16">
                     <StackPanel>
@@ -551,6 +551,18 @@
                             <TextBox x:Name="DataBox" Style="{StaticResource FieldBox}" TextChanged="LocBox_TextChanged"/>
                             <Button x:Name="BtnDataBrowse" Grid.Column="1" Content="浏览…" Style="{StaticResource GhostButton}"
                                     Margin="10,0,0,0" Padding="18,8,18,8" VerticalAlignment="Center" Click="BtnDataBrowse_Click"/>
+                        </Grid>
+
+                        <!-- 记忆库：第三个位置。里面是用户的文档与 AI 的五个记忆文件（明文），
+                             可以放 D 盘，也可以指向已有的文档文件夹（只会在其下建 HerMemory\）。 -->
+                        <TextBlock Text="AI记忆位置" Style="{StaticResource Label}" Margin="0,12,0,6"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="VaultBox" Style="{StaticResource FieldBox}" TextChanged="LocBox_TextChanged"/>
+                            <Button x:Name="BtnVaultBrowse" Grid.Column="1" Content="浏览…" Style="{StaticResource GhostButton}"
+                                    Margin="10,0,0,0" Padding="18,8,18,8" VerticalAlignment="Center" Click="BtnVaultBrowse_Click"/>
                         </Grid>
 
                         <CheckBox x:Name="ChkAutoStart" Content="开机自动启动（托盘与 AI 通道随登录启动）"

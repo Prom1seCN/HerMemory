@@ -55,8 +55,7 @@ namespace HerMemory
         public MemoryEditorWindow()
         {
             InitializeComponent();
-            _memoryDir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "vault", "HerMemory", "memory");
+            _memoryDir = AppPaths.VaultMemoryDir;
 
             _previewTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(260) };
             _previewTimer.Tick += (_, _) => { _previewTimer.Stop(); RenderPreview(); };

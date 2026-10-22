@@ -16,6 +16,8 @@ param(
     # 之后 `hermes update` / `hermes pm install` 也不会把它加回来。
     [switch]$SkipBrowser,
     [switch]$SkipComputerUse,
+    # 记忆库位置（默认 %USERPROFILE%\vault）。安装向导的位置页可选，装完由程序写入 HKCU。
+    [string]$VaultDir = "",
     [string]$AnswersFile
 )
 
@@ -349,8 +351,13 @@ if ($env:OS -ne "Windows_NT") { Die "本脚本仅用于 Windows 原生路径；L
 Log "安装说明见 docs\INSTALL.md"
 Progress "precheck"
 
-# ---------- 1. vault 位置（定名，不询问——路径被提示词与文档广泛引用，固定避免漂移） ----------
-$VaultDir = "$HOME\vault"
+# ---------- 1. 记忆库位置 ----------
+# 默认 %USERPROFILE%\vault；首次安装可在向导里改（例如放 D 盘，或指向已有的文档文件夹）。
+# 一旦定下就不再变：五文件、注入槽位、程序端路径全都按它铺。
+if (-not $VaultDir) { $VaultDir = "$HOME\vault" }
+$VaultDir = $VaultDir.Trim().Trim('"').TrimEnd('\')
+if (-not [IO.Path]::IsPathRooted($VaultDir)) { Die "记忆库位置必须是绝对路径（实际：$VaultDir）" }
+$VaultDir = [IO.Path]::GetFullPath($VaultDir).TrimEnd('\')
 
 # ---------- 2. 上游内核（vendored 官方安装器 + 随包 git bundle，pin commit） ----------
 # 「已装」判据沿用 2026-09-16 的结论：CLI 真的跑得起来才算装上，文件在场不算。
@@ -588,6 +595,27 @@ function AdoptExistingIdentity([string]$srcFile, [string]$vaultFile) {
 }
 AdoptExistingIdentity (Join-Path $HermesHome "SOUL.md")   "$VaultDir\HerMemory\memory\SOUL.md"
 AdoptExistingIdentity (Join-Path $HOME ".hermes.md")      "$VaultDir\HerMemory\memory\AGENTS.md"
+
+# ---------- 4.7 非默认记忆库：把文档与提示词里的 ~/vault 换成真实路径 ----------
+# AGENTS.md 与 docs/ 里的路径是写给 AI 看的（它据此找 ONBOARDING、记忆文件）。记忆库一旦挪到
+# D 盘，`~/vault/...` 就是错路径 —— 不替换的话，初次部署会去读一个不存在的文件。
+$DefaultVault = [IO.Path]::GetFullPath("$HOME\vault").TrimEnd('\')
+if (-not [string]::Equals($VaultDir, $DefaultVault, [StringComparison]::OrdinalIgnoreCase)) {
+    $targets = @(Join-Path "$VaultDir\HerMemory\memory" "AGENTS.md")
+    $targets += @(Get-ChildItem "$VaultDir\HerMemory\docs" -Filter *.md -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
+    $nk = (New-Object Text.UTF8Encoding($false))
+    foreach ($t in $targets) {
+        try {
+            if (-not (Test-Path -LiteralPath $t)) { continue }
+            $text = [IO.File]::ReadAllText($t)
+            if ($text -notmatch '~/vault') { continue }
+            [IO.File]::WriteAllText($t, $text.Replace('~/vault', $VaultDir), $nk)
+        } catch { Warn "改写路径失败：$t" }
+    }
+    Ok "记忆库位置：$VaultDir（文档与提示词已改用该路径）"
+} else {
+    Log "记忆库位置：$VaultDir（默认）"
+}
 
 # ---------- 5. 软链四件（官方注入槽位）----------
 # NTFS 符号链接需要管理员权限或开发者模式（Win10 1703+ 设置→更新→开发者选项）。

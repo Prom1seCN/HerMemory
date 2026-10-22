@@ -23,8 +23,7 @@ namespace HerMemory
         public static string RepoDir => Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HerMemory", "history");
 
-        private static string VaultDir => Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "vault");
+        private static string VaultDir => AppPaths.VaultDir;
 
         /// <summary>git 可执行文件：PATH 优先，其次 PM 托管的 PortableGit。</summary>
         public static string? GitExe

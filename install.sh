@@ -82,7 +82,13 @@ command -v curl >/dev/null || die "缺 curl：先 apt install curl"
 log "安装说明见 docs/INSTALL.md"
 
 # ---------- 1. vault 位置（定名，不询问——路径被提示词与文档广泛引用，固定避免漂移） ----------
-VAULT_DIR="$HOME/vault"
+# 记忆库位置：默认 ~/vault，可用 HERMEMORY_VAULT_DIR 覆盖（与 Windows 向导里的同类选项对应）
+VAULT_DIR="${HERMEMORY_VAULT_DIR:-$HOME/vault}"
+case "$VAULT_DIR" in
+    /*) ;;
+    *) die "HERMEMORY_VAULT_DIR 必须是绝对路径（当前：$VAULT_DIR）" ;;
+esac
+VAULT_DIR="${VAULT_DIR%/}"
 
 # ---------- 2. 安装上游 Hermes（vendored 官方安装器 + 随包 bundle，pin commit） ----------
 # v0.22 起上游装法变了：安装器只负责 clone → PM 装 Python/Node/依赖 → 构建 hermes 命令，
@@ -243,6 +249,26 @@ done
 mkdir -p "$VAULT_DIR/HerMemory/docs"
 cp -R "$SRC/docs/." "$VAULT_DIR/HerMemory/docs/"
 ok "使用文档已就位：HerMemory/docs/"
+
+# ---------- 4.7 非默认记忆库：把文档与提示词里的 ~/vault 换成真实路径 ----------
+DEFAULT_VAULT="$HOME/vault"
+if [ "$VAULT_DIR" != "$DEFAULT_VAULT" ]; then
+    for t in "$VAULT_DIR/HerMemory/memory/AGENTS.md" "$VAULT_DIR"/HerMemory/docs/*.md; do
+        [ -f "$t" ] || continue
+        grep -q '~/vault' "$t" || continue
+        python3 - "$t" "$VAULT_DIR" <<'PYEOF' 2>/dev/null || sed -i "s|~/vault|$VAULT_DIR|g" "$t"
+import io, sys
+path, vault = sys.argv[1], sys.argv[2]
+with io.open(path, encoding="utf-8") as fh:
+    text = fh.read()
+with io.open(path, "w", encoding="utf-8", newline="") as fh:
+    fh.write(text.replace("~/vault", vault))
+PYEOF
+    done
+    ok "记忆库位置：$VAULT_DIR（文档与提示词已改用该路径）"
+else
+    log "记忆库位置：$VAULT_DIR（默认）"
+fi
 
 # ---------- 5. 软链四件（官方注入槽位，零代码） ----------
 #   SOUL.md  → $HERMES_HOME/SOUL.md            （身份槽 slot#1）

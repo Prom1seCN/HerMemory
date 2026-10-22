@@ -18,14 +18,14 @@ namespace HerMemory
         // 等于两个判据并行——一旦只给其中一处加修正（如"进程环境块看不见刚写入的 User 变量"），
         // 同一进程里就会出现"位置页按 A 判、启动子进程按 B 传"的分裂。这里只做转发。
         private string HermesHome => HermesCtl.HermesHome;
-        private string VaultDocs => Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "vault", "HerMemory", "docs");
+        private string VaultDocs => AppPaths.VaultDocsDir;
         private string? _answersPath;                 // 本次静默安装的答案文件（成功后删除）
         private string? _provBase, _provModel;
         // 参数页确认后暂存、等「安装位置」页确认再启动安装（两页之间要保持已填内容）
         private string _pendTier = "1", _pendUrl = "", _pendKey = "", _pendModel = "";
         private int _pendMem, _pendUser;
         private string? _pendAppDir;                  // 程序本体的落地目录（只有安装器形态会给）
+        private string? _pendVaultDir;                // 记忆库位置（首次安装可选；已装则沿用现值）
         private bool _pendAutoStart = true;           // 安装时选择的「开机自动启动」
         private bool _pendHeavyTools = true;          // 安装时选择的「浏览器与电脑操作」（v0.22 双形态）
         private bool _autoStartChosen;                // 本会话里用户是否真的在向导中做过这项选择
@@ -1995,17 +1995,19 @@ namespace HerMemory
             if (string.IsNullOrWhiteSpace(LocBox.Text))
                 LocBox.Text = AppPaths.IsSetup ? AppPaths.DefaultAppDir : AppPaths.ExeDir;
             if (string.IsNullOrWhiteSpace(DataBox.Text)) DataBox.Text = HermesCtl.HermesHome;
-            // 开机启动复选框要反映**现状**，不能靠 XAML 里硬编码的 true：
-            // 修复安装时若默认勾上，用户此前手动关掉的自启会被静默改回来。
-            ChkAutoStart.IsChecked = !existing || AutoStart.IsOn;
+            if (string.IsNullOrWhiteSpace(VaultBox.Text)) VaultBox.Text = AppPaths.VaultDir;
+            // 开机自启按用户裁决**默认勾选**（2026-10-22）：不勾就是不要，勾上则安装时写入登录启动项。
+            // 旧实现"已有安装就回显现状"，结果是升级用户看到的是空的（0.1.0 没写过 Run 项），
+            // 一路下一步之后托盘不再随登录启动。
+            ChkAutoStart.IsChecked = true;
             // 同理：「浏览器与电脑操作」反映上游记下的 declined 记录。
             // 全新安装默认勾上；已有安装则按用户当初的选择回显。
             ChkHeavyTools.IsChecked = !HermesCtl.HeavyToolsDeclined;
 
             if (existing)
             {
-                LocBox.IsEnabled = DataBox.IsEnabled = false;
-                BtnLocBrowse.IsEnabled = BtnDataBrowse.IsEnabled = false;
+                LocBox.IsEnabled = DataBox.IsEnabled = VaultBox.IsEnabled = false;
+                BtnLocBrowse.IsEnabled = BtnDataBrowse.IsEnabled = BtnVaultBrowse.IsEnabled = false;
                 BtnLocStart.Content = "继续安装";
                 LocStatus.Text = "检测到已有安装，位置不可更改。如需更换位置，请先卸载再重新安装。";
                 LocStatus.Foreground = Brush("#EF6C00");
@@ -2013,8 +2015,8 @@ namespace HerMemory
             }
             else
             {
-                LocBox.IsEnabled = DataBox.IsEnabled = true;
-                BtnLocBrowse.IsEnabled = BtnDataBrowse.IsEnabled = true;
+                LocBox.IsEnabled = DataBox.IsEnabled = VaultBox.IsEnabled = true;
+                BtnLocBrowse.IsEnabled = BtnDataBrowse.IsEnabled = BtnVaultBrowse.IsEnabled = true;
                 BtnLocStart.Content = "开始安装";
                 UpdateLocStatus();
             }
@@ -2041,6 +2043,14 @@ namespace HerMemory
                 BtnLocStart.IsEnabled = false;
                 return;
             }
+            var (okV, msgV) = ValidateVaultDir(VaultBox.Text, LocBox.Text, DataBox.Text);
+            if (!okV)
+            {
+                LocStatus.Text = "AI记忆位置：" + msgV;
+                LocStatus.Foreground = Brush("#C62828");
+                BtnLocStart.IsEnabled = false;
+                return;
+            }
             LocStatus.Text = "位置可用。安装约需 3.5-4.5 GB（不勾选浏览器能力约 2-2.5 GB）。";
             LocStatus.Foreground = Brush("#2E7D32");
             BtnLocStart.IsEnabled = true;
@@ -2052,6 +2062,74 @@ namespace HerMemory
         private void BtnLocBrowse_Click(object sender, RoutedEventArgs e) => BrowseInto(LocBox, "选择程序安装位置");
 
         private void BtnDataBrowse_Click(object sender, RoutedEventArgs e) => BrowseInto(DataBox, "选择数据存储位置");
+
+        /// <summary>记忆库目录选择：不追加 HerMemory 子目录 —— 记忆库本身就是容器，
+        /// 用户完全可以把已有文档文件夹指过来（我们只在它下面建 HerMemory\）。</summary>
+        private void BtnVaultBrowse_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                using var dlg = new System.Windows.Forms.FolderBrowserDialog
+                {
+                    Description = "选择记忆库位置",
+                    UseDescriptionForTitle = true,
+                    ShowNewFolderButton = true,
+                };
+                var cur = (VaultBox.Text ?? "").Trim();
+                if (cur.Length > 0 && Directory.Exists(cur)) dlg.SelectedPath = cur;
+                if (dlg.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+                    VaultBox.Text = dlg.SelectedPath.TrimEnd('\\');
+            }
+            catch { }
+        }
+
+        /// <summary>记忆库位置的校验。与程序目录的差别：**允许非空目录**（复用已有文档夹是合理用法），
+        /// 但不允许与程序目录、运行时目录互相嵌套——那会把记忆混进内核目录，卸载时一起没了。</summary>
+        private static (bool ok, string msg) ValidateVaultDir(string? raw, string? appDir, string? dataDir)
+        {
+            var p = (raw ?? "").Trim().Trim('"');
+            if (p.Length == 0) return (false, "请填写 AI记忆位置。");
+            try
+            {
+                if (!Path.IsPathRooted(p)) return (false, "请使用绝对路径，例如 D:\\HerMemory记忆库。");
+                p = Path.GetFullPath(p);
+            }
+            catch { return (false, "路径格式无效。"); }
+
+            if (p.IndexOfAny(Path.GetInvalidPathChars()) >= 0) return (false, "路径含非法字符。");
+            if (p.StartsWith(@"\\", StringComparison.Ordinal)) return (false, "不支持网络路径。");
+
+            var root = Path.GetPathRoot(p) ?? "";
+            if (root.Length == 0) return (false, "路径格式无效。");
+            if (string.Equals(p.TrimEnd('\\'), root.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
+                return (false, "请不要直接使用磁盘根目录，改用其下的子目录。");
+            if (p.Length > 60) return (false, $"路径过长（{p.Length} 字符），请缩短到 60 字符以内。");
+
+            try
+            {
+                var di = new DriveInfo(root);
+                if (di.DriveType != DriveType.Fixed)
+                    return (false, "仅支持本地固定磁盘（记忆库要长期存在，移动盘与网络盘在盘符变动后全部失效）。");
+                if (di.AvailableFreeSpace < 512L * 1024 * 1024)
+                    return (false, "该磁盘剩余空间不足 512 MB。");
+            }
+            catch { return (false, "无法访问该位置所在磁盘。"); }
+
+            static bool Overlaps(string a, string b) =>
+                a.Length > 0 && b.Length > 0 &&
+                (a.Equals(b, StringComparison.OrdinalIgnoreCase)
+                 || a.StartsWith(b + "\\", StringComparison.OrdinalIgnoreCase)
+                 || b.StartsWith(a + "\\", StringComparison.OrdinalIgnoreCase));
+
+            var app = (appDir ?? "").Trim().TrimEnd('\\');
+            var data = (dataDir ?? "").Trim().TrimEnd('\\');
+            try { if (app.Length > 0) app = Path.GetFullPath(app).TrimEnd('\\'); } catch { }
+            try { if (data.Length > 0) data = Path.GetFullPath(data).TrimEnd('\\'); } catch { }
+            var here = p.TrimEnd('\\');
+            if (Overlaps(here, app)) return (false, "不能与程序安装位置重叠。");
+            if (Overlaps(here, data)) return (false, "不能与数据存储位置重叠。");
+            return (true, "位置可用。");
+        }
 
         /// <summary>目录选择器：选中后自动在其下建 HerMemory 子目录（末级已叫 HerMemory 就不套层），
         /// 避免用户直接把整个 D:\ 或 D:\我的资料 选成安装目录。</summary>
@@ -2107,8 +2185,16 @@ namespace HerMemory
                 LocStatus.Foreground = Brush("#C62828");
                 return;
             }
+            var (okV, msgV) = ValidateVaultDir(VaultBox.Text, LocBox.Text, DataBox.Text);
+            if (!okV)
+            {
+                LocStatus.Text = "AI记忆位置：" + msgV;
+                LocStatus.Foreground = Brush("#C62828");
+                return;
+            }
 
             _pendAppDir = Path.GetFullPath(LocBox.Text.Trim().Trim('"')).TrimEnd('\\');
+            _pendVaultDir = Path.GetFullPath(VaultBox.Text.Trim().Trim('"')).TrimEnd('\\');
             _pendAutoStart = ChkAutoStart.IsChecked == true;
             _pendHeavyTools = ChkHeavyTools.IsChecked == true;
             _autoStartChosen = true;   // 用户确实做过这项选择（微信绑定页的补装据此决定是否沿用）
@@ -2495,7 +2581,7 @@ namespace HerMemory
                     var psi = new ProcessStartInfo
                     {
                         FileName = "powershell.exe",
-                        Arguments = $"-NoProfile -ExecutionPolicy Bypass -File \"{Path.Combine(_repoRoot!, "install.ps1")}\" -AnswersFile \"{_answersPath}\"",
+                        Arguments = $"-NoProfile -ExecutionPolicy Bypass -File \"{Path.Combine(_repoRoot!, "install.ps1")}\" -AnswersFile \"{_answersPath}\" -VaultDir \"{(_pendVaultDir ?? AppPaths.VaultDir)}\"",
                         UseShellExecute = false,
                         RedirectStandardOutput = true,
                         RedirectStandardError = true,
@@ -2700,6 +2786,8 @@ namespace HerMemory
                 // 取消勾选时这一步是"删除既有项"——用户从勾选改成不勾选也要真正生效
                 AutoStart.Set(_pendAutoStart, appExe);
                 UninstallEntry.Register(appDir);
+                // 记忆库位置落注册表：程序本体、编辑器、体检、导出、卸载都从 AppPaths.VaultDir 读。
+                try { if (!string.IsNullOrEmpty(_pendVaultDir)) AppPaths.SetVaultDir(_pendVaultDir); } catch { }
                 return true;
             }
             catch { return false; }
@@ -3188,8 +3276,7 @@ namespace HerMemory
         }
 
         // ================= 卸载 =================
-        private static string VaultDir => Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "vault");
+        private static string VaultDir => AppPaths.VaultDir;
 
         private void BtnUninstall_Click(object sender, RoutedEventArgs e)
         {

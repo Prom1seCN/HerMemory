@@ -194,3 +194,17 @@ export HERMES_HOME=<spike>/home
 - **没有 Key 不能跳过**：保持"必须填完才能继续"，不提供稍后配置入口。
 - **接管已有 Hermes 时保留原人格**：`install.ps1` §4.6 先把对方 `SOUL.md` / `.hermes.md` 收进记忆库（仅当目标为空或仍是出厂内容），再建链。
 - **记忆历史**：一键导出包含 `history/`；卸载会删除 `%LOCALAPPDATA%\HerMemory\history`；reset-backup 保留（未选删除）。
+
+## 位置三件（2026-10-22 用户裁决）
+
+- 向导「安装位置」页是**三个**位置：程序安装位置 / 数据存储位置 / **AI记忆位置**（标签就叫这四个字，不加括注）。
+- 第三项 = vault：用户的文档 + AI 五个记忆文件，默认 `%USERPROFILE%\vault`，首次安装可选，装完固定。
+- 唯一来源 `AppPaths.VaultDir`（注册表 `HKCU\Software\HerMemory\VaultDir`，缺省回落默认值）；
+  编辑器/体检/导出/卸载/历史全部读它，不再各自拼 `UserProfile\vault`。
+- 向导把选择传给 `install.ps1 -VaultDir`；Linux 用 `HERMEMORY_VAULT_DIR`。
+- 非默认位置时，install.ps1 §4.7 把已复制文档与 `AGENTS.md` 里的 `~/vault` 替换成真实路径，
+  否则 AI 会去读不存在的 `~/vault/HerMemory/docs/ONBOARDING.md`。
+- 已装（升级）时三个框都锁死，提示"位置不可更改"。
+- 校验：绝对路径、固定磁盘、≥512 MB、不与程序/数据目录互相嵌套；**允许非空目录**（可指向已有文档夹，
+  我们只在其中建 `HerMemory\`）。
+- 「开机自动启动」默认勾选（用户裁决）：升级用户不会因为 0.1.0 没写过 Run 项而丢掉自启。
