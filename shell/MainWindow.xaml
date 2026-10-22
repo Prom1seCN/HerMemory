@@ -80,6 +80,10 @@
                         Margin="9,0,0,0" VerticalAlignment="Center">
                     <TextBlock x:Name="AppVersion" FontSize="10" Foreground="{DynamicResource Subtle}"/>
                 </Border>
+                <!-- 有新版本时才出现：点开浏览器到 release 页 -->
+                <Button x:Name="BtnUpdate" Style="{StaticResource LinkButton}" Visibility="Collapsed"
+                        FontSize="10.5" Padding="6,2" Margin="4,0,0,0" VerticalAlignment="Center"
+                        Foreground="{DynamicResource Accent}" ToolTip="打开下载页" Click="BtnUpdate_Click"/>
             </StackPanel>
             <ToggleButton x:Name="ChkDark" Style="{StaticResource ThemeSwitch}"
                           HorizontalAlignment="Right" VerticalAlignment="Center"
@@ -87,8 +91,15 @@
                           ToolTip="切换深浅色" AutomationProperties.Name="切换深浅色"/>
         </Grid>
 
+        <!-- 页面宿主：窗口被系统工作区压小时（如 1366×768@125%），整页可纵向滚动，
+             而不是把底部按钮切掉。MinHeight 保证窗口够高时页面仍然铺满、居中排版不变。 -->
+        <ScrollViewer x:Name="PageScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled" Focusable="False">
+            <Grid x:Name="PageHost"
+                  MinHeight="{Binding ViewportHeight, RelativeSource={RelativeSource AncestorType=ScrollViewer}}">
+
         <!-- ===== 主界面（托盘模式的日常页） ===== -->
-        <Grid x:Name="PageHome" Grid.Row="1" Visibility="Collapsed">
+        <Grid x:Name="PageHome" Visibility="Collapsed">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
@@ -296,7 +307,7 @@
         </Grid>
 
         <!-- ===== 主界面子页：记忆设置 ===== -->
-        <Grid x:Name="PageMemory" Grid.Row="1" Visibility="Collapsed">
+        <Grid x:Name="PageMemory" Visibility="Collapsed">
             <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
                 <StackPanel>
                     <Button Style="{StaticResource BackButton}" Content="返回" HorizontalAlignment="Left" Click="BtnBack_Click"/>
@@ -364,7 +375,7 @@
         </Grid>
 
         <!-- ===== 主界面子页：设置（每日新对话） ===== -->
-        <Grid x:Name="PageSettings" Grid.Row="1" Visibility="Collapsed">
+        <Grid x:Name="PageSettings" Visibility="Collapsed">
             <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
                 <StackPanel>
                     <Button Style="{StaticResource BackButton}" Content="返回" HorizontalAlignment="Left" Click="BtnBack_Click"/>
@@ -403,7 +414,7 @@
         </Grid>
 
         <!-- ===== 主界面子页：体检 / 自愈 ===== -->
-        <Grid x:Name="PageHealth" Grid.Row="1" Visibility="Collapsed">
+        <Grid x:Name="PageHealth" Visibility="Collapsed">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
@@ -431,7 +442,7 @@
         </Grid>
 
         <!-- ===== 主界面子页：API 设置 ===== -->
-        <Grid x:Name="PageApi" Grid.Row="1" Visibility="Collapsed">
+        <Grid x:Name="PageApi" Visibility="Collapsed">
             <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
                 <StackPanel>
                     <Button Style="{StaticResource BackButton}" Content="返回" HorizontalAlignment="Left" Click="BtnBack_Click"/>
@@ -474,7 +485,7 @@
         </Grid>
 
         <!-- ===== 主界面子页：微信绑定 ===== -->
-        <Grid x:Name="PageWeixin" Grid.Row="1" Visibility="Collapsed">
+        <Grid x:Name="PageWeixin" Visibility="Collapsed">
             <StackPanel>
                 <Button Style="{StaticResource BackButton}" Content="返回" HorizontalAlignment="Left" Click="BtnBack_Click"/>
                 <TextBlock Text="微信绑定" Style="{StaticResource PageTitle}"/>
@@ -498,7 +509,7 @@
         </Grid>
 
         <!-- ===== 页 1：欢迎 / 预检 ===== -->
-        <Grid x:Name="PageWelcome" Grid.Row="1">
+        <Grid x:Name="PageWelcome">
             <StackPanel VerticalAlignment="Center">
 
             <Grid>
@@ -573,7 +584,7 @@
         </Grid>
 
         <!-- ===== 页 4：记忆与 AI（安装完成后配置） ===== -->
-        <Grid x:Name="PageParams" Grid.Row="1" Visibility="Collapsed">
+        <Grid x:Name="PageParams" Visibility="Collapsed">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
@@ -651,7 +662,7 @@
         </Grid>
 
         <!-- ===== 页 2：安装位置（仅首次安装可改；已装则只读） ===== -->
-        <Grid x:Name="PageLocation" Grid.Row="1" Visibility="Collapsed">
+        <Grid x:Name="PageLocation" Visibility="Collapsed">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
@@ -722,7 +733,7 @@
         </Grid>
 
         <!-- ===== 页 3：安装进行中（跑两次：安装环境 / 配置 AI） ===== -->
-        <Grid x:Name="PageInstall" Grid.Row="1" Visibility="Collapsed">
+        <Grid x:Name="PageInstall" Visibility="Collapsed">
             <Grid.RowDefinitions>
                 <RowDefinition Height="*"/><RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
@@ -747,7 +758,7 @@
         </Grid>
 
         <!-- ===== 页 5：微信扫码 ===== -->
-        <Grid x:Name="PageQr" Grid.Row="1" Visibility="Collapsed">
+        <Grid x:Name="PageQr" Visibility="Collapsed">
             <Border Style="{StaticResource Card}" Padding="26,24" VerticalAlignment="Center">
                 <StackPanel>
                     <TextBlock Text="连接微信" FontSize="17" FontWeight="SemiBold" Foreground="{DynamicResource Ink}"/>
@@ -781,7 +792,7 @@
         </Grid>
 
         <!-- ===== 页 6：卸载 ===== -->
-        <Grid x:Name="PageUninstall" Grid.Row="1" Visibility="Collapsed">
+        <Grid x:Name="PageUninstall" Visibility="Collapsed">
             <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
                 <StackPanel>
                     <Button x:Name="BtnUninsBack" Style="{StaticResource BackButton}" Content="返回"
@@ -812,7 +823,7 @@
         </Grid>
 
         <!-- ===== 页 7：完成 ===== -->
-        <Grid x:Name="PageDone" Grid.Row="1" Visibility="Collapsed">
+        <Grid x:Name="PageDone" Visibility="Collapsed">
             <StackPanel VerticalAlignment="Center">
                 <Border x:Name="DoneBadge" Width="60" Height="60" CornerRadius="30" HorizontalAlignment="Left"
                         Background="{DynamicResource AccentSoft}" Margin="0,0,0,20">
@@ -832,5 +843,7 @@
                 </StackPanel>
             </StackPanel>
         </Grid>
+            </Grid>
+        </ScrollViewer>
     </Grid>
 </Window>

@@ -173,6 +173,12 @@ export HERMES_HOME=<spike>/home
 - 顶栏品牌标记是**双菱叠影**的矢量版（两个 Polygon + `LogoBack`/`LogoFront` 两个品牌渐变常量，
   与 `icons/logo-candidates/2-修正-分距200.png` / `app.ico` / 托盘图标同构图：后菱暗一档在左，
   前菱亮一档在右，中心距 200/1024）。不要再拿书签之类的替代图形。
+- 页面宿主是 `PageScroll`（ScrollViewer）+ `PageHost`（Grid，`MinHeight` 绑 `ViewportHeight`）：
+  窗口够高时页面照常铺满/居中，窗口被系统工作区压小时整页可滚，不会把底部按钮切掉。
+  `ShowPage` 遍历的是 `PageHost.Children`，不是窗口 Content。
+- `FitToWorkArea()` 在 Loaded 里按 `SystemParameters.WorkArea` 收缩窗口并重新居中（1366×768@125% 的兜底）。
+- 顶栏还有一个隐藏的 `BtnUpdate`：启动时静默查 GitHub `releases/latest`（`shell/UpdateCheck.cs`），
+  比当前版本新才显示「有新版本 vX →」，点开浏览器。断网/404/限流一律静默。
 - 排版：窗口 880×620，内容区 800px。顶栏 = 品牌标记 + 版本胶囊 + 明暗开关（每页常驻）；
   首页 = 状态卡 + 3×2 图标磁贴 + 动作行 + 底部路径卡；子页 = 返回键 + 标题 + 说明 + 发丝线 + 内容。
 - **深色主题下强调色是亮青 `#22D3EE`，主按钮文字必须用 `OnAccent`（深色 `#06141A`）**，白字对比度不够。
@@ -188,6 +194,18 @@ export HERMES_HOME=<spike>/home
   2) 真机：一次性计划任务（`/it`）跑 PowerShell，`SetProcessDPIAware()` 后再 `GetWindowRect`，
      否则 125% 缩放下拿到的是虚拟化尺寸、`PrintWindow` 会裁掉右下角；UIA 按
      `AutomationProperties.Name="切换深浅色"` 找 ToggleButton 可以验证换主题全链路。
+
+## 发布与白机测试（2026-10-23）
+
+- **Windows Sandbox 在这台 PC 上没有 TCP 出网**：ICMP 通、DNS 能解析（网关 172.31.64.1），
+  但 443 一律 000；宿主代理只监听 127.0.0.1:7897。用 `netsh interface portproxy` 把 7898 桥到 7897 后，
+  **NAS 走 `100.64.0.4:7898` 能通（200）**，但 sandbox 连 172.31.64.1/100.64.0.4 的 7898 都不通
+  ——sandbox 的 NAT 只给了 DNS/ICMP。所以白机安装只能等网络修好再跑（或换 VM / zjpc）。
+- sandbox 里能验到的：Setup.exe 在干净 Windows 11 上正常启动，预检显示「安装源已就位 / 管理员权限已具备」，
+  一路走到上游内核安装；下载失败时给出明确错误并停下，不挂死——错误路径是好的。
+- 测试脚手架在 `D:\Projects\HerMemory\.sandbox-out`（映射目录 + `.wsb` + boot/elevated 脚本，不进 git）。
+- 发行：`main` 由 `feat/hermes-0.22` 快进，`v0.2.0` 注释 tag；GitHub Release 需要 token（机器上只有 SSH key），
+  所以 release 页与资产上传留给有 token 的一侧。安装包 `build/Setup.exe`。
 
 ## 升级路径（0.1.0 → 0.2.0，2026-10-21 实测）
 

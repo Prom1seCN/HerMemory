@@ -78,6 +78,7 @@ namespace HerMemory
             }
             Loaded += async (_, _) =>
             {
+                FitToWorkArea();
                 PlayWindowIntro();
                 ChkDark.IsChecked = Theme.IsDark;
                 _themeUiReady = true;
@@ -85,7 +86,60 @@ namespace HerMemory
                 Theme.ApplyTitleBar(this);   // 右上角女孩图标：随主题（Assets 为相对路径，用绝对资源文件流加载）
                 if (HomeMode) GoHome();
                 else await RunPrecheckAsync();
+                // 更新检查只在程序本体里做：安装器不该在装系统时还去问"有没有新版"。
+                if (!AppPaths.IsSetup) _ = CheckUpdatesAsync();
             };
+        }
+
+        /// <summary>小屏兜底：窗口比系统工作区还高/宽时（1366×768 开 125% 缩放就是典型），
+        /// 按工作区收一收。页面宿主带纵向滚动，收小之后内容仍然够得着，不会把底部按钮切掉。</summary>
+        private void FitToWorkArea()
+        {
+            try
+            {
+                var wa = SystemParameters.WorkArea;
+                var changed = false;
+                if (wa.Height > 200 && Height > wa.Height - 12) { Height = Math.Max(460, wa.Height - 12); changed = true; }
+                if (wa.Width > 200 && Width > wa.Width - 12) { Width = Math.Max(720, wa.Width - 12); changed = true; }
+                if (changed)
+                {
+                    // 改完尺寸要重新居中，否则窗口会从原来的左上角往下长，底边跑到工作区外面。
+                    WindowStartupLocation = WindowStartupLocation.Manual;
+                    Left = wa.Left + Math.Max(0, (wa.Width - Width) / 2);
+                    Top = wa.Top + Math.Max(0, (wa.Height - Height) / 2);
+                }
+            }
+            catch { }
+        }
+
+        /// <summary>启动后静默问一次 GitHub 最新 release。失败（断网、仓库还没发版）一律当没有新版，
+        /// 不弹窗、不重试、不影响任何功能。</summary>
+        private async Task CheckUpdatesAsync()
+        {
+            try
+            {
+                var cur = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version ?? new Version(0, 0, 0);
+                var latest = await UpdateCheck.LatestAsync();
+                if (latest is null || !UpdateCheck.IsNewer(latest.Value.Tag, cur)) return;
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    BtnUpdate.Content = "有新版本 " + latest.Value.Tag + " →";
+                    BtnUpdate.Tag = latest.Value.Url;
+                    BtnUpdate.Visibility = Visibility.Visible;
+                });
+            }
+            catch { }
+        }
+
+        private void BtnUpdate_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var url = BtnUpdate.Tag as string;
+                if (!string.IsNullOrWhiteSpace(url))
+                    Process.Start(new ProcessStartInfo(url!) { UseShellExecute = true });
+            }
+            catch { }
         }
 
         /// <summary>进入日常主界面：置 HomeMode、显示首页、刷新网关状态。
@@ -1781,7 +1835,7 @@ namespace HerMemory
         private void ShowPage(string name)
         {
             var matched = false;
-            foreach (var child in ((System.Windows.Controls.Panel)Content).Children)
+            foreach (var child in PageHost.Children)
             {
                 if (child is not Grid g || g.Name.Length == 0) continue;
                 var on = g.Name == name;
