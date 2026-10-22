@@ -18,6 +18,9 @@ param(
     [switch]$SkipComputerUse,
     # 记忆库位置（默认 %USERPROFILE%\vault）。安装向导的位置页可选，装完由程序写入 HKCU。
     [string]$VaultDir = "",
+    # 安装源目录（含 scripts\upstream-install.ps1、memory\、docs\）。由向导显式传入：
+    # 靠 $MyInvocation 猜路径在"从仓库 build 目录跑安装器"这类场景下会指错地方。
+    [string]$SrcDir = "",
     [string]$AnswersFile
 )
 
@@ -41,11 +44,25 @@ $HmUpgradeMarker = Join-Path $HermesHome ".hm-kernel-upgrade"
 # ——比"自定义目录不生效"更糟。子进程（uv / git / hermes）同样依赖它定位同一份 home。
 $env:HERMES_HOME = $HermesHome
 $SRC = Split-Path -Parent $MyInvocation.MyCommand.Path
+if ($SrcDir) { $SRC = $SrcDir.Trim().Trim('"').TrimEnd('\') }
+# 兜底：$SRC 下找不到随包素材时，依次退到脚本自身目录、payload 缓存里最新的一份。
+# 少了 vendor 安装器/出厂文件，安装会在中途硬停——宁可在这里挑对，也不要让用户看到"发行包不完整"。
+if (-not (Test-Path (Join-Path $SRC "scripts\upstream-install.ps1"))) {
+    $srcCands = @($PSScriptRoot)
+    try {
+        $srcCands += @(Get-ChildItem (Join-Path $env:LOCALAPPDATA "HerMemory\payload") -Directory -ErrorAction SilentlyContinue |
+            Sort-Object Name -Descending | ForEach-Object { $_.FullName })
+    } catch { }
+    foreach ($c in $srcCands) {
+        if ($c -and (Test-Path (Join-Path $c "scripts\upstream-install.ps1"))) { $SRC = $c; break }
+    }
+}
 
 function Log([string]$m)  { Write-Host "[HerMemory] $m" -ForegroundColor Cyan }
 function Ok([string]$m)   { Write-Host "[完成] $m" -ForegroundColor Green }
 function Warn([string]$m) { Write-Host "[note] $m" -ForegroundColor Yellow }
 function Die([string]$m)  { Write-Host "[error] $m" -ForegroundColor Red; exit 1 }
+Log "安装源：$SRC"
 # PS 5.1 坑：EAP=Stop 时原生命令 2>$null 会把 stderr 变成终止性错误（NativeCommandError）。
 # Run-Quiet 在函数作用域内降级 EAP，stderr 静默流出——专用于允许失败的原生调用。
 # ⚠ **绝不能写 `& $args`**：PowerShell 会把数组隐式转成字符串（[string]@('a','b') = 'a b'），
@@ -274,13 +291,30 @@ $StateFile = Join-Path $HermesHome "hermemory-install.state"
 # hermes-agent.commit。真实上游 commit 另存 hermes-agent.upstream-commit（仅审计）。
 $PinTag = "v0.22.2"
 $PinCommit = ""
-$commitStamp = Join-Path $PSScriptRoot "hermes-agent.commit"
+# 随包素材有两种布局，必须都能找到：
+#   ① 内嵌 payload 解压目录（用户机器上的常态）：<src>\hermes-agent.bundle
+#   ② 开发仓库（从 build\ 里直接跑 Setup.exe 时 <src> 是仓库根）：<src>\build\minimal\hermes-agent.bundle
+# 只认 ① 会得到"缺内核包：…\hermes-agent.bundle"——一条只有开发者才会踩到、但很难自查的错误。
+function Get-ShippedAsset([string]$name) {
+    foreach ($base in @($SRC, $PSScriptRoot)) {
+        if (-not $base) { continue }
+        $flat = Join-Path $base $name
+        if (Test-Path -LiteralPath $flat) { return $flat }
+        $nested = Join-Path (Join-Path $base "build\minimal") $name
+        if (Test-Path -LiteralPath $nested) { return $nested }
+        $nested2 = Join-Path (Join-Path $base "..\build\minimal") $name
+        if (Test-Path -LiteralPath $nested2) { return ([IO.Path]::GetFullPath($nested2)) }
+    }
+    return (Join-Path $SRC $name)
+}
+
+$commitStamp = Get-ShippedAsset "hermes-agent.commit"
 if (Test-Path $commitStamp) {
     $c = (Get-Content $commitStamp -Raw -ErrorAction SilentlyContinue)
     if ($c) { $PinCommit = $c.Trim() }
 }
-$KernelBundle = Join-Path $PSScriptRoot "hermes-agent.bundle"
-$ShippedUv    = Join-Path $PSScriptRoot "uv.exe"
+$KernelBundle = Get-ShippedAsset "hermes-agent.bundle"
+$ShippedUv    = Get-ShippedAsset "uv.exe"
 
 # 国内索引：PM 只把 UV_* / PIP_* 的「索引类」设置转发给 uv（pm/index_config.py），
 # 这是官方口子，不是改上游代码。用户已自设则尊重不覆盖。
@@ -308,7 +342,7 @@ Log "安装状态文件：$StateFile"
 $UvPinVersion = "0.12.3"
 # 随包素材里的 uv.version 由 build-offline.ps1 从上游 pm/lock.json 抄出——有就以它为准，
 # 免得 pin 升级时这里忘了改（槽位名对不上 → 上游判定「不是我要的」并重新下载）。
-$uvVerFile = Join-Path $PSScriptRoot "uv.version"
+$uvVerFile = Get-ShippedAsset "uv.version"
 if (Test-Path $uvVerFile) {
     $v = (Get-Content $uvVerFile -Raw -ErrorAction SilentlyContinue)
     if ($v) { $UvPinVersion = $v.Trim() }
@@ -539,7 +573,7 @@ if ($SkipBrowser -or $SkipComputerUse) {
 
 # ---------- 2.5 内核 UX 补丁（发行版自有，幂等）：微信二维码改为链接+浏览器提示 ----------
 $wxPy = Join-Path $HermesHome "hermes-agent\gateway\platforms\weixin.py"
-$wxPatch = Join-Path $PSScriptRoot "scripts\patch_weixin_qr.py"
+$wxPatch = Join-Path $SRC "scripts\patch_weixin_qr.py"
 $wxPython = Get-HermesPython
 if ((Test-Path $wxPy) -and (Test-Path $wxPatch) -and $wxPython) {
     & $wxPython $wxPatch $wxPy
@@ -549,7 +583,7 @@ if ((Test-Path $wxPy) -and (Test-Path $wxPatch) -and $wxPython) {
 # $HERMES_HOME\scripts\ 下的文件，所以这里放一份。默认不创建定时任务（自动化默认关闭，
 # 由用户在设置页自己开）。
 $dailyDir = Join-Path $HermesHome "scripts"
-$dailySrc = Join-Path $PSScriptRoot "scripts\hermemory_daily_new.py"
+$dailySrc = Join-Path $SRC "scripts\hermemory_daily_new.py"
 if (Test-Path $dailySrc) {
     New-Item -ItemType Directory -Force -Path $dailyDir | Out-Null
     Copy-Item $dailySrc (Join-Path $dailyDir "hermemory_daily_new.py") -Force

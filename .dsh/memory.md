@@ -208,3 +208,25 @@ export HERMES_HOME=<spike>/home
 - 校验：绝对路径、固定磁盘、≥512 MB、不与程序/数据目录互相嵌套；**允许非空目录**（可指向已有文档夹，
   我们只在其中建 `HerMemory\`）。
 - 「开机自动启动」默认勾选（用户裁决）：升级用户不会因为 0.1.0 没写过 Run 项而丢掉自启。
+
+## 事故：18:02 那次安装失败（2026-10-22，已修）
+
+- **现象**：从 `D:\Projects\HerMemory\build\Setup.exe` 运行，升级在内核段报
+  「缺 vendored 上游安装器 / 缺内核包」。
+- **根因**：`FindRepoRoot()` 从 exe 目录向上找 `install.ps1`，在开发机上一眼命中**仓库根**，
+  于是安装源 = 仓库树；而 install.ps1 里 `$KernelBundle = Join-Path $PSScriptRoot "hermes-agent.bundle"`
+  假设的是**内嵌 payload 的扁平布局**，仓库里却在 `build\minimal\`。用户从「下载目录」运行时
+  `_repoRoot` 为 null → 解压内嵌 payload → 布局正确，所以这个坑只有开发者会踩。
+- **修法**：
+  1. `install.ps1` 增加 `-SrcDir`，向导显式传 `_repoRoot`；`$SRC` 再带三级兜底
+     （$SrcDir → $MyInvocation → $PSScriptRoot → payload 缓存）。
+  2. 新增 `Get-ShippedAsset`：bundle/commit/uv.version/uv.exe 同时认 `<src>\x` 与 `<src>\build\minimal\x`。
+  3. 向导新增 `SourceLooksComplete()` 预检（install.ps1 + scripts + memory + docs + 内核包），
+     不齐就先尝试解内嵌 payload，仍不齐则**在启动安装前**给明确错误，不再跑到一半 Die。
+  4. install.ps1 启动就打印 `安装源：$SRC`，以后同类问题一眼定位。
+- **连带修复**：升级向导预填 API Key 时曾用 `hermes config get model.api_key`，该命令**返回打码值**
+  （`sk-a...a84f`），填进表单再保存会把真 key 覆盖成打码串。改为直接读 `config.yaml` 的
+  `model.api_key`（仅当它是明文而非 `${ENV}` 引用），并拒绝含 `...` 的值。
+- **验证**：用 `/rl HIGHEST` 计划任务提权驱动向导（UIA 需要与被控窗口同级权限），
+  0.1.0 → 0.22.2 升级全流程跑通：内核 c9524f99、`Hermes_Gateway` 任务重建、网关运行、
+  Program Files 里 exe 版本 0.2.0、`.hm-kernel-upgrade` 标记已清。

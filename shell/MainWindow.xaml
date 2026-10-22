@@ -674,7 +674,11 @@
             <StackPanel VerticalAlignment="Center">
                 <Border x:Name="DoneBadge" Width="56" Height="56" CornerRadius="28" HorizontalAlignment="Left"
                         Background="{DynamicResource AccentSoft}" Margin="0,0,0,18">
-                    <Path Data="M 14 29 L 23 38 L 42 18" Stroke="{DynamicResource Accent}" StrokeThickness="3"
+                    <!-- 对勾用"均匀拉伸到固定尺寸 + 居中"画在 28x20 的盒子里。
+                         旧写法是 56 见方里的绝对坐标（M 14 29 L 23 38 L 42 18）：Path 的布局盒取
+                         几何包围盒，而几何原点在 (14,29) 不归零 → 整个勾被推到左下，看起来是歪的。 -->
+                    <Path Data="M 1 5.5 L 4.5 9 L 11 1.5" Stroke="{DynamicResource Accent}" StrokeThickness="2.6"
+                          Width="28" Height="20" Stretch="Uniform"
                           StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
                 </Border>

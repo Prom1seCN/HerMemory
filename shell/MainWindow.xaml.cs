@@ -197,9 +197,31 @@ namespace HerMemory
                     var (url, _, key) = HermesCtl.GetModelCfg();
             if (key.Length == 0)
             {
-                // 有些配置直接把 key 写在 model.api_key 里（不走 ${ENV} 引用）
-                var raw = HermesCtl.Run("config get model.api_key", 20).Trim().Trim('"');
-                if (raw.Length > 0 && !raw.StartsWith("${", StringComparison.Ordinal)) key = raw;
+                // 有些配置把明文 key 直接写在 model.api_key 里（不走 ${ENV} 引用）。
+                // **必须读 config.yaml 原文**：`hermes config get` 对密钥做遮蔽，返回的是
+                // "sk-a...a84f" 这种打码值，写进表单再保存就会把真 key 覆盖成打码串。
+                try
+                {
+                    var cfgFile = Path.Combine(HermesHome, "config.yaml");
+                    if (File.Exists(cfgFile))
+                    {
+                        var inModel = false;
+                        foreach (var line in File.ReadAllLines(cfgFile))
+                        {
+                            var t = line.TrimEnd();
+                            if (t.Length == 0 || t.TrimStart().StartsWith("#")) continue;
+                            if (!line.StartsWith("  ", StringComparison.Ordinal)) { inModel = t.StartsWith("model:", StringComparison.Ordinal); continue; }
+                            if (!inModel) continue;
+                            var tl = t.TrimStart();
+                            if (!tl.StartsWith("api_key:", StringComparison.Ordinal)) continue;
+                            var v = tl.Substring("api_key:".Length).Trim().Trim('"').Trim('\'');
+                            if (v.Length > 0 && !v.StartsWith("${", StringComparison.Ordinal)
+                                && !v.Contains("...", StringComparison.Ordinal)) { key = v; }
+                            break;
+                        }
+                    }
+                }
+                catch { }
             }
                     var def = "";
                     try { def = HermesCtl.Run("config get model.default", 20).Trim().Trim('"'); } catch { }
@@ -2573,6 +2595,28 @@ namespace HerMemory
                         catch { }
                     }
 
+                    // 安装源自检：install.ps1 与随包素材（scripts/memory/docs）必须齐。
+                    // 缺了就别启动安装——半路 Die 会把界面停在"发行包不完整"，用户不知道该做什么。
+                    if (!SourceLooksComplete())
+                    {
+                        var pd = PayloadDir;
+                        if (ExtractPayload(pd) && Directory.Exists(pd)) _repoRoot = pd;
+                    }
+                    if (!SourceLooksComplete())
+                    {
+                        Dispatcher.Invoke(() =>
+                        {
+                            StopTips();
+                            InstallTitle.Text = stage == 1 ? "安装未成功" : "配置未成功";
+                            InstallFail.Text = "安装源不完整：找不到 " + (_repoRoot ?? "(未知)") +
+                                "\\install.ps1 或 scripts\\upstream-install.ps1。" + Environment.NewLine +
+                                "请重新下载 Setup.exe 后重试。";
+                            InstallFail.Visibility = Visibility.Visible;
+                            AddRetryButton();
+                        });
+                        return;
+                    }
+
                     // 2. 静默安装
                     // RedirectStandardInput：CreateNoWindow 下子进程会拿到一个"无窗口但真实存在"的控制台，
                     // 其 stdin 是有效输入缓冲区——上游任何 input() 都会永久阻塞等待敲不进来的按键
@@ -2581,7 +2625,7 @@ namespace HerMemory
                     var psi = new ProcessStartInfo
                     {
                         FileName = "powershell.exe",
-                        Arguments = $"-NoProfile -ExecutionPolicy Bypass -File \"{Path.Combine(_repoRoot!, "install.ps1")}\" -AnswersFile \"{_answersPath}\" -VaultDir \"{(_pendVaultDir ?? AppPaths.VaultDir)}\"",
+                        Arguments = $"-NoProfile -ExecutionPolicy Bypass -File \"{Path.Combine(_repoRoot!, "install.ps1")}\" -AnswersFile \"{_answersPath}\" -VaultDir \"{(_pendVaultDir ?? AppPaths.VaultDir)}\" -SrcDir \"{_repoRoot}\"",
                         UseShellExecute = false,
                         RedirectStandardOutput = true,
                         RedirectStandardError = true,
@@ -2755,6 +2799,25 @@ namespace HerMemory
                     _installCts = null;
                 }
             });
+        }
+
+        /// <summary>安装源是否带齐随包素材。安装器依赖 scripts\upstream-install.ps1（内核）、
+        /// memory\（出厂五文件）、docs\（使用文档）。</summary>
+        private bool SourceLooksComplete()
+        {
+            var root = _repoRoot;
+            if (string.IsNullOrEmpty(root)) return false;
+            try
+            {
+                if (!File.Exists(Path.Combine(root, "install.ps1"))
+                    || !File.Exists(Path.Combine(root, "scripts", "upstream-install.ps1"))
+                    || !Directory.Exists(Path.Combine(root, "memory"))
+                    || !Directory.Exists(Path.Combine(root, "docs"))) return false;
+                // 内核包：内嵌 payload 是扁平的，开发仓库在 build\minimal\ 下（与 install.ps1 的 Get-ShippedAsset 同口径）
+                return File.Exists(Path.Combine(root, "hermes-agent.bundle"))
+                       || File.Exists(Path.Combine(root, "build", "minimal", "hermes-agent.bundle"));
+            }
+            catch { return false; }
         }
 
         /// <summary>安装成功后的落地动作：释放程序本体 → 建快捷方式 → 登记卸载项与开机启动。
