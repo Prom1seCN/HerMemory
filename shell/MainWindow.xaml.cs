@@ -1225,7 +1225,8 @@ namespace HerMemory
             var firstContent = true;
             foreach (var raw in text.Replace("\r\n", "\n").Split('\n'))
             {
-                var line = raw.TrimEnd();
+                // 只做极简渲染：去掉 ** 与 ` 标记，避免正文里露出星号
+                var line = raw.TrimEnd().Replace("**", "").Replace("`", "");
                 if (line.Trim().Length == 0) { AddHelpLine("", 6, "Ink", false, 0, 0); continue; }
                 // 文档自己的 H1 与页头重复，跳过第一行标题
                 if (firstContent && line.StartsWith("# ")) { firstContent = false; continue; }
