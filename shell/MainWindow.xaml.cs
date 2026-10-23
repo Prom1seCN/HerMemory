@@ -212,9 +212,9 @@ namespace HerMemory
             if (running && !_pulseOn) { StartPulse(StatusHalo); _pulseOn = true; }
             else if (!running && _pulseOn) { StopPulse(StatusHalo); _pulseOn = false; }
             // 只刷新"当前正看着的那一页"。本方法会被托盘每 10 秒的轮询触发，而无差别刷新代价很大：
-            // UpdateTierTable 要起两次 hermes CLI——更要命的是 hermes 调用全局串行，
+            // LoadMemoryLimits 要起两次 hermes CLI——更要命的是 hermes 调用全局串行，
             // 用户点的按钮会排在轮询发起的 config get 后面等锁，表现为"按下去几秒才反应"。
-            if (PageMemory.Visibility == Visibility.Visible) UpdateTierTable();
+            if (PageMemory.Visibility == Visibility.Visible) LoadMemoryLimits();
             if (PageApi.Visibility == Visibility.Visible) UpdateCfgRegion(state);
         }
 
@@ -505,46 +505,85 @@ namespace HerMemory
             CfgFetchModels.IsEnabled = true;
         }
 
-        private async void UpdateTierTable()
+        /// <summary>读回两个字符上限，填进输入框。读不到就留空，不覆盖用户正在输入的内容。</summary>
+        private async void LoadMemoryLimits()
         {
-            var limit = ""; var usr = "";
             try
             {
-                var outp = await Task.Run(() => HermesCtl.Run("config get memory.memory_char_limit", 20));
-                limit = System.Text.RegularExpressions.Regex.Match(outp, @"(\d{3,7})").Groups[1].Value;
-                var outp2 = await Task.Run(() => HermesCtl.Run("config get memory.user_char_limit", 20));
-                usr = System.Text.RegularExpressions.Regex.Match(outp2, @"(\d{3,7})").Groups[1].Value;
+                var mem = await Task.Run(() => ReadLimit("memory.memory_char_limit"));
+                var usr = await Task.Run(() => ReadLimit("memory.user_char_limit"));
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    if (mem.Length > 0) MemLimitBox.Text = mem;
+                    if (usr.Length > 0) UserLimitBox.Text = usr;
+                });
             }
             catch { }
-            await Dispatcher.InvokeAsync(() =>
+        }
+
+        private static string ReadLimit(string key)
+        {
+            try
             {
-            HomeTierCurrent.Text = limit.Length > 0 && usr.Length > 0
-                ? $"当前：MEMORY {limit} 字符 / USER {usr} 字符"
-                : "";
-            var std = (limit, usr) switch
+                var outp = HermesCtl.Run($"config get {key}", 20);
+                var m = System.Text.RegularExpressions.Regex.Match(outp, @"(\d{3,7})");
+                return m.Success ? m.Groups[1].Value : "";
+            }
+            catch { return ""; }
+        }
+
+        private void MemoryPreset_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not System.Windows.Controls.Button b || b.Tag is not string tag) return;
+            var parts = tag.Split('|');
+            if (parts.Length != 2) return;
+            MemLimitBox.Text = parts[0];
+            UserLimitBox.Text = parts[1];
+            MemoryHint.Foreground = Brush("#78909C");
+            MemoryHint.Text = "已填入档位数值，点「保存」生效。";
+        }
+
+        private async void BtnSaveMemory_Click(object sender, RoutedEventArgs e)
+        {
+            if (!int.TryParse((MemLimitBox.Text ?? "").Trim(), out var mem) || mem < 100 || mem > 1000000)
             {
-                ("2200", "1375") => 1,
-                ("5000", "3000") => 2,
-                ("10000", "5000") => 3,
-                _ => 4,
-            };
-            var accent = System.Windows.Application.Current.Resources["Accent"] as System.Windows.Media.Brush ?? Brush("#0E7490");
-            var gray = Brush("#546E7A");
-            for (int i = 1; i <= 4; i++)
+                MemoryHint.Foreground = Brush("#C62828");
+                MemoryHint.Text = "MEMORY 必须是 100–1000000 之间的整数。";
+                return;
+            }
+            if (!int.TryParse((UserLimitBox.Text ?? "").Trim(), out var usr) || usr < 100 || usr > 1000000)
             {
-                var on = i == std;
-                var wm = FindName("TierM" + i) as TextBlock;
-                var wu = FindName("TierU" + i) as TextBlock;
-                if (i == 4)
+                MemoryHint.Foreground = Brush("#C62828");
+                MemoryHint.Text = "USER 必须是 100–1000000 之间的整数。";
+                return;
+            }
+            BtnSaveMemory.IsEnabled = false;
+            MemoryHint.Foreground = Brush("#78909C");
+            MemoryHint.Text = "正在保存……";
+            try
+            {
+                var state = await Task.Run(HermesCtl.State);
+                var ok = await Task.Run(() =>
                 {
-                    if (wm != null) { wm.Text = std == 4 ? limit : "/"; wm.FontWeight = on ? System.Windows.FontWeights.Bold : System.Windows.FontWeights.Normal; wm.Foreground = on ? accent : gray; }
-                    if (wu != null) { wu.Text = std == 4 ? usr : "/"; wu.FontWeight = on ? System.Windows.FontWeights.Bold : System.Windows.FontWeights.Normal; wu.Foreground = on ? accent : gray; }
-                    continue;
-                }
-                if (wm != null) { wm.FontWeight = on ? System.Windows.FontWeights.Bold : System.Windows.FontWeights.Normal; wm.Foreground = on ? accent : gray; }
-                if (wu != null) { wu.FontWeight = on ? System.Windows.FontWeights.Bold : System.Windows.FontWeights.Normal; wu.Foreground = on ? accent : gray; }
-                }
-            });
+                    HermesCtl.Run($"config set memory.memory_char_limit {mem}", 30);
+                    HermesCtl.Run($"config set memory.user_char_limit {usr}", 30);
+                    // 回读校验：config set 失败时 CLI 也可能退 0，只有读回对得上才算真的写进去了
+                    return ReadLimit("memory.memory_char_limit") == mem.ToString()
+                        && ReadLimit("memory.user_char_limit") == usr.ToString();
+                });
+                MemoryHint.Foreground = ok ? Brush("#2E7D32") : Brush("#C62828");
+                MemoryHint.Text = ok
+                    ? (state == "running"
+                        ? "已保存。重启 Gateway 后生效（首页点「停止」再「启动」）。"
+                        : "已保存，下次启动 Gateway 时生效。")
+                    : "保存失败：配置没有写进去，请查看 Gateway 日志。";
+            }
+            catch (Exception ex)
+            {
+                MemoryHint.Foreground = Brush("#C62828");
+                MemoryHint.Text = "保存失败：" + ex.Message;
+            }
+            finally { BtnSaveMemory.IsEnabled = true; }
         }
 
         private bool _homeBusy;
@@ -1028,7 +1067,7 @@ namespace HerMemory
         private void LinkMemory_Click(object sender, RoutedEventArgs e)
         {
             ShowPage("PageMemory");
-            UpdateTierTable();
+            LoadMemoryLimits();
         }
 
         private void LinkApi_Click(object sender, RoutedEventArgs e)

@@ -320,60 +320,52 @@
                                Text="AI 会长期记住的内容就存在这两个文件里。档位决定它们能写多长。"/>
                     <Border Style="{StaticResource PageHeadRule}"/>
 
-                    <Border Style="{StaticResource Card}" Margin="0,18,0,0" Padding="20,6,20,10">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="78"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="34"/>
-                                <RowDefinition Height="34"/>
-                                <RowDefinition Height="34"/>
-                                <RowDefinition Height="Auto"/>
-                            </Grid.RowDefinitions>
+                    <Border Style="{StaticResource Card}" Margin="0,18,0,0" Padding="20,18">
+                        <StackPanel>
+                            <TextBlock Text="记忆预算" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource Ink}"/>
+                            <TextBlock Style="{StaticResource Body}" Margin="0,6,0,0" MaxWidth="560" HorizontalAlignment="Left"
+                                       Text="两个数字分别是 MEMORY.md（AI 的长期记忆）与 USER.md（用户档案）的字符上限。超出后 AI 会先压缩再写入。"/>
 
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="档位" FontSize="11" Foreground="{DynamicResource Subtle}"
-                                       VerticalAlignment="Center"/>
-                            <TextBlock Grid.Row="0" Grid.Column="1" Text="紧凑" FontSize="12.5" FontWeight="SemiBold"
-                                       Foreground="{DynamicResource Ink}" VerticalAlignment="Center"/>
-                            <TextBlock Grid.Row="0" Grid.Column="2" Text="标准" FontSize="12.5" FontWeight="SemiBold"
-                                       Foreground="{DynamicResource Ink}" VerticalAlignment="Center"/>
-                            <TextBlock Grid.Row="0" Grid.Column="3" Text="详细" FontSize="12.5" FontWeight="SemiBold"
-                                       Foreground="{DynamicResource Ink}" VerticalAlignment="Center"/>
-                            <TextBlock Grid.Row="0" Grid.Column="4" Text="自定义" FontSize="12.5" FontWeight="SemiBold"
-                                       Foreground="{DynamicResource Ink}" VerticalAlignment="Center"/>
+                            <Grid Margin="0,18,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="24"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Text="MEMORY 字符上限" Style="{StaticResource Label}" Margin="2,0,0,7"/>
+                                    <TextBox x:Name="MemLimitBox" Style="{StaticResource FieldBox}" Width="150"
+                                             TextAlignment="Left" MaxLength="7" HorizontalAlignment="Left"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="USER 字符上限" Style="{StaticResource Label}" Margin="2,0,0,7"/>
+                                    <TextBox x:Name="UserLimitBox" Style="{StaticResource FieldBox}" Width="150"
+                                             TextAlignment="Left" MaxLength="7" HorizontalAlignment="Left"/>
+                                </StackPanel>
+                            </Grid>
 
-                            <Border Grid.Row="1" Grid.ColumnSpan="5" Height="1" VerticalAlignment="Top"
-                                    Background="{DynamicResource Hairline}"/>
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="MEMORY" FontSize="10.5" FontWeight="SemiBold"
-                                       Foreground="{DynamicResource Subtle}" VerticalAlignment="Center"/>
-                            <TextBlock Grid.Row="1" Grid.Column="1" x:Name="TierM1" Text="2200" FontSize="12.5" Foreground="{DynamicResource Muted}" VerticalAlignment="Center"/>
-                            <TextBlock Grid.Row="1" Grid.Column="2" x:Name="TierM2" Text="5000" FontSize="12.5" Foreground="{DynamicResource Muted}" VerticalAlignment="Center"/>
-                            <TextBlock Grid.Row="1" Grid.Column="3" x:Name="TierM3" Text="10000" FontSize="12.5" Foreground="{DynamicResource Muted}" VerticalAlignment="Center"/>
-                            <TextBlock Grid.Row="1" Grid.Column="4" x:Name="TierM4" Text="/" FontSize="12.5" Foreground="{DynamicResource Muted}" VerticalAlignment="Center"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+                                <TextBlock Text="常用档位" FontSize="12" Foreground="{DynamicResource Subtle}"
+                                           VerticalAlignment="Center" Margin="2,0,10,0"/>
+                                <Button Content="紧凑 2200 / 1375" Style="{StaticResource GhostButton}"
+                                        Tag="2200|1375" Click="MemoryPreset_Click" Padding="12,0" MinHeight="30"/>
+                                <Button Content="标准 5000 / 3000" Style="{StaticResource GhostButton}" Margin="8,0,0,0"
+                                        Tag="5000|3000" Click="MemoryPreset_Click" Padding="12,0" MinHeight="30"/>
+                                <Button Content="详细 10000 / 5000" Style="{StaticResource GhostButton}" Margin="8,0,0,0"
+                                        Tag="10000|5000" Click="MemoryPreset_Click" Padding="12,0" MinHeight="30"/>
+                            </StackPanel>
 
-                            <Border Grid.Row="2" Grid.ColumnSpan="5" Height="1" VerticalAlignment="Top"
-                                    Background="{DynamicResource Hairline}"/>
-                            <TextBlock Grid.Row="2" Grid.Column="0" Text="USER" FontSize="10.5" FontWeight="SemiBold"
-                                       Foreground="{DynamicResource Subtle}" VerticalAlignment="Center"/>
-                            <TextBlock Grid.Row="2" Grid.Column="1" x:Name="TierU1" Text="1375" FontSize="12.5" Foreground="{DynamicResource Muted}" VerticalAlignment="Center"/>
-                            <TextBlock Grid.Row="2" Grid.Column="2" x:Name="TierU2" Text="3000" FontSize="12.5" Foreground="{DynamicResource Muted}" VerticalAlignment="Center"/>
-                            <TextBlock Grid.Row="2" Grid.Column="3" x:Name="TierU3" Text="5000" FontSize="12.5" Foreground="{DynamicResource Muted}" VerticalAlignment="Center"/>
-                            <TextBlock Grid.Row="2" Grid.Column="4" x:Name="TierU4" Text="/" FontSize="12.5" Foreground="{DynamicResource Muted}" VerticalAlignment="Center"/>
-
-                            <Border Grid.Row="3" Grid.ColumnSpan="5" Height="1" VerticalAlignment="Top"
-                                    Background="{DynamicResource Hairline}"/>
-                            <TextBlock Grid.Row="3" Grid.ColumnSpan="5" x:Name="HomeTierCurrent" FontSize="11.5"
-                                       Foreground="{DynamicResource Subtle}" VerticalAlignment="Center" Margin="0,11,0,6"/>
-                        </Grid>
+                            <StackPanel Orientation="Horizontal" Margin="0,20,0,0">
+                                <Button x:Name="BtnSaveMemory" Content="保存" Style="{StaticResource AccentButton}"
+                                        Click="BtnSaveMemory_Click"/>
+                                <TextBlock x:Name="MemoryHint" VerticalAlignment="Center" Margin="14,0,0,0"
+                                           FontSize="11.5" Foreground="{DynamicResource Subtle}" TextWrapping="Wrap" MaxWidth="420"/>
+                            </StackPanel>
+                        </StackPanel>
                     </Border>
 
                     <TextBlock Style="{StaticResource Hint}" Margin="2,14,0,0"
-                               Text="数字是字符预算（约等于汉字数）。档位修改请与 AI 对话，修改后开启新对话生效。"/>
+                               Text="数字是字符预算（约等于汉字数，英文按 0.25 个字符折算）。保存后需重启 Gateway 生效；新的对话会按新上限执行。"/>
                 </StackPanel>
             </ScrollViewer>
         </Grid>
