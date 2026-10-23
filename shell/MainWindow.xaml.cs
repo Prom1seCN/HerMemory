@@ -1215,6 +1215,123 @@ namespace HerMemory
             GoHome();
         }
 
+        // ================= 常用命令（微信里直接发） =================
+        // 取自内核的斜杠命令表，只挑微信侧可用、日常真会用到的；命令原文不动，
+        // 释义用一句话说清"什么时候用"。
+        private sealed class CmdEntry
+        {
+            public string Group = "", Cmd = "", Desc = "";
+            public CmdEntry(string group, string cmd, string desc) { Group = group; Cmd = cmd; Desc = desc; }
+        }
+
+        private static readonly CmdEntry[] CommonCommands =
+        {
+            new CmdEntry("日常", "/new", "开新对话：清空上下文，历史仍可查"),
+            new CmdEntry("日常", "/status", "看当前模型、token 与上下文占用"),
+            new CmdEntry("日常", "/usage", "看 token 用量与限流时间"),
+            new CmdEntry("日常", "/model", "本次对话临时换模型"),
+            new CmdEntry("日常", "/undo", "撤回上一轮，重新提问"),
+
+            new CmdEntry("出问题时", "/stop", "停掉正在跑的后台任务"),
+            new CmdEntry("出问题时", "/compress", "压缩上下文（对话变长、回复变慢时用）"),
+            new CmdEntry("出问题时", "/restart", "重启网关（不回消息、卡住时用）"),
+
+            new CmdEntry("记忆与人设", "/memory", "查看待写入的记忆、记忆写入确认开关"),
+            new CmdEntry("记忆与人设", "/personality", "换一套说话的人格"),
+            new CmdEntry("记忆与人设", "/reasoning", "调推理强度：更快，或更聪明"),
+
+            new CmdEntry("其它", "/help", "列出全部可用命令"),
+            new CmdEntry("其它", "/version", "查看内核版本"),
+        };
+
+        private void BtnCommands_Click(object sender, RoutedEventArgs e)
+        {
+            ShowPage("PageCommands");
+            RenderCommands();
+        }
+
+        private void RenderCommands()
+        {
+            CmdList.Children.Clear();
+            CmdHint.Text = "";
+            var group = "";
+            StackPanel? rows = null;
+            foreach (var c in CommonCommands)
+            {
+                if (c.Group != group)
+                {
+                    group = c.Group;
+                    CmdList.Children.Add(new TextBlock
+                    {
+                        Text = group,
+                        FontSize = 11,
+                        FontWeight = FontWeights.SemiBold,
+                        Foreground = Res("Subtle"),
+                        Margin = new Thickness(2, CmdList.Children.Count == 0 ? 0 : 18, 0, 8),
+                    });
+                    rows = new StackPanel();
+                    CmdList.Children.Add(new Border
+                    {
+                        Style = (Style)FindResource("Card"),
+                        Padding = new Thickness(16, 4, 16, 4),
+                        Child = rows,
+                    });
+                }
+                rows!.Children.Add(BuildCmdRow(c));
+            }
+        }
+
+        private FrameworkElement BuildCmdRow(CmdEntry c)
+        {
+            var grid = new Grid { Margin = new Thickness(0, 9, 0, 9) };
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(118) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            grid.Children.Add(new TextBlock
+            {
+                Text = c.Cmd,
+                FontSize = 13,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = Res("Ink"),
+                FontFamily = new System.Windows.Media.FontFamily("Consolas, Microsoft YaHei UI"),
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+
+            var desc = new TextBlock
+            {
+                Text = c.Desc,
+                FontSize = 12,
+                Foreground = Res("Muted"),
+                TextWrapping = TextWrapping.Wrap,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 12, 0),
+            };
+            Grid.SetColumn(desc, 1);
+            grid.Children.Add(desc);
+
+            var copy = new Button
+            {
+                Content = "复制",
+                Style = (Style)FindResource("LinkButton"),
+                FontSize = 11.5,
+                Foreground = Res("Accent"),
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            copy.Click += (_, _) =>
+            {
+                try
+                {
+                    Clipboard.SetText(c.Cmd);
+                    CmdHint.Text = "已复制 " + c.Cmd + "，去微信聊天框粘贴发送。";
+                }
+                catch { CmdHint.Text = "复制失败，请手动选中命令。"; }
+            };
+            Grid.SetColumn(copy, 2);
+            grid.Children.Add(copy);
+            return grid;
+        }
+
         // ================= 什么是 API Key（读 docs\GET-API-KEY.md） =================
         private void BtnApiHelp_Click(object sender, RoutedEventArgs e)
         {
@@ -1795,7 +1912,12 @@ namespace HerMemory
         /// 否则深色下会拿浅色的墨色画在深底上。</summary>
         private void RefreshHelpTheme()
         {
-            try { if (PageApiHelp.Visibility == Visibility.Visible) RenderApiHelp(); } catch { }
+            try
+            {
+                if (PageApiHelp.Visibility == Visibility.Visible) RenderApiHelp();
+                if (PageCommands.Visibility == Visibility.Visible) RenderCommands();
+            }
+            catch { }
         }
 
         private bool _themeUiReady;

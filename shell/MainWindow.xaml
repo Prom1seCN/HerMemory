@@ -284,7 +284,8 @@
                             Margin="9,0,0,0" VerticalAlignment="Center" Click="BtnExport_Click"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-                    <Button Content="使用文档" Style="{StaticResource GhostButton}" Click="BtnGuide_Click"/>
+                    <Button Content="常用命令" Style="{StaticResource GhostButton}" Click="BtnCommands_Click"/>
+                    <Button Content="使用文档" Style="{StaticResource GhostButton}" Margin="9,0,0,0" Click="BtnGuide_Click"/>
                     <Button Content="打开记忆库" Style="{StaticResource GhostButton}" Margin="9,0,0,0" Click="BtnVault_Click"/>
                     <Button Content="卸载" Style="{StaticResource LinkButton}" Margin="10,0,0,0"
                             VerticalAlignment="Center" Click="BtnUninstall_Click"/>
@@ -595,6 +596,27 @@
             <ScrollViewer Grid.Row="1" Margin="0,14,0,0" VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
                 <StackPanel x:Name="ApiHelpBody" MaxWidth="640" HorizontalAlignment="Left"/>
             </ScrollViewer>
+        </Grid>
+
+
+        <!-- ===== 主界面子页：常用命令（微信里直接发） ===== -->
+        <Grid x:Name="PageCommands" Visibility="Collapsed">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <StackPanel Grid.Row="0">
+                <Button Style="{StaticResource BackButton}" Content="返回" HorizontalAlignment="Left" Click="BtnBack_Click"/>
+                <TextBlock Text="常用命令" Style="{StaticResource PageTitle}"/>
+                <TextBlock Style="{StaticResource Body}" Margin="0,6,0,0"
+                           Text="在微信聊天框里直接发送，斜杠开头。点「复制」再粘贴。"/>
+                <Border Style="{StaticResource PageHeadRule}"/>
+            </StackPanel>
+            <ScrollViewer Grid.Row="1" Margin="0,14,0,0" VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
+                <StackPanel x:Name="CmdList" MaxWidth="680" HorizontalAlignment="Left"/>
+            </ScrollViewer>
+            <TextBlock x:Name="CmdHint" Grid.Row="2" Style="{StaticResource Hint}" Margin="2,10,0,0"/>
         </Grid>
 
         <!-- ===== 主界面子页：微信绑定 ===== -->

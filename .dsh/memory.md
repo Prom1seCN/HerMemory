@@ -186,6 +186,8 @@ export HERMES_HOME=<spike>/home
   不再有 API/扫码页；API、微信、第一句话全在程序本体的 `PageSetup` 三步骤向导里，
   「设置 → 配置向导」可重进。是否已走完记在 `%LOCALAPPDATA%\HerMemory\ui-state.json`
   （`UiState.SetupDone`，与内核配置分开）；老用户升级时若已有 Key + 微信绑定则自动视为完成，不打扰。
+- `PageCommands`（首页底部「常用命令」）列出微信侧可用的斜杠命令 + 一句释义 + 复制按钮；
+  命令取自内核 `hermes_cli/commands.py` 的 `COMMAND_REGISTRY`，只收 `cli_only=False` 的。
 - `PageApiHelp` 渲染 `vault\HerMemory\docs\GET-API-KEY.md`（安装时随 docs 一起铺），
   支持 #/##/###/>/- 的极简 Markdown；文件缺失时显示落地路径而不是空白页。
   **行内强调只能用颜色不能用字重**：同一 TextBlock 里混字重的汉字会被 WPF 合成假粗体（重影），
