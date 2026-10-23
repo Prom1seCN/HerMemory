@@ -178,6 +178,7 @@ namespace HerMemory
             // 清掉上次失败留下的安装答案文件（含明文 API Key，失败时被刻意保留以支持续装）
             // 注意必须 global:: 限定：Application.MainWindow 属性会遮蔽 MainWindow 类名
             global::HerMemory.MainWindow.PurgeStaleAnswerFiles();
+            global::HerMemory.MainWindow.PurgeStaleExportStaging();
             Theme.Apply();
             var elevateRestart = e.Args.Any(a =>
                 string.Equals(a, "--elevated-attempted", StringComparison.OrdinalIgnoreCase));

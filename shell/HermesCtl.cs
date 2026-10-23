@@ -369,7 +369,10 @@ namespace HerMemory
         public static (string baseUrl, string keyEnv, string keyValue) GetModelCfg()
         {
             var baseUrl = Clean(Run("config get model.base_url", 20));
-            var apiRef = Clean(Run("config get model.api_key", 20));   // 形如 ${HERMES_CUSTOM_X_API_KEY}
+            // 直接读 config.yaml：CLI 的 `config get model.api_key` 会把密钥打码成 sk-a...a84f，
+            // 拿它回填等于把打码串写回去。yaml 里才是真值（明文或 ${ENV} 引用）。
+            var apiRef = Clean(ReadConfigValue("model.api_key"));
+            if (apiRef.Length == 0) apiRef = Clean(Run("config get model.api_key", 20));
             var m = System.Text.RegularExpressions.Regex.Match(apiRef, @"\$\{([A-Z0-9_]+)\}");
             var keyEnv = m.Success ? m.Groups[1].Value : "";
             var keyValue = "";
@@ -382,7 +385,45 @@ namespace HerMemory
                         .Select(l => l[(keyEnv.Length + 1)..])
                         .FirstOrDefault() ?? "";
             }
+            else if (apiRef.Length > 0
+                     && !apiRef.Contains("...", StringComparison.Ordinal)
+                     && !apiRef.Equals("not set", StringComparison.OrdinalIgnoreCase))
+            {
+                // 旧版/手工配置可能把 key 直接明文写在 config.yaml（不引 .env）。
+                // 之前只认 ${ENV} 引用，明文 key 会被当成"没有 key"→ 升级向导预填为空、卡在「请完整填写」。
+                keyValue = apiRef;
+            }
             return (baseUrl, keyEnv, keyValue);
+        }
+
+        /// <summary>读 config.yaml 里 "section.leaf" 的值（只处理一层缩进的简单结构）。
+        /// 用途：取回 CLI 会打码的密钥原值。读不到返回空串。</summary>
+        private static string ReadConfigValue(string dotted)
+        {
+            try
+            {
+                var path = Path.Combine(HermesHome, "config.yaml");
+                if (!File.Exists(path)) return "";
+                var parts = dotted.Split('.');
+                var section = parts[0];
+                var leaf = parts[^1];
+                var inSection = false;
+                foreach (var raw in File.ReadAllLines(path))
+                {
+                    if (raw.Length == 0 || raw.TrimStart().StartsWith("#", StringComparison.Ordinal)) continue;
+                    if (!char.IsWhiteSpace(raw[0]))
+                    {
+                        inSection = raw.TrimEnd().TrimEnd(':').Equals(section, StringComparison.OrdinalIgnoreCase);
+                        continue;
+                    }
+                    if (!inSection) continue;
+                    var t = raw.Trim();
+                    if (t.StartsWith(leaf + ":", StringComparison.OrdinalIgnoreCase))
+                        return t[(leaf.Length + 1)..].Trim().Trim('"').Trim('\'');
+                }
+            }
+            catch { }
+            return "";
         }
 
         private static string Clean(string s)

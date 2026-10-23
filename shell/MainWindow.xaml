@@ -96,7 +96,7 @@
         <ScrollViewer x:Name="PageScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled" Focusable="False">
             <Grid x:Name="PageHost"
-                  MinHeight="{Binding ViewportHeight, RelativeSource={RelativeSource AncestorType=ScrollViewer}}">
+                  Height="{Binding ViewportHeight, RelativeSource={RelativeSource AncestorType=ScrollViewer}}">
 
         <!-- ===== 主界面（托盘模式的日常页） ===== -->
         <Grid x:Name="PageHome" Visibility="Collapsed">

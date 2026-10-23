@@ -99,7 +99,7 @@ namespace HerMemory
             {
                 var wa = SystemParameters.WorkArea;
                 var changed = false;
-                if (wa.Height > 200 && Height > wa.Height - 12) { Height = Math.Max(460, wa.Height - 12); changed = true; }
+                if (wa.Height > 200 && Height > wa.Height - 12) { Height = Math.Max(520, wa.Height - 12); changed = true; }
                 if (wa.Width > 200 && Width > wa.Width - 12) { Width = Math.Max(720, wa.Width - 12); changed = true; }
                 if (changed)
                 {
@@ -2572,6 +2572,25 @@ namespace HerMemory
                 {
                     if (keep != null && string.Equals(f, keep, StringComparison.OrdinalIgnoreCase)) continue;
                     try { File.Delete(f); } catch { }
+                }
+            }
+            catch { }
+        }
+
+        /// <summary>清理上次「一键导出」被强杀时留下的 staging（%TEMP%\hermemory-export-*-stage）。
+        /// 只删超过 1 天的目录：正常导出结束会自己删；留一天是为了不误伤另一个仍在跑的导出实例。</summary>
+        public static void PurgeStaleExportStaging()
+        {
+            try
+            {
+                foreach (var d in Directory.GetDirectories(Path.GetTempPath(), "hermemory-export-*-stage"))
+                {
+                    try
+                    {
+                        if (Directory.GetLastWriteTimeUtc(d) < DateTime.UtcNow.AddDays(-1))
+                            Directory.Delete(d, true);
+                    }
+                    catch { }
                 }
             }
             catch { }
