@@ -24,6 +24,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- 任务栏/窗口图标：与 exe 图标同源，但内容占画布 92%（exe 图标只有 ~60%，任务栏上显得小） -->
+    <Resource Include="app-taskbar.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- .NET 8 不自带代码页编码；安装器输出按 GBK(936) 解码需显式注册 CodePagesEncodingProvider（App 启动时） -->
     <PackageReference Include="System.Text.Encoding.CodePages" Version="8.0.0" />
   </ItemGroup>
