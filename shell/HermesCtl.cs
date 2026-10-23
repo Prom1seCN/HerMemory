@@ -423,6 +423,35 @@ namespace HerMemory
             return (baseUrl, keyEnv, keyValue);
         }
 
+        /// <summary>升级兼容：0.1.x 把自定义端点写成 OPENAI_BASE_URL / OPENAI_API_KEY。
+        /// 若新配置里还没有 model.api_key，就把这两个值迁成正规的 model.*（provider=custom +
+        /// env 引用），再把 OPENAI_* 删掉；已有 model.api_key 时只做清理。返回是否改动。</summary>
+        public static bool MigrateLegacyOpenAiEnv()
+        {
+            try
+            {
+                var env = Path.Combine(HermesHome, ".env");
+                if (!File.Exists(env)) return false;
+                var lines = File.ReadAllLines(env);
+                var baseLine = lines.FirstOrDefault(l => l.StartsWith("OPENAI_BASE_URL=", StringComparison.Ordinal));
+                var keyLine = lines.FirstOrDefault(l => l.StartsWith("OPENAI_API_KEY=", StringComparison.Ordinal));
+                if (baseLine == null || keyLine == null) return false;
+                var url = baseLine["OPENAI_BASE_URL=".Length..].Trim().Trim('"').TrimEnd('/');
+                var key = keyLine["OPENAI_API_KEY=".Length..].Trim().Trim('"');
+                if (url.Length == 0 || key.Length == 0) return false;
+                if (url.Contains("api.openai.com", StringComparison.OrdinalIgnoreCase)) return false;
+
+                // 新配置里已经有 Key：只清理旧变量（它会把路由劫持到 OpenRouter）
+                if ((ReadConfigValue("model.api_key") ?? "").Trim().Length > 0)
+                    return PurgeLegacyOpenAiEnv();
+
+                if (!SetModelCfg(url, key)) return false;
+                PurgeLegacyOpenAiEnv();
+                return true;
+            }
+            catch { return false; }
+        }
+
         /// <summary>0.1.x 的安装器把自定义端点写成 OPENAI_BASE_URL / OPENAI_API_KEY；
         /// v0.22 见到 OPENAI_API_KEY 会按 auth.py 的 resolve_provider 劫持到 OpenRouter。
         /// 只在 BASE_URL 明确不是 OpenAI 官方时清理（用户真用 OpenAI 时不碰）。返回是否改动。</summary>

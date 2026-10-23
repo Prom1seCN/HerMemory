@@ -354,6 +354,9 @@ hermes config set display.timestamps true >/dev/null 2>&1 \
 # ---------- 9. 记忆档位（新手引导1：多档可选） ----------
 if [ "$HEADLESS" = "1" ]; then
     log "无交互模式：跳过记忆档位（沿用默认 2200 / 1375，之后可用 memory-size.sh 改）"
+elif [ -f "$HERMES_HOME/config.yaml" ] && grep -qE '^[[:space:]]+memory_char_limit:[[:space:]]*[0-9]+' "$HERMES_HOME/config.yaml"; then
+    log "记忆档位：沿用现有配置（要改：bash memory-size.sh）"
+    mark_done memory-tier
 elif done_step memory-tier; then
     log "记忆档位：已完成（自动跳过）"
 else
@@ -384,6 +387,9 @@ fi
 # ---------- 9.5/9.6 配置 AI（用户流程 2：地址先验证，Key 后验证；Key 阶段输 1 可返回地址；完成后 AI 上线） ----------
 if [ "$HEADLESS" = "1" ]; then
     log "无交互模式：跳过 AI 配置（之后执行 hermes model 或 hermes config set 配置）"
+elif [ -f "$HERMES_HOME/config.yaml" ] && grep -qE '^[[:space:]]+api_key:[[:space:]]*[^[:space:]"'"'"']+' "$HERMES_HOME/config.yaml"; then
+    log "检测到已有模型配置：沿用（要改：hermes model）"
+    mark_done config-ai
 elif done_step config-ai; then
     log "配置 AI：已完成，自动跳过"
 else
@@ -598,17 +604,37 @@ print(json.load(open(files[-1])).get('user_id', '') if files else '')" 2>/dev/nu
     fi
 fi
 
-# ---------- 10.5 兼容 0.1.x：清掉会劫持路由的 OPENAI_* ----------
+# ---------- 10.5 兼容 0.1.x：把 OPENAI_* 迁移成 model.* ----------
 # v0.22 的 auth.py 见到 OPENAI_API_KEY 会按它选 provider（自定义端点会被劫持到 OpenRouter）。
-# 0.1.x 的安装器正是把自定义端点写成 OPENAI_BASE_URL / OPENAI_API_KEY 的。
-# 只清 BASE_URL 明确不是 OpenAI 官方的那种，用户真用 OpenAI 时不动。
+# 0.1.x 的安装器正是把自定义端点写成 OPENAI_BASE_URL / OPENAI_API_KEY 的，这里就地迁移：
+#   · 已有 model.api_key → 只删旧变量
+#   · 没有 → 用旧值补出 HERMES_CUSTOM_<host>_API_KEY + model.*（与 9.5 段同一套写法）
+#   · 取不到模型名 → 原样保留并提示，绝不在没有模型名的情况下把凭据删掉
 if [ -f "$HERMES_HOME/.env" ]; then
-    _olb="$(grep -E '^OPENAI_BASE_URL=' "$HERMES_HOME/.env" | head -1 | cut -d= -f2- | tr -d '\r')"
-    _olb="${_olb%\"}"; _olb="${_olb#\"}"
-    if [ -n "$_olb" ] && [ "${_olb#*api.openai.com}" = "$_olb" ] \
-       && grep -qE '^OPENAI_API_KEY=' "$HERMES_HOME/.env"; then
-        sed -i -E '/^OPENAI_(API_KEY|BASE_URL)=/d' "$HERMES_HOME/.env"
-        ok "已清理旧版遗留的 OPENAI_* 路由键（v0.22 会据此劫持到 OpenRouter）"
+    _olb="$(grep -E '^OPENAI_BASE_URL=' "$HERMES_HOME/.env" | head -1 | cut -d= -f2- | tr -d '\r' | tr -d '"')"
+    _okey="$(grep -E '^OPENAI_API_KEY=' "$HERMES_HOME/.env" | head -1 | cut -d= -f2- | tr -d '\r' | tr -d '"')"
+    if [ -n "$_olb" ] && [ -n "$_okey" ] && [ "${_olb#*api.openai.com}" = "$_olb" ]; then
+        if grep -qE '^[[:space:]]+api_key:[[:space:]]*[^[:space:]"'"'"']+' "$HERMES_HOME/config.yaml" 2>/dev/null; then
+            sed -i -E '/^OPENAI_(API_KEY|BASE_URL)=/d' "$HERMES_HOME/.env"
+            ok "已清理旧版遗留的 OPENAI_*（会劫持模型路由）"
+        else
+            _m="$(hermes config get model.default 2>/dev/null | tr -d '[:space:]' || true)"
+            case "$_m" in ""|*Config*|*not*|*Error*) _m="" ;; esac
+            if [ -z "$_m" ]; then
+                warn "检测到旧版 OPENAI_*，但读不到模型名，已原样保留；请执行 hermes model 重新配置"
+            else
+                _slug="$(printf '%s' "$_olb" | sed -E 's#^https?://([^/]+).*#\1#' | tr '[:lower:]' '[:upper:]' | sed -E 's/[^A-Z0-9]+/_/g; s/^_+//; s/_+$//')"
+                _kenv="HERMES_CUSTOM_${_slug}_API_KEY"
+                hermes config set "$_kenv" "$_okey" >/dev/null 2>&1 || true
+                grep -q "^${_kenv}=" "$HERMES_HOME/.env" 2>/dev/null || echo "${_kenv}=$_okey" >> "$HERMES_HOME/.env"
+                cfg_set model.base_url "$_olb"
+                cfg_set model.provider custom
+                cfg_set model.api_key "\${${_kenv}}"
+                cfg_set model.api_mode chat_completions
+                sed -i -E '/^OPENAI_(API_KEY|BASE_URL)=/d' "$HERMES_HOME/.env"
+                ok "已把旧版 OPENAI_* 迁移为 model.* 配置（模型：$_m）"
+            fi
+        fi
     fi
 fi
 

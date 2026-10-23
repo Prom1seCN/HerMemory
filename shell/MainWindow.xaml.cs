@@ -3357,11 +3357,14 @@ namespace HerMemory
                         {
                             // 安装器只负责装：API 与微信都交给程序本体里的三步骤配置向导，
                             // 装完点「完成」启动程序即可，不再在安装过程中要求扫码/填 Key。
+                            var already = ApiConfigured();
                             DoneText.Text = "程序已安装"
                                 + (_shellOk ? "到 " + (_pendAppDir ?? AppPaths.DefaultAppDir) + "。"
                                             : "，但部分快捷方式未能写入（缺少管理员权限）。")
                                 + Environment.NewLine
-                                + "点「完成」启动 HerMemory，在那里完成三步配置：连接 AI、绑定微信、发第一句话。";
+                                + (already
+                                    ? "检测到已有配置：API Key、记忆与微信绑定原样保留。点「完成」启动 HerMemory。"
+                                    : "点「完成」启动 HerMemory，在那里完成三步配置：连接 AI、绑定微信、发第一句话。");
                             ShowPage("PageDone");
                             if (!AppPaths.IsSetup) App.Inst?.EnterHomeMode(this);
                         });
@@ -3426,7 +3429,7 @@ namespace HerMemory
                 var appDir = _pendAppDir ?? AppPaths.ExeDir;
                 // 旧版（0.1.x）把自定义端点写成 OPENAI_*，v0.22 会据此把请求劫持到 OpenRouter。
                 // 放在安装收尾做：此时网关还没被拉起，清理后第一次启动就是干净路由。
-                try { HermesCtl.PurgeLegacyOpenAiEnv(); } catch { }
+                try { HermesCtl.MigrateLegacyOpenAiEnv(); } catch { }
                 // 释放程序本体（约 70 MB）留在这个后台线程上；安装器独有，程序本体形态没这资源
                 if (AppPaths.IsSetup && !ExtractAppFiles(appDir)) return false;
 
