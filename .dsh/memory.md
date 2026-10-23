@@ -180,7 +180,11 @@ export HERMES_HOME=<spike>/home
 - 顶栏还有一个隐藏的 `BtnUpdate`：启动时静默查 GitHub `releases/latest`（`shell/UpdateCheck.cs`），
   比当前版本新才显示「有新版本 vX →」，点开浏览器。断网/404/限流一律静默。
 - 排版：窗口 880×620，内容区 800px。顶栏 = 品牌标记 + 版本胶囊 + 明暗开关（每页常驻）；
-  首页 = 状态卡 + 3×2 图标磁贴 + 动作行 + 底部路径卡；子页 = 返回键 + 标题 + 说明 + 发丝线 + 内容。
+  首页 = 顶部 200px 区（左：状态点/文字/启停按钮，右：品牌头像水印）+ 3×2 图标磁贴（全宽）+ 动作行 + 底部路径；
+  子页 = 返回键 + 标题 + 说明 + 发丝线 + 内容。
+- **品牌头像（女孩线稿）只有一处位置**：内容区右上角，200×200，`Opacity=0.14`，不加列、不参与排版
+  （主界面在顶部 200px 区右侧，安装向导在最外层 Grid 右上角），保证不被卡片压住、右下不再留空列。
+  `ApplyGirlIcon()` 按主题换 `girl-light.png` / `girl-dark.png`，两张图都从内嵌资源取。
 - **深色主题下强调色是亮青 `#22D3EE`，主按钮文字必须用 `OnAccent`（深色 `#06141A`）**，白字对比度不够。
 - **自定义 TextBox 模板的坑**：`ScrollViewer x:Name="PART_ContentHost"` 不能设
   `VerticalContentAlignment=Center` —— TextBoxView 会按控件全高排版却被内容区裁掉下半截

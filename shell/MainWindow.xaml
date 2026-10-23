@@ -103,38 +103,30 @@
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="236"/>
-            </Grid.ColumnDefinitions>
 
-            <!-- 品牌头像：右侧独立一列，不再被卡片压住；很淡，只做背景层 -->
-            <Image x:Name="GirlWatermark" Grid.Row="0" Grid.RowSpan="3" Grid.Column="1"
-                   Width="210" Height="210" HorizontalAlignment="Right" VerticalAlignment="Top"
-                   Margin="0,4,0,0" Stretch="Uniform" Opacity="0.14" IsHitTestVisible="False"/>
+            <!-- 顶部：左边状态、右上角头像。头像与安装向导同一位置（内容区右上角），
+                 尺寸统一、很淡、不压任何内容；下面的常用功能仍是原来的两行三列全宽布局。 -->
+            <Grid Grid.Row="0" Height="200">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
 
-
-            <!-- 状态卡：一眼看到 AI 在不在线，右边就是它的开关 -->
-            <Border Grid.Row="0" Grid.Column="0" Style="{StaticResource Card}" Background="{DynamicResource HeroWash}"
-                    Padding="20,16">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                        <Grid Width="38" Height="38">
+                <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="2,0,24,0">
+                    <StackPanel Orientation="Horizontal">
+                        <Grid Width="44" Height="44" VerticalAlignment="Center">
                             <Ellipse Fill="{DynamicResource AccentSoft}"/>
-                            <Ellipse x:Name="StatusHalo" Width="30" Height="30" Fill="{DynamicResource Success}" Opacity="0"/>
-                            <Ellipse x:Name="StatusDot" Width="10" Height="10" Fill="{DynamicResource Subtle}"/>
+                            <Ellipse x:Name="StatusHalo" Width="34" Height="34" Fill="{DynamicResource Success}" Opacity="0"/>
+                            <Ellipse x:Name="StatusDot" Width="11" Height="11" Fill="{DynamicResource Subtle}"/>
                         </Grid>
-                        <StackPanel Margin="14,0,0,0" VerticalAlignment="Center">
-                            <TextBlock x:Name="HomeStatus" FontSize="15.5" FontWeight="SemiBold"
+                        <StackPanel Margin="15,0,0,0" VerticalAlignment="Center">
+                            <TextBlock x:Name="HomeStatus" FontSize="17" FontWeight="SemiBold"
                                        Foreground="{DynamicResource Ink}" Text="正在检查 Gateway 状态……"/>
-                            <TextBlock x:Name="HomeStatusSub" FontSize="11.5" Margin="0,4,0,0"
+                            <TextBlock x:Name="HomeStatusSub" FontSize="11.5" Margin="0,5,0,0"
                                        Foreground="{DynamicResource Subtle}" Text="微信通过 Gateway 连接 HerMemory"/>
                             <!-- 启停过渡：细长的青色进度条来回跑，告诉用户"在干活"，而不是卡死 -->
                             <ProgressBar x:Name="StatusProgress" Style="{StaticResource ThinProgress}"
@@ -142,7 +134,7 @@
                                          Width="220" HorizontalAlignment="Left" Margin="0,9,0,0"/>
                         </StackPanel>
                     </StackPanel>
-                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
                         <Button x:Name="HomeStart" Content="启动" Style="{StaticResource AccentButton}" Click="HomeCtl_Click"/>
                         <Button x:Name="HomeStop" Content="停止" Style="{StaticResource GhostButton}"
                                 Margin="8,0,0,0" Click="HomeCtl_Click"/>
@@ -154,18 +146,22 @@
                                   Data="M 17.5 7.5 A 6.5 6.5 0 1 0 18.5 13.5 M 17.5 3.5 L 17.5 8 L 13 8"/>
                         </Button>
                     </StackPanel>
-                </Grid>
-            </Border>
+                </StackPanel>
+
+                <Image x:Name="GirlWatermark" Grid.Column="1" Width="200" Height="200"
+                       HorizontalAlignment="Right" VerticalAlignment="Top"
+                       Stretch="Uniform" Opacity="0.14" IsHitTestVisible="False"/>
+            </Grid>
 
             <!-- 六宫格：日常真正会点的入口 -->
-            <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,22,0,0">
+            <StackPanel Grid.Row="1" Margin="0,22,0,0">
                 <TextBlock Text="常用功能" Style="{StaticResource SectionLabel}"/>
                 <Grid Margin="0,10,0,0">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/><ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
                     <Grid.RowDefinitions>
-                        <RowDefinition Height="66"/><RowDefinition Height="66"/><RowDefinition Height="66"/>
+                        <RowDefinition Height="68"/><RowDefinition Height="68"/>
                     </Grid.RowDefinitions>
 
                     <Button Grid.Row="0" Grid.Column="0" Style="{StaticResource TileButton}" Margin="0,0,5,9"
@@ -184,7 +180,7 @@
                             </StackPanel>
                         </Grid>
                     </Button>
-                    <Button Grid.Row="0" Grid.Column="1" Style="{StaticResource TileButton}" Margin="5,0,0,9"
+                    <Button Grid.Row="0" Grid.Column="1" Style="{StaticResource TileButton}" Margin="5,0,5,9"
                             AutomationProperties.Name="API 设置" Click="LinkApi_Click">
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
@@ -200,7 +196,7 @@
                             </StackPanel>
                         </Grid>
                     </Button>
-                    <Button Grid.Row="1" Grid.Column="0" Style="{StaticResource TileButton}" Margin="0,0,5,9"
+                    <Button Grid.Row="0" Grid.Column="2" Style="{StaticResource TileButton}" Margin="5,0,0,9"
                             AutomationProperties.Name="微信绑定" Click="LinkWeixin_Click">
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
@@ -217,7 +213,7 @@
                         </Grid>
                     </Button>
 
-                    <Button Grid.Row="1" Grid.Column="1" Style="{StaticResource TileButton}" Margin="5,0,0,9"
+                    <Button Grid.Row="1" Grid.Column="0" Style="{StaticResource TileButton}" Margin="0,0,5,0"
                             AutomationProperties.Name="设置" Click="LinkSettings_Click">
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
@@ -236,7 +232,7 @@
                             </StackPanel>
                         </Grid>
                     </Button>
-                    <Button Grid.Row="2" Grid.Column="0" Style="{StaticResource TileButton}" Margin="0,0,5,0"
+                    <Button Grid.Row="1" Grid.Column="1" Style="{StaticResource TileButton}" Margin="5,0,5,0"
                             AutomationProperties.Name="体检" Click="LinkHealth_Click">
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
@@ -252,7 +248,7 @@
                             </StackPanel>
                         </Grid>
                     </Button>
-                    <Button x:Name="BtnResetAi" Grid.Row="2" Grid.Column="1" Style="{StaticResource TileButton}" Margin="5,0,0,0"
+                    <Button x:Name="BtnResetAi" Grid.Row="1" Grid.Column="2" Style="{StaticResource TileButton}" Margin="5,0,0,0"
                             AutomationProperties.Name="重置 AI" Click="BtnResetAi_Click">
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
@@ -272,7 +268,7 @@
             </StackPanel>
 
             <!-- 动作行：编辑记忆是首页唯一的主按钮 -->
-            <Grid Grid.Row="2" Grid.Column="0" Margin="0,22,0,0" VerticalAlignment="Top">
+            <Grid Grid.Row="2" Margin="0,22,0,0" VerticalAlignment="Top">
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
                     <Button Style="{StaticResource AccentButton}" Click="BtnEditor_Click"
                             AutomationProperties.Name="编辑记忆">
@@ -295,7 +291,7 @@
                 </StackPanel>
             </Grid>
 
-            <TextBlock x:Name="HomeFooter" Grid.Row="3" Grid.ColumnSpan="2" Style="{StaticResource Hint}" Margin="2,20,0,0"/>
+            <TextBlock x:Name="HomeFooter" Grid.Row="4" Style="{StaticResource Hint}" Margin="2,20,0,0"/>
         </Grid>
 
         <!-- ===== 主界面子页：记忆设置 ===== -->
@@ -559,8 +555,8 @@
             </StackPanel>
 
             <!-- 与主界面同一位置/尺寸的品牌头像 -->
-            <Image x:Name="GirlIcon" Width="210" Height="210" HorizontalAlignment="Right" VerticalAlignment="Top"
-                   Margin="0,4,0,0" Stretch="Uniform" Opacity="0.14" IsHitTestVisible="False"/>
+            <Image x:Name="GirlIcon" Width="200" Height="200" HorizontalAlignment="Right" VerticalAlignment="Top"
+                   Margin="0,0,0,0" Stretch="Uniform" Opacity="0.14" IsHitTestVisible="False"/>
         </Grid>
 
         <!-- ===== 页 4：记忆与 AI（安装完成后配置） ===== -->
