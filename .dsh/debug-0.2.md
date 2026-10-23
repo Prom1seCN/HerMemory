@@ -24,8 +24,8 @@
 | 安装器 | 0.2.0 → 0.2.1 升级（真机 GUI） | ✅ 完成，装后 0.2.1 / 网关运行 / Key 保留 |
 | 安装器 | 全新安装（白机） | ⛔ 沙箱无 TCP 出网（只有 ICMP/DNS），阻塞 |
 | 安装器 | 接管已有 Hermes（memories 合并） | 🔍 代码复核通过，真机测试待隔离环境 |
-| 安装器 | 修复安装（删 exe 重装） | ⚠️ 未跑完（自动化被"正在运行"确认框挡住；已手工恢复） |
-| 异常 | 网关被杀 → 应用内启动恢复 | ✅（ACL 修复后） |
+| 安装器 | 修复安装（删 exe 重装） | ✅ 修掉校验 bug 后跑通，exe 已恢复 |
+| 异常 | 网关停止 → 启动恢复 | ✅ stop/start 一轮验证 |
 | 异常 | 导出中途杀进程 → staging 残留 | ⚠️ 见 #4 |
 
 ## 问题
@@ -76,6 +76,19 @@
 - **修复**：`GetModelCfg()` 改为直接读 `config.yaml` 的 `model.api_key`（新增 `ReadConfigValue`），CLI 只作兜底；
   明文值（不含 `...`）直接采用，`${ENV}` 引用仍从 `.env` 解析。
 - **验证**：真机升级到参数页 Key 已预填；「完成配置」一次通过，装完 config 里 api_key 原样保留。
+
+### #8 修复安装被“目录非空”挡住（已修，0.2.1）
+- **复现**：把 `C:\Program Files\HerMemory\HerMemory.exe` 改名（模拟被杀毒/误删/升级中断丢掉 exe）后跑 Setup →
+  位置页红字「程序位置：该目录非空。请选择空目录，或在其下新建一个目录。」，按钮点不动。
+- **根因**：`ValidateAppDir` 只把「含 `HerMemory.exe` 的目录」认作既有安装；exe 丢了就判成"非空普通目录"。
+  而位置页在"已有安装"时把三个框锁死、却不跳过校验，`BtnLocStart_Click` 又重跑一遍 → 修复永远进不去。
+- **修复**：`PrepareLocationPage` 记录 `_locLocked`（已有安装=只读），预填期间用 `_prepLoc` 抑制 TextChanged
+  避免红色残留；`BtnLocStart_Click` 在 `_locLocked` 时跳过三项校验。
+- **验证**：删 exe 后重跑 Setup，位置页正常显示「继续安装」，一路装完，`C:\Program Files\HerMemory\HerMemory.exe`
+  恢复（0.2.1.0），`.bak` 已清理。
+
+### #9 网关停止/启动恢复（验证通过）
+- `hermes gateway stop` → 12s 后 `status` = 无进程；`start` → direct spawn PID 22736，`status` 运行中。
 
 ## 第 2 轮记录（2026-10-23 下午）
 

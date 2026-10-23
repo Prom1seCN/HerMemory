@@ -1491,6 +1491,8 @@ namespace HerMemory
         }
 
         private bool _themeUiReady;
+        private bool _locLocked;     // 位置页处于"已有安装、只读"状态：校验必须跳过，否则修复安装会被"目录非空"挡住
+        private bool _prepLoc;       // 预填位置时抑制 TextChanged，避免留下红色校验残留
 
         // —— 女孩图标（右上角）：全透明底（窗口背景透出=与软件背景同色），深=白线稿/浅=黑线稿；logo 嵌入色两版一致 ——
         // 从嵌入资源加载（单文件分发）；Theme.SetDark 只换资源字典，图标需手动重载。
@@ -2083,6 +2085,9 @@ namespace HerMemory
 
         private void PrepareLocationPage()
         {
+            _prepLoc = true;
+            try
+            {
             var existing = File.Exists(Path.Combine(HermesCtl.HermesHome, "bin", "hermes.exe"));
             // 程序目录：安装器默认 Program Files\HerMemory；程序本体跑修复安装时就是自己所在的目录
             if (string.IsNullOrWhiteSpace(LocBox.Text))
@@ -2097,6 +2102,7 @@ namespace HerMemory
             // 全新安装默认勾上；已有安装则按用户当初的选择回显。
             ChkHeavyTools.IsChecked = !HermesCtl.HeavyToolsDeclined;
 
+            _locLocked = existing;
             if (existing)
             {
                 LocBox.IsEnabled = DataBox.IsEnabled = VaultBox.IsEnabled = false;
@@ -2113,9 +2119,15 @@ namespace HerMemory
                 BtnLocStart.Content = "开始安装";
                 UpdateLocStatus();
             }
+            }
+            finally { _prepLoc = false; }
         }
 
-        private void LocBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e) => UpdateLocStatus();
+        private void LocBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
+        {
+            if (_prepLoc) return;
+            UpdateLocStatus();
+        }
 
         private void UpdateLocStatus()
         {
@@ -2264,26 +2276,32 @@ namespace HerMemory
                 return;
             }
 
-            var (okA, msgA) = ValidateAppDir(LocBox.Text);
-            if (!okA)
+            // 已有安装（位置只读）：不重跑校验。修复安装时程序目录里可能没有 HerMemory.exe
+            // （被杀毒/误删/升级中断），而 ValidateAppDir 的"非空目录"规则会把它判成非法，
+            // 导致"继续安装"永远点不动——2026-10-23 实测。
+            if (!_locLocked)
             {
-                LocStatus.Text = "程序位置：" + msgA;
-                LocStatus.Foreground = Brush("#C62828");
-                return;
-            }
-            var (okD, msgD) = ValidateInstallDir(DataBox.Text);
-            if (!okD)
-            {
-                LocStatus.Text = "数据位置：" + msgD;
-                LocStatus.Foreground = Brush("#C62828");
-                return;
-            }
-            var (okV, msgV) = ValidateVaultDir(VaultBox.Text, LocBox.Text, DataBox.Text);
-            if (!okV)
-            {
-                LocStatus.Text = "AI记忆位置：" + msgV;
-                LocStatus.Foreground = Brush("#C62828");
-                return;
+                var (okA, msgA) = ValidateAppDir(LocBox.Text);
+                if (!okA)
+                {
+                    LocStatus.Text = "程序位置：" + msgA;
+                    LocStatus.Foreground = Brush("#C62828");
+                    return;
+                }
+                var (okD, msgD) = ValidateInstallDir(DataBox.Text);
+                if (!okD)
+                {
+                    LocStatus.Text = "数据位置：" + msgD;
+                    LocStatus.Foreground = Brush("#C62828");
+                    return;
+                }
+                var (okV, msgV) = ValidateVaultDir(VaultBox.Text, LocBox.Text, DataBox.Text);
+                if (!okV)
+                {
+                    LocStatus.Text = "AI记忆位置：" + msgV;
+                    LocStatus.Foreground = Brush("#C62828");
+                    return;
+                }
             }
 
             _pendAppDir = Path.GetFullPath(LocBox.Text.Trim().Trim('"')).TrimEnd('\\');
