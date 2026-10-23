@@ -185,6 +185,14 @@ namespace HerMemory
         {
             if (AppPaths.IsSetup) return;
             HomeMode = true;
+            if (!UiState.SetupDone)
+            {
+                // 老用户升级上来时配置早就在了：直接标记完成，不打扰。
+                var configured = false;
+                try { configured = ApiConfigured() && EnvHasWeixin(); } catch { }
+                if (configured) UiState.SetupDone = true;
+                else { ShowSetup(); return; }
+            }
             ShowPage("PageHome");
             HomeFooter.Text = $"记忆库 {VaultDir} · 记忆文件 {Path.Combine(VaultDir, "HerMemory", "memory")}";
             _ = Task.Run(async () =>
@@ -1123,6 +1131,135 @@ namespace HerMemory
             });
         }
 
+        // ================= 首次启动：三步配置 =================
+        // 安装器只负责装；API、微信、第一句话都在这里完成。状态存 UiState（与内核配置分开）。
+        private bool _inSetup;
+
+        /// <summary>进入三步骤配置页。设置页的「重新运行」也走这里。</summary>
+        public void ShowSetup()
+        {
+            _inSetup = true;
+            ShowPage("PageSetup");
+            RefreshSetup();
+        }
+
+        private void RefreshSetup()
+        {
+            // 直接读 config.yaml：比 `hermes config get`（起一个 python）快一个量级，
+            // 首屏不该停在"检查中"。
+            var key = "";
+            var model = "";
+            try { key = HermesCtl.ReadConfigValue("model.api_key") ?? ""; } catch { }
+            try { model = HermesCtl.ReadConfigValue("model.default") ?? ""; } catch { }
+            var hasKey = key.Trim().Length > 0;
+            SetupApiStatus.Text = hasKey
+                ? (model.Length > 0 ? "已配置：" + model : "已配置。")
+                : "还没有 API Key，填一个才能开始对话。";
+            BtnSetupApi.Content = hasKey ? "修改" : "去设置";
+            BtnSetupDone.IsEnabled = hasKey;
+
+            var bound = EnvHasWeixin();
+            SetupWxStatus.Text = bound ? "已绑定。" : "还没有绑定，绑定后 AI 才会收到你的微信消息。";
+            BtnSetupWx.Content = bound ? "重新绑定" : "去绑定";
+        }
+
+        private static bool ApiConfigured()
+        {
+            try { return (HermesCtl.ReadConfigValue("model.api_key") ?? "").Trim().Length > 0; }
+            catch { return false; }
+        }
+
+        private void BtnSetupApi_Click(object sender, RoutedEventArgs e) => LinkApi_Click(sender, e);
+
+        private void BtnSetupWx_Click(object sender, RoutedEventArgs e) => ShowWeixin();
+
+        private void BtnSetupAgain_Click(object sender, RoutedEventArgs e) => ShowSetup();
+
+        private void BtnSetupDone_Click(object sender, RoutedEventArgs e)
+        {
+            UiState.SetupDone = true;
+            _inSetup = false;
+            GoHome();
+        }
+
+        private void BtnSetupSkip_Click(object sender, RoutedEventArgs e)
+        {
+            // 跳过后不再纠缠：状态记为已完成，之后想配可从「设置 → 配置向导」重进。
+            UiState.SetupDone = true;
+            _inSetup = false;
+            GoHome();
+        }
+
+        // ================= 什么是 API Key（读 docs\GET-API-KEY.md） =================
+        private void BtnApiHelp_Click(object sender, RoutedEventArgs e)
+        {
+            ShowPage("PageApiHelp");
+            RenderApiHelp();
+        }
+
+        private void RenderApiHelp()
+        {
+            ApiHelpBody.Children.Clear();
+            var path = "";
+            foreach (var c in new[]
+                     {
+                         Path.Combine(VaultDocs, "GET-API-KEY.md"),
+                         _repoRoot == null ? "" : Path.Combine(_repoRoot, "docs", "GET-API-KEY.md"),
+                         Path.Combine(AppPaths.ExeDir, "docs", "GET-API-KEY.md"),
+                     })
+            {
+                if (c.Length == 0 || !File.Exists(c)) continue;
+                path = c; break;
+            }
+
+            var text = "";
+            try { if (path.Length > 0) text = File.ReadAllText(path); } catch { }
+            if (text.Trim().Length == 0)
+            {
+                AddHelpLine("文档还没有就位。", 14, "Ink", true, 0, 0);
+                AddHelpLine("把它放在 " + Path.Combine(VaultDocs, "GET-API-KEY.md") + " 后重新打开本页。",
+                    12, "Subtle", false, 0, 8);
+                return;
+            }
+
+            var firstContent = true;
+            foreach (var raw in text.Replace("\r\n", "\n").Split('\n'))
+            {
+                var line = raw.TrimEnd();
+                if (line.Trim().Length == 0) { AddHelpLine("", 6, "Ink", false, 0, 0); continue; }
+                // 文档自己的 H1 与页头重复，跳过第一行标题
+                if (firstContent && line.StartsWith("# ")) { firstContent = false; continue; }
+                firstContent = false;
+                if (line.StartsWith("# ")) { AddHelpLine(line[2..], 20, "Ink", true, 0, 14); continue; }
+                if (line.StartsWith("## ")) { AddHelpLine(line[3..], 15, "Ink", true, 0, 16); continue; }
+                if (line.StartsWith("### ")) { AddHelpLine(line[4..], 13.5, "Ink", true, 0, 12); continue; }
+                if (line.StartsWith("> ")) { AddHelpLine(line[2..], 11.5, "Subtle", false, 0, 6); continue; }
+                if (line.StartsWith("- ")) { AddHelpLine("· " + line[2..], 12.5, "Muted", false, 14, 4); continue; }
+                AddHelpLine(line, 12.5, "Muted", false, 0, 6);
+            }
+        }
+
+        private void AddHelpLine(string text, double size, string colorKey, bool bold, double indent, double topMargin)
+        {
+            if (text.Length == 0)
+            {
+                ApiHelpBody.Children.Add(new Border { Height = 8 });
+                return;
+            }
+            ApiHelpBody.Children.Add(new TextBlock
+            {
+                Text = text,
+                FontSize = size,
+                FontWeight = bold ? FontWeights.SemiBold : FontWeights.Normal,
+                Foreground = Res(colorKey),
+                TextWrapping = TextWrapping.Wrap,
+                LineHeight = size + 8,
+                Margin = new Thickness(indent, topMargin, 0, 0),
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Left,
+                MaxWidth = 620,
+            });
+        }
+
         // ================= 微信绑定（绑定 / 换绑夺回 / 解绑）=================
         // 微信官方限制：一个微信同一时刻只活一个绑定。上游无 logout/unbind 命令——绑定态=两处文件：
         //   {HermesHome}\weixin\accounts\*.json（token，含 context_token 缓存）+ .env 的 WEIXIN_* 键（源码实证）。
@@ -1245,6 +1382,12 @@ namespace HerMemory
 
         private void BtnBack_Click(object sender, RoutedEventArgs e)
         {
+            if (_inSetup)
+            {
+                ShowPage("PageSetup");
+                RefreshSetup();
+                return;
+            }
             ShowPage("PageHome");
             HomeStatus.Text = _lastState switch
             {
@@ -2991,13 +3134,15 @@ namespace HerMemory
                         }
                         Dispatcher.Invoke(() =>
                         {
-                            ApplyPrefill(prefill);
-                            if (prefill == null)
-                            {
-                                ParamStatus.Text = "环境已就绪，填写下方参数后完成配置。";
-                                ParamStatus.Foreground = Brush("#2E7D32");
-                            }
-                            ShowPage("PageParams");
+                            // 安装器只负责装：API 与微信都交给程序本体里的三步骤配置向导，
+                            // 装完点「完成」启动程序即可，不再在安装过程中要求扫码/填 Key。
+                            DoneText.Text = "程序已安装"
+                                + (_shellOk ? "到 " + (_pendAppDir ?? AppPaths.DefaultAppDir) + "。"
+                                            : "，但部分快捷方式未能写入（缺少管理员权限）。")
+                                + Environment.NewLine
+                                + "点「完成」启动 HerMemory，在那里完成三步配置：连接 AI、绑定微信、发第一句话。";
+                            ShowPage("PageDone");
+                            if (!AppPaths.IsSetup) App.Inst?.EnterHomeMode(this);
                         });
                         return;
                     }
