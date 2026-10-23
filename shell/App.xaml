@@ -306,13 +306,13 @@
 
         <!-- ===== 细进度条：不确定态（网关启动/停止时用） ===== -->
         <Style x:Key="ThinProgress" TargetType="ProgressBar">
-            <Setter Property="Height" Value="3"/>
+            <Setter Property="Height" Value="4"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="ProgressBar">
                         <Grid ClipToBounds="True">
                             <Border CornerRadius="1.5" Background="{DynamicResource Hairline}"/>
-                            <Border x:Name="runner" Width="140" Height="3" CornerRadius="1.5"
+                            <Border x:Name="runner" Width="160" Height="4" CornerRadius="2"
                                     HorizontalAlignment="Left">
                                 <Border.Background>
                                     <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">

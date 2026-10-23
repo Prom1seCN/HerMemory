@@ -3,7 +3,6 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:HerMemory"
         Title="HerMemory" Height="620" Width="880"
-        Icon="pack://application:,,,/HerMemory;component/app-taskbar.ico"
         WindowStartupLocation="CenterScreen" Background="{DynamicResource WindowBg}"
         Foreground="{DynamicResource Ink}"
         FontFamily="{DynamicResource UiFont}"

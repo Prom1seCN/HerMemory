@@ -61,6 +61,9 @@ namespace HerMemory
         public MainWindow()
         {
             InitializeComponent();
+            // 任务栏图标：用相对 pack URI（资源就在入口程序集里；安装器的入口程序集叫 HerMemorySetup，
+            // 写成 /HerMemory;component/... 会在安装器形态下找不到程序集直接崩——2026-10-23 实测）。
+            try { Icon = new System.Windows.Media.Imaging.BitmapImage(new Uri("pack://application:,,,/app-taskbar.ico")); } catch { }
             // 标题栏保持纯名字（用户定：不显示构建时间戳）
             AppVersion.Text = AppVersionText;
             // 开关状态等 Loaded 再写：ControlTemplate 还没实例化时写 IsChecked，
