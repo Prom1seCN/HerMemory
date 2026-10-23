@@ -24,8 +24,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- 任务栏/窗口图标：与 exe 图标同源，但内容占画布 92%（exe 图标只有 ~60%，任务栏上显得小） -->
-    <Resource Include="app-taskbar.ico" />
+    <!-- 任务栏/窗口图标：与 exe 图标同源，但内容占画布 92%（exe 图标只有 ~60%，任务栏上显得小）。
+         用 EmbeddedResource + 流加载：pack URI 在单文件/安装器形态下偶发解析失败，会静默退回小图标。 -->
+    <EmbeddedResource Include="app-taskbar.ico">
+      <LogicalName>app-taskbar.ico</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
 
   <ItemGroup>

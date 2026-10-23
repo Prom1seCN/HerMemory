@@ -61,9 +61,18 @@ namespace HerMemory
         public MainWindow()
         {
             InitializeComponent();
-            // 任务栏图标：用相对 pack URI（资源就在入口程序集里；安装器的入口程序集叫 HerMemorySetup，
-            // 写成 /HerMemory;component/... 会在安装器形态下找不到程序集直接崩——2026-10-23 实测）。
-            try { Icon = new System.Windows.Media.Imaging.BitmapImage(new Uri("pack://application:,,,/app-taskbar.ico")); } catch { }
+            // 任务栏图标：从嵌入资源流加载（不走 pack URI——单文件/安装器形态下曾静默失败退回过小图标）。
+            try
+            {
+                using var iconStream = System.Reflection.Assembly.GetExecutingAssembly()
+                    .GetManifestResourceStream("app-taskbar.ico");
+                if (iconStream != null)
+                    Icon = System.Windows.Media.Imaging.BitmapFrame.Create(
+                        iconStream,
+                        System.Windows.Media.Imaging.BitmapCreateOptions.None,
+                        System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);
+            }
+            catch { }
             // 标题栏保持纯名字（用户定：不显示构建时间戳）
             AppVersion.Text = AppVersionText;
             // 开关状态等 Loaded 再写：ControlTemplate 还没实例化时写 IsChecked，
@@ -155,9 +164,8 @@ namespace HerMemory
             HomeMode = true;
             ShowPage("PageHome");
             HomeFooter.Text = string.Join(Environment.NewLine,
-                "关闭窗口默认最小化到托盘，可在托盘菜单修改",
-                $"记忆库位于 {VaultDir}",
-                $"记忆文件位于 {Path.Combine(VaultDir, "HerMemory", "memory")}");
+                $"记忆库 {VaultDir}",
+                $"记忆文件 {Path.Combine(VaultDir, "HerMemory", "memory")}");
             _ = Task.Run(async () =>
             {
                 var s = await Task.Run(HermesCtl.State);
@@ -1580,7 +1588,6 @@ namespace HerMemory
                 bmp.EndInit();
                 bmp.Freeze();
                 GirlIcon.Source = bmp;
-                GirlWatermark.Source = bmp;
             }
             catch { }
         }

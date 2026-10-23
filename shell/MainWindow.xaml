@@ -108,10 +108,6 @@
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
-            <!-- 水印：右下角，低到只提供一点层次 -->
-            <Image x:Name="GirlWatermark" Grid.RowSpan="5" Width="300" Height="300"
-                   HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,-74,-108"
-                   Stretch="Uniform" Opacity="0.06" IsHitTestVisible="False"/>
 
             <!-- 状态卡：一眼看到 AI 在不在线，右边就是它的开关 -->
             <Border Grid.Row="0" Style="{StaticResource Card}" Background="{DynamicResource HeroWash}"
@@ -317,14 +313,13 @@
                     <Button Style="{StaticResource BackButton}" Content="返回" HorizontalAlignment="Left" Click="BtnBack_Click"/>
                     <TextBlock Text="记忆设置" Style="{StaticResource PageTitle}"/>
                     <TextBlock Style="{StaticResource Body}" Margin="0,6,0,0"
-                               Text="AI 会长期记住的内容就存在这两个文件里。档位决定它们能写多长。"/>
+                               Text="MEMORY.md 与 USER.md 的字符上限。"/>
                     <Border Style="{StaticResource PageHeadRule}"/>
 
                     <Border Style="{StaticResource Card}" Margin="0,18,0,0" Padding="20,18">
                         <StackPanel>
                             <TextBlock Text="记忆预算" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource Ink}"/>
-                            <TextBlock Style="{StaticResource Body}" Margin="0,6,0,0" MaxWidth="560" HorizontalAlignment="Left"
-                                       Text="两个数字分别是 MEMORY.md（AI 的长期记忆）与 USER.md（用户档案）的字符上限。超出后 AI 会先压缩再写入。"/>
+
 
                             <Grid Margin="0,18,0,0">
                                 <Grid.ColumnDefinitions>
@@ -364,8 +359,7 @@
                         </StackPanel>
                     </Border>
 
-                    <TextBlock Style="{StaticResource Hint}" Margin="2,14,0,0"
-                               Text="数字是字符预算（约等于汉字数，英文按 0.25 个字符折算）。保存后需重启 Gateway 生效；新的对话会按新上限执行。"/>
+                    <TextBlock Style="{StaticResource Hint}" Margin="2,14,0,0" Text="保存后重启 Gateway 生效。"/>
                 </StackPanel>
             </ScrollViewer>
         </Grid>
@@ -376,15 +370,14 @@
                 <StackPanel>
                     <Button Style="{StaticResource BackButton}" Content="返回" HorizontalAlignment="Left" Click="BtnBack_Click"/>
                     <TextBlock Text="设置" Style="{StaticResource PageTitle}"/>
-                    <TextBlock Style="{StaticResource Body}" Margin="0,6,0,0"
-                               Text="这里放那些“设一次就不用再管”的开关。"/>
+
                     <Border Style="{StaticResource PageHeadRule}"/>
 
                     <Border Style="{StaticResource Card}" Margin="0,18,0,0" Padding="20,18">
                         <StackPanel>
                             <TextBlock Text="每日新对话" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource Ink}"/>
                             <TextBlock Style="{StaticResource Body}" Margin="0,6,0,0" MaxWidth="560" HorizontalAlignment="Left"
-                                       Text="到了设定时间，AI 与你的对话会重新开始：第二天从零上下文起算，避免历史越堆越长、token 越用越多。"/>
+                                       Text="到设定时间自动开启新对话，避免上下文持续累积。"/>
                             <CheckBox x:Name="ChkDailyNew" Content="每天自动开始新对话" Margin="0,16,0,0"
                                       Checked="ChkDailyNew_Changed" Unchecked="ChkDailyNew_Changed"/>
                             <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
@@ -404,7 +397,7 @@
                     </Border>
 
                     <TextBlock Style="{StaticResource Hint}" Margin="2,14,0,0"
-                               Text="说明：这是应用层的定时任务，网关运行时才执行；PC 关机期间错过的时间不会补跑。"/>
+                               Text="网关运行时执行；关机期间错过的时间不补跑。"/>
                 </StackPanel>
             </ScrollViewer>
         </Grid>
@@ -444,7 +437,7 @@
                     <Button Style="{StaticResource BackButton}" Content="返回" HorizontalAlignment="Left" Click="BtnBack_Click"/>
                     <TextBlock Text="API 设置" Style="{StaticResource PageTitle}"/>
                     <TextBlock Style="{StaticResource Body}" Margin="0,6,0,0"
-                               Text="修改后可保存，需停止再启动 Gateway 生效。"/>
+                               Text="保存后需重启 Gateway 生效。"/>
                     <Border Style="{StaticResource PageHeadRule}"/>
 
                     <Border Style="{StaticResource Card}" Margin="0,18,0,0" Padding="20,4,20,20">
@@ -500,7 +493,7 @@
                 </Border>
 
                 <TextBlock Style="{StaticResource Hint}" Margin="2,16,0,0" MaxWidth="640" HorizontalAlignment="Left"
-                           Text="一个微信同时只能绑定一台设备，最后扫码者生效；被顶掉的设备可随时重新绑定夺回。绑定与解绑不影响本机记忆与文档。"/>
+                           Text="一个微信同时只能绑定一台设备，最后扫码者生效。"/>
             </StackPanel>
         </Grid>
 
@@ -514,8 +507,8 @@
                     <TextBlock Text="Your memory." FontSize="21" FontWeight="SemiBold" Margin="0,4,0,0"
                                Foreground="{DynamicResource Accent}"/>
                 </StackPanel>
-                <Image x:Name="GirlIcon" Width="100" Height="100" HorizontalAlignment="Right" VerticalAlignment="Center"
-                       Margin="0,0,-2,0" Stretch="Uniform" IsHitTestVisible="False"/>
+                <Image x:Name="GirlIcon" Width="120" Height="120" HorizontalAlignment="Right" VerticalAlignment="Center"
+                       Margin="0,0,0,0" Stretch="Uniform" IsHitTestVisible="False"/>
             </Grid>
 
             <StackPanel Margin="0,20,0,0">
@@ -574,8 +567,7 @@
                 <Button x:Name="BtnWelcomeUninstall" Content="卸载 HerMemory" Style="{StaticResource LinkButton}"
                         Margin="14,0,0,0" VerticalAlignment="Center" Click="BtnUninstall_Click"/>
             </StackPanel>
-            <TextBlock Style="{StaticResource Hint}" Margin="0,16,0,0"
-                       Text="符号链接需要开发者模式或管理员权限，以管理员身份运行可免去设置。"/>
+
             </StackPanel>
         </Grid>
 
@@ -799,7 +791,7 @@
                     <Border Style="{StaticResource Card}" Margin="0,18,0,0" Padding="20,4,20,18">
                         <StackPanel>
                             <TextBlock Style="{StaticResource Body}" Margin="0,14,0,0" MaxWidth="640" HorizontalAlignment="Left"
-                                       Text="将移除：程序文件、Hermes 内核与全部配置、微信接入凭据、gateway 计划任务与登录项、开机自启项、桌面与开始菜单快捷方式、偏好设置。运行数据目录为 %LOCALAPPDATA%\hermes。网关将先停止。"/>
+                                       Text="将移除程序文件、Hermes 内核与配置、微信凭据、计划任务、自启项与快捷方式。"/>
                             <TextBlock Style="{StaticResource Body}" Foreground="{DynamicResource Danger}" Margin="0,10,0,0"
                                        Text="记忆库（文档与记忆）默认保留，不在卸载范围内。"/>
                             <CheckBox x:Name="UninsVault" Content="同时删除记忆库（文档与记忆不可恢复）"
