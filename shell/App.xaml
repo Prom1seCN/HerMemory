@@ -232,64 +232,75 @@
             </Setter>
         </Style>
 
-        <!-- ===== 按钮：返回（子页统一用这一颗，不再拿字符箭头凑） ===== -->
+        <!-- ===== 按钮：返回 =====
+             一颗完整的小胶囊：浅色底 + 1px 描边 + 22px 圆形箭头底。
+             悬停：整颗泛青、箭头左移 1.5px、按钮上浮 1px；按压轻微回弹。 -->
         <Style x:Key="BackButton" TargetType="Button">
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Foreground" Value="{DynamicResource Muted}"/>
+            <Setter Property="Background" Value="{DynamicResource FieldBg}"/>
+            <Setter Property="Foreground" Value="{DynamicResource Ink}"/>
             <Setter Property="FontSize" Value="12.5"/>
-            <Setter Property="Padding" Value="5,3,12,3"/>
+            <Setter Property="Padding" Value="4,4,13,4"/>
+            <Setter Property="MinHeight" Value="30"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing}"/>
-            <Setter Property="HorizontalContentAlignment" Value="Left"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border Background="Transparent" CornerRadius="16" Padding="{TemplateBinding Padding}">
-                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                <Grid Width="20" Height="20" VerticalAlignment="Center">
-                                    <Ellipse x:Name="disc" Width="22" Height="22" Fill="{DynamicResource AccentSoft}" Opacity="0"
-                                             HorizontalAlignment="Right" Margin="0,0,1,0"/>
-                                    <Path x:Name="chev" Data="M 0 0 L -6 5.5 L 0 11"
-                                          Stroke="{DynamicResource Muted}" StrokeThickness="1.8"
+                        <Grid RenderTransformOrigin="0.5,0.5">
+                            <Grid.RenderTransform>
+                                <TranslateTransform x:Name="tr"/>
+                            </Grid.RenderTransform>
+                            <Border x:Name="bd" CornerRadius="15" Background="{TemplateBinding Background}"
+                                    BorderBrush="{DynamicResource CardBorder}" BorderThickness="1"/>
+                            <Border x:Name="tint" CornerRadius="15" Background="{DynamicResource AccentSoft}" Opacity="0"/>
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center"
+                                        Margin="{TemplateBinding Padding}">
+                                <Grid Width="22" Height="22" VerticalAlignment="Center">
+                                    <Ellipse x:Name="disc" Fill="{DynamicResource AccentSoft}"/>
+                                    <Path x:Name="chev" Data="M 0 0 L -5.5 5.5 L 0 11"
+                                          Stroke="{DynamicResource Accent}" StrokeThickness="1.8"
                                           StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                                           StrokeLineJoin="Round"
-                                          HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,3,0">
+                                          HorizontalAlignment="Center" VerticalAlignment="Center">
                                         <Path.RenderTransform>
                                             <TranslateTransform x:Name="shift"/>
                                         </Path.RenderTransform>
                                     </Path>
                                 </Grid>
-                                <ContentPresenter Margin="3,0,0,0" VerticalAlignment="Center"
+                                <ContentPresenter Margin="6,0,0,0" VerticalAlignment="Center"
                                                   RecognizesAccessKey="True"/>
                             </StackPanel>
-                        </Border>
+                        </Grid>
                         <ControlTemplate.Triggers>
                             <EventTrigger RoutedEvent="MouseEnter">
                                 <BeginStoryboard>
                                     <Storyboard>
-                                        <DoubleAnimation Storyboard.TargetName="disc" Storyboard.TargetProperty="Opacity"
+                                        <DoubleAnimation Storyboard.TargetName="tint" Storyboard.TargetProperty="Opacity"
                                                          To="1" Duration="0:0:0.15"/>
                                         <DoubleAnimation Storyboard.TargetName="shift" Storyboard.TargetProperty="X"
-                                                         To="-2" Duration="0:0:0.18"/>
+                                                         To="-1.5" Duration="0:0:0.18"/>
+                                        <DoubleAnimation Storyboard.TargetName="tr" Storyboard.TargetProperty="Y"
+                                                         To="-1" Duration="0:0:0.18"/>
                                     </Storyboard>
                                 </BeginStoryboard>
                             </EventTrigger>
                             <EventTrigger RoutedEvent="MouseLeave">
                                 <BeginStoryboard>
                                     <Storyboard>
-                                        <DoubleAnimation Storyboard.TargetName="disc" Storyboard.TargetProperty="Opacity"
+                                        <DoubleAnimation Storyboard.TargetName="tint" Storyboard.TargetProperty="Opacity"
                                                          To="0" Duration="0:0:0.2"/>
                                         <DoubleAnimation Storyboard.TargetName="shift" Storyboard.TargetProperty="X"
+                                                         To="0" Duration="0:0:0.2"/>
+                                        <DoubleAnimation Storyboard.TargetName="tr" Storyboard.TargetProperty="Y"
                                                          To="0" Duration="0:0:0.2"/>
                                     </Storyboard>
                                 </BeginStoryboard>
                             </EventTrigger>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Foreground" Value="{DynamicResource Ink}"/>
-                                <Setter TargetName="chev" Property="Stroke" Value="{DynamicResource Accent}"/>
+                                <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource Accent}"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter Property="Opacity" Value="0.7"/>
+                                <Setter Property="Opacity" Value="0.85"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
