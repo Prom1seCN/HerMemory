@@ -25,6 +25,7 @@
 | 安装器 | 全新安装（白机） | ⛔ 沙箱无 TCP 出网（只有 ICMP/DNS），阻塞 |
 | 安装器 | 接管已有 Hermes（memories 合并） | 🔍 代码复核通过，真机测试待隔离环境 |
 | 安装器 | 修复安装（删 exe 重装） | ✅ 修掉校验 bug 后跑通，exe 已恢复 |
+| 壳 | 卸载旅程（沙箱 + 伪造安装痕迹） | ✅ 默认保留记忆库；内核/历史/Run 键/桌面快捷方式/计划任务全部清除 |
 | 异常 | 网关停止 → 启动恢复 | ✅ stop/start 一轮验证 |
 | 异常 | 导出中途杀进程 → staging 残留 | ⚠️ 见 #4 |
 
@@ -89,6 +90,14 @@
 
 ### #9 网关停止/启动恢复（验证通过）
 - `hermes gateway stop` → 12s 后 `status` = 无进程；`start` → direct spawn PID 22736，`status` 运行中。
+
+## 第 4 轮记录（2026-10-23 傍晚）
+
+- **卸载旅程（Windows Sandbox）**：在沙箱里伪造一套安装痕迹（`%LOCALAPPDATA%\hermes`、history、Run 键、
+  桌面快捷方式、`Hermes_Gateway` 任务、vault 五文件），以 `--uninstall` 启动 app → 卸载页 → 点「执行卸载」。
+  结果：`hermes` 目录、history、Run 键、桌面快捷方式、计划任务全部删除；**vault 默认保留**（符合设计）。
+  开始菜单快捷方式那项是测试脚本 seed 错了路径（`StartMenu` vs `Programs`），不是产品问题。
+- 沙箱仍无 TCP 出网，所以「全新安装」「接管已有 Hermes」两项继续挂起。
 
 ## 第 2 轮记录（2026-10-23 下午）
 
