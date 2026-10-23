@@ -81,6 +81,9 @@ namespace HerMemory
                 Checked = Theme.IsDark,
             };
             miDark.Click += (_, _) => Theme.SetDark(miDark.Checked);
+            // 窗口里的开关改了主题，托盘菜单的勾也要跟着变（否则两边状态各说各话）
+            _miDark = miDark;
+            Theme.Changed += SyncDarkMenu;
             var miExit = new System.Windows.Forms.ToolStripMenuItem("退出", null, (_, _) =>
             {
                 App.RequestExit();
@@ -217,6 +220,17 @@ namespace HerMemory
         }
 
         // —— 开机自启：HKCU Run 键（默认关；用户勾选即开） ——
+        private System.Windows.Forms.ToolStripMenuItem? _miDark;
+
+        private void SyncDarkMenu(bool dark)
+        {
+            try
+            {
+                if (_miDark != null && _miDark.Checked != dark) _miDark.Checked = dark;
+            }
+            catch { }
+        }
+
         private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
         private const string RunValue = "HerMemory";
 

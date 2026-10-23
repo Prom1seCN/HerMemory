@@ -33,11 +33,15 @@ namespace HerMemory
         public static void Apply() => Apply(IsDark);
 
         /// <summary>切换主题并实时生效（DynamicResource 消费者自动跟随）。</summary>
+        /// <summary>主题变化通知：托盘菜单与窗口内开关共用同一个入口，两边必须互相同步。</summary>
+        public static event Action<bool>? Changed;
+
         public static void SetDark(bool dark)
         {
             using var k = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(Key);
             k.SetValue("DarkMode", dark ? "1" : "0");
             Apply(dark);
+            try { Changed?.Invoke(dark); } catch { }
         }
 
         /// <summary>深色标题栏：Win10 1809+ 用属性 20，更早的用 19。失败就算了，不影响功能。</summary>

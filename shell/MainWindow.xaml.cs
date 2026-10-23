@@ -61,6 +61,8 @@ namespace HerMemory
         public MainWindow()
         {
             InitializeComponent();
+            // 托盘菜单改主题时，窗口里的开关要跟着动（Theme.SetDark 是两边共用的入口）
+            Theme.Changed += OnThemeChanged;
             // 任务栏图标：从嵌入资源流加载（不走 pack URI——单文件/安装器形态下曾静默失败退回过小图标）。
             try
             {
@@ -143,6 +145,27 @@ namespace HerMemory
             catch { }
         }
 
+        /// <summary>外部（托盘菜单）改了主题：同步开关位置与窗口图标，不重复写配置。</summary>
+        private void OnThemeChanged(bool dark)
+        {
+            try
+            {
+                if (Dispatcher.HasShutdownStarted) return;
+                Dispatcher.InvokeAsync(() =>
+                {
+                    if (ChkDark.IsChecked == dark) return;
+                    var was = _themeUiReady;
+                    _themeUiReady = false;                 // 防止 Checked 事件再调一次 SetDark
+                    try { ChkDark.IsChecked = dark; } finally { _themeUiReady = was; }
+                    ApplyGirlIcon();
+                    Theme.ApplyTitleBar(this);
+                    FlashForTheme();
+                    if (PageHome.Visibility == Visibility.Visible) UpdateHomeStatus(_lastState);
+                });
+            }
+            catch { }
+        }
+
         private void BtnUpdate_Click(object sender, RoutedEventArgs e)
         {
             try
@@ -163,9 +186,7 @@ namespace HerMemory
             if (AppPaths.IsSetup) return;
             HomeMode = true;
             ShowPage("PageHome");
-            HomeFooter.Text = string.Join(Environment.NewLine,
-                $"记忆库 {VaultDir}",
-                $"记忆文件 {Path.Combine(VaultDir, "HerMemory", "memory")}");
+            HomeFooter.Text = $"记忆库 {VaultDir} · 记忆文件 {Path.Combine(VaultDir, "HerMemory", "memory")}";
             _ = Task.Run(async () =>
             {
                 var s = await Task.Run(HermesCtl.State);
@@ -1067,6 +1088,7 @@ namespace HerMemory
         /// 只"最小化到托盘"不触发（窗口并未关闭），故不影响仍在跑的流程。</summary>
         protected override void OnClosed(EventArgs e)
         {
+            try { Theme.Changed -= OnThemeChanged; } catch { }
             try { _tipTimer?.Stop(); } catch { }
             try { _qrCts?.Cancel(); } catch { }
             try { _qrCts?.Dispose(); } catch { }
@@ -1252,13 +1274,35 @@ namespace HerMemory
 
         // ================= 体检 / 自愈 =================
 
+        // 体检结果缓存：进页只展示上次结果，只有点「重新检查」才真的跑一遍（用户裁决 2026-10-23）
+        private List<HealthItem>? _healthItems;
+        private DateTime _healthAt;
+
         private void LinkHealth_Click(object sender, RoutedEventArgs e)
         {
             ShowPage("PageHealth");
+            if (_healthItems != null)
+            {
+                RenderHealth(_healthItems);
+                UpdateHealthStatus(_healthItems);
+                return;
+            }
             _ = RunHealthAsync();
         }
 
         private void BtnHealthRefresh_Click(object sender, RoutedEventArgs e) => _ = RunHealthAsync();
+
+        private void UpdateHealthStatus(List<HealthItem> items)
+        {
+            var fails = items.Count(i => i.Status == "fail");
+            var warns = items.Count(i => i.Status == "warn");
+            var summary = fails == 0 && warns == 0
+                ? $"全部正常（{items.Count} 项）"
+                : $"{items.Count} 项：{fails} 项需要处理，{warns} 项提醒";
+            HealthStatus.Text = _healthAt == default
+                ? summary
+                : $"{summary} · 上次检查 {_healthAt:HH:mm:ss}";
+        }
 
         private void BtnHealthLogs_Click(object sender, RoutedEventArgs e)
         {
@@ -1285,11 +1329,9 @@ namespace HerMemory
                 HealthScroll.ScrollToTop();
                 _ = Dispatcher.BeginInvoke(new Action(() => HealthScroll.ScrollToTop()),
                     System.Windows.Threading.DispatcherPriority.Background);
-                var fails = items.Count(i => i.Status == "fail");
-                var warns = items.Count(i => i.Status == "warn");
-                HealthStatus.Text = fails == 0 && warns == 0
-                    ? $"全部正常（{items.Count} 项）"
-                    : $"{items.Count} 项：{fails} 项需要处理，{warns} 项提醒";
+                _healthItems = items;
+                _healthAt = DateTime.Now;
+                UpdateHealthStatus(items);
             }
             catch (Exception ex) { ReportUiError("体检", ex); }
             finally { BtnHealthRefresh.IsEnabled = true; }
@@ -1571,7 +1613,7 @@ namespace HerMemory
         private bool _locLocked;     // 位置页处于"已有安装、只读"状态：校验必须跳过，否则修复安装会被"目录非空"挡住
         private bool _prepLoc;       // 预填位置时抑制 TextChanged，避免留下红色校验残留
 
-        // —— 女孩图标（右上角）：全透明底（窗口背景透出=与软件背景同色），深=白线稿/浅=黑线稿；logo 嵌入色两版一致 ——
+        // —— 品牌水印（右下角）：全透明底，深=白线稿/浅=黑线稿；主界面与安装向导共用一张 ——
         // 从嵌入资源加载（单文件分发）；Theme.SetDark 只换资源字典，图标需手动重载。
         private void ApplyGirlIcon()
         {
@@ -1587,7 +1629,7 @@ namespace HerMemory
                 bmp.StreamSource = s;
                 bmp.EndInit();
                 bmp.Freeze();
-                GirlIcon.Source = bmp;
+                if (GirlWatermark != null) GirlWatermark.Source = bmp;
             }
             catch { }
         }
@@ -1931,8 +1973,7 @@ namespace HerMemory
                     g.Visibility = Visibility.Collapsed;
                 }
             }
-            // 品牌图只在欢迎页的页头里（它是 PageWelcome 的子元素，其余页自然跟着隐藏）。
-            GirlIcon.Visibility = name is "PageWelcome" ? Visibility.Visible : Visibility.Collapsed;
+
             if (!matched) ReportUiError("切换页面", new InvalidOperationException("未找到页面：" + name));
         }
 
