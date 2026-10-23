@@ -445,6 +445,9 @@ namespace HerMemory
                 if ((ReadConfigValue("model.api_key") ?? "").Trim().Length > 0)
                     return PurgeLegacyOpenAiEnv();
 
+                // 没有模型名就别迁：写进去也用不了，反而把唯一一份凭据从 .env 里删了
+                if ((ReadConfigValue("model.default") ?? "").Trim().Length == 0) return false;
+
                 if (!SetModelCfg(url, key)) return false;
                 PurgeLegacyOpenAiEnv();
                 return true;
