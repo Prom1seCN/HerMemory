@@ -1630,6 +1630,7 @@ namespace HerMemory
                 bmp.EndInit();
                 bmp.Freeze();
                 if (GirlWatermark != null) GirlWatermark.Source = bmp;
+                if (GirlIcon != null) GirlIcon.Source = bmp;
             }
             catch { }
         }
