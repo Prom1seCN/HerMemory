@@ -1,5 +1,5 @@
 ﻿# ============================================================
-# HerMemory installer (Windows native) — v0.2.1
+# HerMemory installer (Windows native) — v0.2.0
 # 基于 Hermes Agent v0.22.2 (commit d923a5e)，MIT。
 # 上游官方 PowerShell 安装器负责内核（git bundle → checkout → PM 装 Python/Node/依赖 →
 # 构建 hermes 命令与 TUI/web），本脚本只做发行版的铺设：vault + 五文件 + 软链 + 皮肤 +
@@ -737,9 +737,25 @@ if ($exJ -and $exJ.LinkType -eq "Junction" -and "$($exJ.Target)" -eq $jTarget) {
                 Copy-Item $_.FullName $d -Force
                 Warn "填补空文件：$rel"
             } else {
-                $side = "$d.from-hermes-$memStamp"
-                Copy-Item $_.FullName $side -Force
-                Warn "同名记忆并存：$side（vault 原文件保留）"
+                # 冲突：vault 里已有内容。但如果那内容只是**出厂模板**（刚装好的新库），
+                # 用户真记忆必须顶掉模板；否则 AI 读到的还是空模板，接管等于没发生。
+                $factoryFile = Join-Path $SRC ("memory\" + $rel)
+                $isFactory = $false
+                if (Test-Path -LiteralPath $factoryFile) {
+                    try {
+                        $a = Get-Content -LiteralPath $d -Raw -ErrorAction Stop
+                        $b = Get-Content -LiteralPath $factoryFile -Raw -ErrorAction Stop
+                        $isFactory = ($null -ne $a) -and ($a.Trim() -eq $b.Trim())
+                    } catch { }
+                }
+                if ($isFactory) {
+                    Copy-Item $_.FullName $d -Force
+                    Warn "接管既有记忆（覆盖出厂模板）：$rel"
+                } else {
+                    $side = "$d.from-hermes-$memStamp"
+                    Copy-Item $_.FullName $side -Force
+                    Warn "同名记忆并存：$side（vault 原文件保留）"
+                }
             }
         }
         Ok "旧 memories 已备份到 $memBak，并按上面清单合并"
@@ -1153,7 +1169,7 @@ if (-not $HasAiConfig) {
 
 # ---------- 13. 完成提示 ----------
 Write-Host ""
-Log "HerMemory v0.2.1 安装完成。使用说明见 $VaultDir\HerMemory\docs\GUIDE.md。"
+Log "HerMemory v0.2.0 安装完成。使用说明见 $VaultDir\HerMemory\docs\GUIDE.md。"
 Write-Host ""
 Write-Host "  注意事项"
 Write-Host "  1. AGENTS.md 可自由编辑。上游 Hermes 对其执行威胁扫描，含触发词的内容会被整体拦截。"
