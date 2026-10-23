@@ -395,6 +395,30 @@ namespace HerMemory
             }
         }
 
+        private bool _presetBusy;
+
+        /// <summary>常用预设：选中即填 Base URL，然后把下拉恢复成占位项，
+        /// 让它更像一个"动作"而不是一直显示某个已选中的状态。</summary>
+        private void CfgPreset_Changed(object sender, SelectionChangedEventArgs e)
+        {
+            if (_presetBusy) return;
+            if (CfgPreset.SelectedItem is not System.Windows.Controls.ComboBoxItem item) return;
+            var url = item.Tag as string ?? "";
+            if (url.Length == 0) return;
+            _presetBusy = true;
+            try
+            {
+                CfgUrl.Text = url;
+                CfgHint.Foreground = Brush("#2E7D32");
+                CfgHint.Text = "已填入 " + item.Content + "，点「获取模型列表」选模型。";
+            }
+            finally
+            {
+                CfgPreset.SelectedIndex = 0;
+                _presetBusy = false;
+            }
+        }
+
         private async void CfgSave_Click(object sender, RoutedEventArgs e)
         {
             if (_cfgSaving) return;

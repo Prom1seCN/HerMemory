@@ -523,8 +523,29 @@
 
                     <Border Style="{StaticResource Card}" Margin="0,18,0,0" Padding="20,4,20,20">
                         <StackPanel>
-                            <TextBlock Text="Base URL" Style="{StaticResource Label}"/>
-                            <Grid>
+                            <Grid Margin="0,16,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Base URL" Style="{StaticResource Label}" Margin="2,0,0,0" VerticalAlignment="Center"/>
+                                <!-- 常用预设：选一家就自动填地址，省得用户去翻文档抄 URL -->
+                                <ComboBox x:Name="CfgPreset" Grid.Column="2" Width="252" Height="30" FontSize="12"
+                                          Style="{StaticResource FieldCombo}" VerticalAlignment="Center" SelectedIndex="0"
+                                          ToolTip="选择服务商，自动填入 Base URL" SelectionChanged="CfgPreset_Changed">
+                                    <ComboBoxItem Content="常用预设…" Tag=""/>
+                                    <ComboBoxItem Content="DeepSeek 开放平台" Tag="https://api.deepseek.com/v1"/>
+                                    <ComboBoxItem Content="阿里云百炼（通义千问）" Tag="https://dashscope.aliyuncs.com/compatible-mode/v1"/>
+                                    <ComboBoxItem Content="硅基流动 SiliconFlow" Tag="https://api.siliconflow.cn/v1"/>
+                                    <ComboBoxItem Content="月之暗面 Kimi" Tag="https://api.moonshot.cn/v1"/>
+                                    <ComboBoxItem Content="智谱 GLM" Tag="https://open.bigmodel.cn/api/paas/v4"/>
+                                    <ComboBoxItem Content="火山方舟（豆包）" Tag="https://ark.cn-beijing.volces.com/api/v3"/>
+                                    <ComboBoxItem Content="腾讯混元" Tag="https://api.hunyuan.cloud.tencent.com/v1"/>
+                                    <ComboBoxItem Content="百度千帆" Tag="https://qianfan.baidubce.com/v2"/>
+                                    <ComboBoxItem Content="讯飞星火" Tag="https://spark-api-open.xf-yun.com/v1"/>
+                                    <ComboBoxItem Content="OpenRouter（境外）" Tag="https://openrouter.ai/api/v1"/>
+                                </ComboBox>
+                            </Grid>
+                            <Grid Margin="0,8,0,0">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
