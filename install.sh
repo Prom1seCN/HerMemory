@@ -30,6 +30,9 @@ UPSTREAM_DIR="$HOME/hermes-agent"
 # 留空 = 跳过直链层，用同目录的 hermes-agent.bundle，再没有就 GitHub clone。
 OFFLINE_BUNDLE_URL=""
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
+# 无交互安装：跳过记忆档位 / AI 配置 / 微信扫码三段问答，其余照装；
+# 装完自己用 hermes model / hermes gateway setup 配（技术用户的常用路径）。
+HEADLESS="${HERMEMORY_HEADLESS:-0}"
 
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # 本仓库（壳）位置
 
@@ -69,7 +72,7 @@ log "安装状态文件：$STATE_FILE"
 # 在 set -e 下表现为"跑了几行就静默退出"，完全看不出原因（`ssh host 'bash install.sh'`
 # 这类非交互调用最容易踩）。只在**确实还有要采集的步骤**时才拦：已经装完的机器
 # 仍可用它做无交互的修复重跑。
-if [ ! -t 0 ] && { ! done_step memory-tier || ! done_step config-ai; }; then
+if [ "$HEADLESS" != "1" ] && [ ! -t 0 ] && { ! done_step memory-tier || ! done_step config-ai; }; then
     die "本脚本需要交互式终端（要采集记忆档位与 API Key），但当前 stdin 不是终端。请登录服务器后在终端里运行：bash install.sh"
 fi
 
@@ -349,7 +352,9 @@ hermes config set display.timestamps true >/dev/null 2>&1 \
     || warn "display.timestamps 写入失败（非致命）"
 
 # ---------- 9. 记忆档位（新手引导1：多档可选） ----------
-if done_step memory-tier; then
+if [ "$HEADLESS" = "1" ]; then
+    log "无交互模式：跳过记忆档位（沿用默认 2200 / 1375，之后可用 memory-size.sh 改）"
+elif done_step memory-tier; then
     log "记忆档位：已完成（自动跳过）"
 else
 log "MEMORY / USER 容量设置"
@@ -377,7 +382,9 @@ mark_done memory-tier
 fi
 
 # ---------- 9.5/9.6 配置 AI（用户流程 2：地址先验证，Key 后验证；Key 阶段输 1 可返回地址；完成后 AI 上线） ----------
-if done_step config-ai; then
+if [ "$HEADLESS" = "1" ]; then
+    log "无交互模式：跳过 AI 配置（之后执行 hermes model 或 hermes config set 配置）"
+elif done_step config-ai; then
     log "配置 AI：已完成，自动跳过"
 else
 echo ""
@@ -449,8 +456,13 @@ while true; do
     fi
     mapfile -t MODEL_LIST < <(grep -o '"id" *: *"[^"]*"' /tmp/hm_models.json | sed 's/.*"id" *: *"//;s/"$//' || true)
     if [ ${#MODEL_LIST[@]} -eq 0 ]; then
-        warn "[错误] 连接正常，但该 Key 名下无可用模型。请在服务商控制台确认已开通模型调用权限"
-        continue
+        # 有些服务商不实现 /models：不让用户卡死在这里，直接手填型号
+        warn "连接正常，但没有返回模型列表（部分服务商不提供 /models）。"
+        read -rp "请直接输入模型名（例如 deepseek-chat）: " PROV_MODEL
+        PROV_MODEL=$(printf '%s' "$PROV_MODEL" | tr -d '[:space:]')
+        [ -n "$PROV_MODEL" ] || { warn "模型名不能为空，请重新输入"; continue; }
+        ok "模型：$PROV_MODEL"
+        break
     fi
     ok "连接正常，检测到 ${#MODEL_LIST[@]} 个可用模型。"
     break
@@ -459,7 +471,14 @@ done
 i=1
 for m in "${MODEL_LIST[@]}"; do echo "  [$i] $m"; i=$((i+1)); done
 while true; do
-    read -rp "请选择模型序号: " MODEL_PICK
+    read -rp "请选择模型序号（0 = 手动输入模型名）: " MODEL_PICK
+    if [ "$MODEL_PICK" = "0" ]; then
+        read -rp "请输入模型名: " PROV_MODEL
+        PROV_MODEL=$(printf '%s' "$PROV_MODEL" | tr -d '[:space:]')
+        [ -n "$PROV_MODEL" ] && break
+        warn "模型名不能为空"
+        continue
+    fi
     if [[ "$MODEL_PICK" =~ ^[0-9]+$ ]] && [ "$MODEL_PICK" -ge 1 ] && [ "$MODEL_PICK" -le ${#MODEL_LIST[@]} ]; then
         PROV_MODEL="${MODEL_LIST[$((MODEL_PICK-1))]}"
         break
@@ -509,6 +528,8 @@ WX_CONFIGURED=0
 if grep -q "WEIXIN_ACCOUNT_ID" "$HERMES_HOME/.env" 2>/dev/null; then
     WX_CONFIGURED=1
     ok "微信通道：已配置（跳过扫码）"
+elif [ "$HEADLESS" = "1" ]; then
+    warn "无交互模式：跳过微信接入（之后执行 hermes gateway setup 扫码）"
 else
     log "微信接入"
     echo "上游将启动英文配置向导。对照下表作答："
@@ -671,4 +692,4 @@ else
     log "启动方式：命令行输入 hermes，按 docs/ONBOARDING.md 的指引完成剩余配置。"
 fi
 log "文档修改：编辑 $VAULT_DIR/HerMemory/memory/ 内文件，开启新对话后生效。"
-log "文档：docs/INSTALL.md 部署｜docs/GUIDE.md 使用｜docs/ONBOARDING.md 部署手册"
+log "文档：docs/INSTALL.md 部署｜docs/GUIDE.md 使用｜docs/LINUX.md 运维｜docs/COMMANDS.md 常用命令｜docs/ONBOARDING.md 部署手册"

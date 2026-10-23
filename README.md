@@ -155,6 +155,8 @@ bash install.sh
 ```
 
 按交互提示选择记忆容量档位、录入 API Key，脚本跑通后即刻上线。
+不想走问答可无交互安装：`HERMEMORY_HEADLESS=1 bash install.sh`。
+装完后的运维命令（网关、日志、备份、卸载）见 [docs/LINUX.md](docs/LINUX.md)，微信里能发的命令见 [docs/COMMANDS.md](docs/COMMANDS.md)。
 
 <div align="center">
 

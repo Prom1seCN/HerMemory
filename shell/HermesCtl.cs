@@ -91,7 +91,34 @@ namespace HerMemory
         public static bool GatewayTaskUsable()
         {
             if (!File.Exists(GatewayLauncherVbs)) return false;
+            if (GatewayLauncherStale()) return false;
             return RunExit("schtasks", $"/Query /TN \"{GatewayTaskName}\"", 30) == 0;
+        }
+
+        /// <summary>启动脚本写的解释器还在不在。内核升级会把旧 venv 整体换掉，任务里记的却是旧路径——
+        /// 那种任务"存在且脚本也在"，但一启动就失败，只看存在性会被骗。</summary>
+        public static bool GatewayLauncherStale()
+        {
+            try
+            {
+                var text = File.ReadAllText(GatewayLauncherVbs);
+                foreach (System.Text.RegularExpressions.Match m in
+                         System.Text.RegularExpressions.Regex.Matches(
+                             text, @"([A-Za-z]:\\[^""\r\n]+?\.exe)", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                {
+                    if (!File.Exists(m.Groups[1].Value)) return true;
+                }
+            }
+            catch { }
+            return false;
+        }
+
+        /// <summary>重装前清掉旧任务与启动脚本：上游 install 见到已存在的任务会走"已装"分支，
+        /// 死链任务不清掉就永远重建不出来。</summary>
+        public static void ResetGatewayTask()
+        {
+            DeleteGatewayTask();
+            try { if (File.Exists(GatewayLauncherVbs)) File.Delete(GatewayLauncherVbs); } catch { }
         }
 
         /// <summary>删除 gateway 计划任务（按精确名删，不解析输出——中文 Windows 的字段名是「任务名:」）。</summary>
@@ -407,6 +434,11 @@ namespace HerMemory
                 var path = Path.Combine(HermesHome, "config.yaml");
                 if (!File.Exists(path)) return false;
                 var text = File.ReadAllText(path);
+                // 两个键必须都已经存在，否则正则替换什么也不做、会被下面的 u==text 误判成"成功"。
+                // （全新安装从 0.2.0 起不再写这两行，必须让调用方退回 CLI 去补键。）
+                if (!System.Text.RegularExpressions.Regex.IsMatch(text, @"(?m)^\s*memory_char_limit:\s*\d+\s*$")
+                    || !System.Text.RegularExpressions.Regex.IsMatch(text, @"(?m)^\s*user_char_limit:\s*\d+\s*$"))
+                    return false;
                 var m = System.Text.RegularExpressions.Regex.Replace(
                     text, @"(?m)^(\s*memory_char_limit:\s*)\d+\s*$", "${1}" + mem);
                 var u = System.Text.RegularExpressions.Regex.Replace(

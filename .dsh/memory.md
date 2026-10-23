@@ -293,3 +293,12 @@ export HERMES_HOME=<spike>/home
 - **验证**：用 `/rl HIGHEST` 计划任务提权驱动向导（UIA 需要与被控窗口同级权限），
   0.1.0 → 0.22.2 升级全流程跑通：内核 c9524f99、`Hermes_Gateway` 任务重建、网关运行、
   Program Files 里 exe 版本 0.2.0、`.hm-kernel-upgrade` 标记已清。
+
+## 编译与 Linux 侧（2026-10-24）
+
+- **PC 关机时也能验编译**：NAS 上装了 .NET 8 SDK 到 `/home/hcn/.dotnet-linux`，
+  `cd shell && /home/hcn/.dotnet-linux/dotnet build HerMemory.csproj -c Release -p:EnableWindowsTargeting=true`
+  能把 WPF（含 XAML）完整编译过；只出警告即通过。Go 的 `UseWindowsForms` 会让 `Button`/`Clipboard`
+  这类类型二义，新增控件要写全名。
+- Linux 安装器新增 `HERMEMORY_HEADLESS=1`：跳过记忆档位 / AI / 扫码三段问答；模型列表为空时允许手填型号。
+- Linux 侧文档：`docs/LINUX.md`（运维）、`docs/COMMANDS.md`（命令）。两份随 `docs/` 一起进记忆库。

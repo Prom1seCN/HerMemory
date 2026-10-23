@@ -102,6 +102,8 @@ namespace HerMemory
                 else await RunPrecheckAsync();
                 // 更新检查只在程序本体里做：安装器不该在装系统时还去问"有没有新版"。
                 if (!AppPaths.IsSetup) _ = CheckUpdatesAsync();
+                // 网关服务任务：新装（安装器不再注册）与老装（任务被删）都在这里补一次。
+                if (!AppPaths.IsSetup) _ = EnsureGatewayServiceAsync();
             };
         }
 
@@ -186,11 +188,14 @@ namespace HerMemory
         {
             if (AppPaths.IsSetup) return;
             HomeMode = true;
+            // 没有 Key 一定先配置：卸载重装后 ui-state 可能还在，不能因为一个残留的"已完成"
+            // 标记就跳过引导——那样用户会对着一个不会说话的 AI 发呆。
+            if (!ApiConfigured()) { ShowSetup(); return; }
             if (!UiState.SetupDone)
             {
                 // 老用户升级上来时配置早就在了：直接标记完成，不打扰。
                 var configured = false;
-                try { configured = ApiConfigured() && EnvHasWeixin(); } catch { }
+                try { configured = EnvHasWeixin(); } catch { }
                 if (configured) UiState.SetupDone = true;
                 else { ShowSetup(); return; }
             }
@@ -576,9 +581,10 @@ namespace HerMemory
                 var usr = await Task.Run(() => ReadLimit("memory.user_char_limit"));
                 await Dispatcher.InvokeAsync(() =>
                 {
-                    // 只填空框：异步读回可能晚于用户输入/预设点击，不能把人家刚填的值盖回去
-                    if (mem.Length > 0 && string.IsNullOrWhiteSpace(MemLimitBox.Text)) MemLimitBox.Text = mem;
-                    if (usr.Length > 0 && string.IsNullOrWhiteSpace(UserLimitBox.Text)) UserLimitBox.Text = usr;
+                    // 只填空框：异步读回可能晚于用户输入/预设点击，不能把人家刚填的值盖回去。
+                    // 读不到（全新安装还没写过这两个键）就显示内核默认值，不能留空让人猜。
+                    if (string.IsNullOrWhiteSpace(MemLimitBox.Text)) MemLimitBox.Text = mem.Length > 0 ? mem : "2200";
+                    if (string.IsNullOrWhiteSpace(UserLimitBox.Text)) UserLimitBox.Text = usr.Length > 0 ? usr : "1375";
                 });
             }
             catch { }
@@ -1204,7 +1210,25 @@ namespace HerMemory
         {
             UiState.SetupDone = true;
             _inSetup = false;
+            _ = EnsureGatewayServiceAsync();
             GoHome();
+        }
+
+        /// <summary>确保网关服务（Windows 计划任务）已注册：安装器从 0.2.0 起只装程序，
+        /// 服务注册改由程序侧补齐。幂等，失败静默（体检页会如实报出来）。</summary>
+        private static async Task EnsureGatewayServiceAsync()
+        {
+            try
+            {
+                if (!ApiConfigured()) return;
+                if (HermesCtl.GatewayTaskUsable()) return;
+                if (HermesCtl.GatewayLauncherStale()) HermesCtl.ResetGatewayTask();
+                // 与微信流程同一口径：登录自启按用户此刻的选择，别把用户关掉的又装回来。
+                Environment.SetEnvironmentVariable("HERMES_GATEWAY_INSTALL_START_ON_LOGIN",
+                    AutoStart.IsOn ? "1" : "0");
+                await Task.Run(() => HermesCtl.Run("gateway install", 600));
+            }
+            catch { }
         }
 
         private void BtnSetupSkip_Click(object sender, RoutedEventArgs e)
@@ -1310,7 +1334,7 @@ namespace HerMemory
             Grid.SetColumn(desc, 1);
             grid.Children.Add(desc);
 
-            var copy = new Button
+            var copy = new System.Windows.Controls.Button
             {
                 Content = "复制",
                 Style = (Style)FindResource("LinkButton"),
@@ -1322,7 +1346,7 @@ namespace HerMemory
             {
                 try
                 {
-                    Clipboard.SetText(c.Cmd);
+                    System.Windows.Clipboard.SetText(c.Cmd);
                     CmdHint.Text = "已复制 " + c.Cmd + "，去微信聊天框粘贴发送。";
                 }
                 catch { CmdHint.Text = "复制失败，请手动选中命令。"; }
@@ -1782,6 +1806,9 @@ namespace HerMemory
                         break;
                     case HealthFix.InstallGateway:
                         HealthStatus.Text = "正在重装网关任务（可能要一两分钟）……";
+                        if (HermesCtl.GatewayLauncherStale()) HermesCtl.ResetGatewayTask();
+                        Environment.SetEnvironmentVariable("HERMES_GATEWAY_INSTALL_START_ON_LOGIN",
+                            AutoStart.IsOn ? "1" : "0");
                         await Task.Run(() => HermesCtl.Run("gateway install", 600));
                         break;
                     case HealthFix.OpenLogs:
@@ -3993,6 +4020,8 @@ namespace HerMemory
             DeleteTreeSafe(payloadCache);
             // 记忆时光机的本地 git 仓库（用户已选"卸载即清干净"）
             DeleteTreeSafe(Path.Combine(localAppData, "HerMemory", "history"));
+            // 首启引导标记：留着会让重装被当成老用户、直接进首页
+            try { File.Delete(Path.Combine(localAppData, "HerMemory", "ui-state.json")); } catch { }
 
             SetUnins("移除注入槽位……", 32);
             try
