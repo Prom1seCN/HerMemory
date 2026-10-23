@@ -26,9 +26,26 @@ namespace HerMemory
                 using var k = Registry.CurrentUser.OpenSubKey(RunKey, true);
                 if (k == null) return;
                 if (on && !string.IsNullOrEmpty(exePath))
-                    k.SetValue(ValueName, "\"" + exePath + "\"", RegistryValueKind.String);
+                    // --tray：登录自启只留在托盘，不弹主窗口（用户裁决 2026-10-23）。
+                    // 手动从开始菜单/桌面启动时不带这个参数，照常开窗。
+                    k.SetValue(ValueName, "\"" + exePath + "\" --tray", RegistryValueKind.String);
                 else
                     k.DeleteValue(ValueName, false);
+            }
+            catch { }
+        }
+
+        /// <summary>迁移旧版自启项：早先写的是裸 exe 路径（登录会弹窗口），补上 --tray。
+        /// 只处理「值存在且指向本 exe」的情况——不会把用户关掉的自启重新打开。</summary>
+        public static void Migrate(string exePath)
+        {
+            try
+            {
+                using var k = Registry.CurrentUser.OpenSubKey(RunKey, true);
+                if (k?.GetValue(ValueName) is not string v) return;
+                if (v.IndexOf(exePath, StringComparison.OrdinalIgnoreCase) < 0) return;
+                if (v.IndexOf("--tray", StringComparison.OrdinalIgnoreCase) >= 0) return;
+                k.SetValue(ValueName, "\"" + exePath + "\" --tray", RegistryValueKind.String);
             }
             catch { }
         }

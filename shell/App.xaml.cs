@@ -9,6 +9,7 @@ namespace HerMemory
         private MainWindow? _wizard;
         private MemoryEditorWindow? _editor;
         private static Mutex? _single;
+        private static EventWaitHandle? _showEvent;
 
         public static void RequestExit()
         {
@@ -179,9 +180,13 @@ namespace HerMemory
             // 注意必须 global:: 限定：Application.MainWindow 属性会遮蔽 MainWindow 类名
             global::HerMemory.MainWindow.PurgeStaleAnswerFiles();
             global::HerMemory.MainWindow.PurgeStaleExportStaging();
+            // 旧版自启项是裸路径（会在登录时弹窗）——迁移成 --tray，只改已存在的、指向本程序的项。
+            try { AutoStart.Migrate(Environment.ProcessPath ?? ""); } catch { }
             Theme.Apply();
             var elevateRestart = e.Args.Any(a =>
                 string.Equals(a, "--elevated-attempted", StringComparison.OrdinalIgnoreCase));
+            // 第二次启动不再弹"已在运行"：给已运行实例发一个信号，让它把窗口叫出来。
+            _showEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "HerMemory-ShowMain");
             _single = new Mutex(true, "HerMemory-SingleInstance", out var first);
             if (!first)
             {
@@ -201,12 +206,17 @@ namespace HerMemory
                 }
                 if (!took)
                 {
-                    var msg = AppPaths.IsSetup
-                        ? "HerMemory 正在运行。\n\n安装或升级需要先关闭它（只关界面，不影响记忆与文档）。\n" +
-                          "请在托盘图标上右键 → 退出，再重新运行安装包。"
-                        : "HerMemory 已在运行，见系统托盘。";
-                    System.Windows.MessageBox.Show(msg, AppPaths.IsSetup ? "HerMemory 安装程序" : "HerMemory",
-                        MessageBoxButton.OK, MessageBoxImage.Information);
+                    if (!AppPaths.IsSetup)
+                    {
+                        // 日常态重复启动：唤醒已运行实例的窗口，自己静默退出（没有窗口时不打扰用户）。
+                        try { _showEvent?.Set(); } catch { }
+                        Shutdown();
+                        return;
+                    }
+                    System.Windows.MessageBox.Show(
+                        "HerMemory 正在运行。\n\n安装或升级需要先关闭它（只关界面，不影响记忆与文档）。\n" +
+                        "请在托盘图标上右键 → 退出，再重新运行安装包。",
+                        "HerMemory 安装程序", MessageBoxButton.OK, MessageBoxImage.Information);
                     Shutdown();
                     return;
                 }
@@ -225,14 +235,17 @@ namespace HerMemory
             // 卸载入口优先于「装没装」的判断：用户可能已经手动删掉了运行数据，
             // 此时 HermesCtl.Installed 为 false——但那不代表该把人带到安装向导去。
             bool wantUninstall = e.Args.Any(a => string.Equals(a, "--uninstall", StringComparison.OrdinalIgnoreCase));
+            // 登录自启带 --tray：只驻留托盘，不主动弹窗。
+            bool silent = e.Args.Any(a => string.Equals(a, "--tray", StringComparison.OrdinalIgnoreCase));
 
             if (HermesCtl.Installed || wantUninstall)
             {
                 // 已安装：托盘 + 主界面双开（用户要求的默认形态）
                 _wizard = new MainWindow { HomeMode = true };
                 EnsureTray();
+                StartShowListener();
                 _wizard.Closed += (_, _) => _wizard = null;
-                _wizard.Show();
+                if (!silent || wantUninstall) _wizard.Show();
                 // 卸载项的轻量同步：条目已存在就什么都不做。它写在 HKLM（机器级安装），
                 // 日常启动多半没有提权、写了也会失败——只在条目缺失且程序位于默认安装目录时补写一次，
                 // 并顺带清掉旧版写在 HKCU 的重复项（否则同一个软件会在列表里出现两次）。
@@ -244,6 +257,30 @@ namespace HerMemory
             {
                 ShowWizard();
             }
+        }
+
+        /// <summary>后台等第二个实例的「把窗口叫出来」信号。没有窗口时唤醒也安全。</summary>
+        private void StartShowListener()
+        {
+            try
+            {
+                var th = new System.Threading.Thread(() =>
+                {
+                    while (_showEvent != null)
+                    {
+                        try
+                        {
+                            if (!_showEvent.WaitOne(TimeSpan.FromSeconds(2))) continue;
+                        }
+                        catch { return; }
+                        if (Current == null || Current.Dispatcher.HasShutdownStarted) return;
+                        SafeDispatch(ShowMain);
+                    }
+                })
+                { IsBackground = true, Name = "hermemory-show-listener" };
+                th.Start();
+            }
+            catch { }
         }
 
         private void ShowMain()

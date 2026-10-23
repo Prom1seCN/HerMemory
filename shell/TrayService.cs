@@ -226,20 +226,31 @@ namespace HerMemory
             return k?.GetValue(RunValue) != null;
         }
 
-        /// <summary>Run 键里存的路径是否已不是当前 exe（exe 被移动/重命名 → 自启项静默失效）。</summary>
+        /// <summary>Run 键里存的 exe 是否已不是当前 exe（exe 被移动/重命名 → 自启项静默失效）。
+        /// 注意值现在是 `"exe" --tray`：只比 exe 部分，不能整串 Trim('"') —— 否则每次启动都判成
+        /// "过期"并重写成不带 --tray 的裸路径，登录又会弹窗（2026-10-23 实测就是这样丢的参数）。</summary>
         private static bool AutostartStale()
         {
             using var k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(RunKey);
-            var stored = (k?.GetValue(RunValue) as string ?? "").Trim().Trim('"');
+            var stored = (k?.GetValue(RunValue) as string ?? "").Trim();
+            if (stored.Length == 0) return false;
+            string path;
+            if (stored.StartsWith("\"", StringComparison.Ordinal))
+            {
+                var end = stored.IndexOf('"', 1);
+                path = end > 0 ? stored[1..end] : stored.Trim('"');
+            }
+            else path = stored.Split(' ')[0];
             var cur = (Environment.ProcessPath ?? "").Trim('"');
-            return stored.Length > 0 && cur.Length > 0
-                && !string.Equals(stored, cur, StringComparison.OrdinalIgnoreCase);
+            return path.Length > 0 && cur.Length > 0
+                && !string.Equals(path, cur, StringComparison.OrdinalIgnoreCase);
         }
 
         private static void WriteAutostart()
         {
             using var k = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(RunKey);
-            k.SetValue(RunValue, $"\"{Environment.ProcessPath}\"");
+            // --tray：登录自启只驻留托盘，不弹主窗口。
+            k.SetValue(RunValue, $"\"{Environment.ProcessPath}\" --tray");
         }
 
         private static void ToggleAutostart()
