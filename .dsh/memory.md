@@ -188,6 +188,8 @@ export HERMES_HOME=<spike>/home
   （`UiState.SetupDone`，与内核配置分开）；老用户升级时若已有 Key + 微信绑定则自动视为完成，不打扰。
 - `PageApiHelp` 渲染 `vault\HerMemory\docs\GET-API-KEY.md`（安装时随 docs 一起铺），
   支持 #/##/###/>/- 的极简 Markdown；文件缺失时显示落地路径而不是空白页。
+  **行内强调只能用颜色不能用字重**：同一 TextBlock 里混字重的汉字会被 WPF 合成假粗体（重影），
+  所以 `**…**` 走 `Res("Ink")` 加深；emoji 要在 FontFamily 里带 `Segoe UI Emoji` 回退，否则 💡 会画成别的小图标。
 - **品牌头像（女孩线稿）只有一处位置**：内容区右上角，200×200，`Opacity=0.14`，不加列、不参与排版
   （主界面在顶部 200px 区右侧，安装向导在最外层 Grid 右上角），保证不被卡片压住、右下不再留空列。
   `ApplyGirlIcon()` 按主题换 `girl-light.png` / `girl-dark.png`，两张图都从内嵌资源取。

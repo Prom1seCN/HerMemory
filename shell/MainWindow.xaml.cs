@@ -161,6 +161,7 @@ namespace HerMemory
                     Theme.ApplyTitleBar(this);
                     FlashForTheme();
                     if (PageHome.Visibility == Visibility.Visible) UpdateHomeStatus(_lastState);
+                    RefreshHelpTheme();
                 });
             }
             catch { }
@@ -1249,8 +1250,8 @@ namespace HerMemory
             var firstContent = true;
             foreach (var raw in text.Replace("\r\n", "\n").Split('\n'))
             {
-                // 只做极简渲染：去掉 ** 与 ` 标记，避免正文里露出星号
-                var line = raw.TrimEnd().Replace("**", "").Replace("`", "");
+                // 极简渲染：**…** 变粗体，反引号去掉
+                var line = raw.TrimEnd().Replace("`", "");
                 if (line.Trim().Length == 0) { AddHelpLine("", 6, "Ink", false, 0, 0); continue; }
                 // 文档自己的 H1 与页头重复，跳过第一行标题
                 if (firstContent && line.StartsWith("# ")) { firstContent = false; continue; }
@@ -1271,18 +1272,30 @@ namespace HerMemory
                 ApiHelpBody.Children.Add(new Border { Height = 8 });
                 return;
             }
-            ApiHelpBody.Children.Add(new TextBlock
+            var tb = new TextBlock
             {
-                Text = text,
                 FontSize = size,
-                FontWeight = bold ? FontWeights.SemiBold : FontWeights.Normal,
+                // 显式给 emoji 留一个回退字体，否则 💡 会被系统符号字体画成看不懂的小图标
+                FontFamily = new System.Windows.Media.FontFamily("Microsoft YaHei UI, Segoe UI Emoji, Segoe UI"),
                 Foreground = Res(colorKey),
                 TextWrapping = TextWrapping.Wrap,
                 LineHeight = size + 8,
                 Margin = new Thickness(indent, topMargin, 0, 0),
                 HorizontalAlignment = System.Windows.HorizontalAlignment.Left,
                 MaxWidth = 620,
-            });
+            };
+            // 强调不靠"行内混排字重"——WPF 对同一 TextBlock 里混字重的汉字会合成假粗体
+            // （重影）。改成奇数段用深色 Ink，正文仍是 Muted，视觉层次在、字仍是干净的。
+            tb.FontWeight = bold ? FontWeights.Bold : FontWeights.Normal;
+            var parts = text.Split("**");
+            for (var i = 0; i < parts.Length; i++)
+            {
+                if (parts[i].Length == 0) continue;
+                var run = new System.Windows.Documents.Run(parts[i]);
+                if (!bold && i % 2 == 1) run.Foreground = Res("Ink");
+                tb.Inlines.Add(run);
+            }
+            ApiHelpBody.Children.Add(tb);
         }
 
         // ================= 微信绑定（绑定 / 换绑夺回 / 解绑）=================
@@ -1775,6 +1788,14 @@ namespace HerMemory
             FlashForTheme();
             // 首页状态文字/圆点是代码写进去的本地颜色，不随 DynamicResource 走，这里补刷一次。
             if (PageHome.Visibility == Visibility.Visible) UpdateHomeStatus(_lastState);
+            RefreshHelpTheme();
+        }
+
+        /// <summary>帮助页的每一行颜色是渲染时取样的（不是 DynamicResource），换主题必须重画，
+        /// 否则深色下会拿浅色的墨色画在深底上。</summary>
+        private void RefreshHelpTheme()
+        {
+            try { if (PageApiHelp.Visibility == Visibility.Visible) RenderApiHelp(); } catch { }
         }
 
         private bool _themeUiReady;
