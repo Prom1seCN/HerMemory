@@ -1,5 +1,5 @@
 ﻿# ============================================================
-# HerMemory installer (Windows native) — v0.2.0
+# HerMemory installer (Windows native) — v0.2.1
 # 基于 Hermes Agent v0.22.2 (commit d923a5e)，MIT。
 # 上游官方 PowerShell 安装器负责内核（git bundle → checkout → PM 装 Python/Node/依赖 →
 # 构建 hermes 命令与 TUI/web），本脚本只做发行版的铺设：vault + 五文件 + 软链 + 皮肤 +
@@ -507,6 +507,24 @@ if ($workingCli -and $haveVer -eq $WantHermesVersion) {
         $tailText = (($upTail | Select-Object -Last 12) -join [Environment]::NewLine)
         Die ("上游内核安装失败（退出码 $upExit）。" + [Environment]::NewLine + $tailText +
              [Environment]::NewLine + "已完成步骤会自动跳过；排除问题后点「重新安装」继续。")
+    }
+
+    # ---------- 目录继承权限（2026-10-23 事故修复）----------
+    # 上游以管理员身份解包 uv / python-build-standalone 时，部分文件会带上
+    # 「所有者=Administrators、只授 SYSTEM/Administrators」且**切断继承**的 ACL。
+    # 后果：普通用户（非提权）执行 tools\python.exe 直接「拒绝访问」——
+    # 登录自启的计划任务与应用内「启动」全部静默失败，只有提权进程能拉起网关。
+    # 这里把继承恢复成用户目录的默认值（不删任何显式 ACE，只重新接上继承）。
+    try {
+        # 只扫 PM 落地的两棵大树（uv / python-build-standalone / venv）；hermes-agent 是 git 检出，
+        # 继承本来就是对的。整棵 hermes 扫一遍要好几分钟，用户会以为卡死。
+        foreach ($sub in @('tools', 'installs')) {
+            $p = Join-Path $HermesHome $sub
+            if (Test-Path $p) { & icacls $p /inheritance:e /T /C *> $null }
+        }
+        Ok "已恢复目录继承权限（非提权进程可执行 tools\python.exe）"
+    } catch {
+        Warn "恢复目录继承权限失败：$($_.Exception.Message)（网关可能无法随登录自启）"
     }
 
     $workingCli = Get-WorkingHermesCli
@@ -1135,7 +1153,7 @@ if (-not $HasAiConfig) {
 
 # ---------- 13. 完成提示 ----------
 Write-Host ""
-Log "HerMemory v0.2.0 安装完成。使用说明见 $VaultDir\HerMemory\docs\GUIDE.md。"
+Log "HerMemory v0.2.1 安装完成。使用说明见 $VaultDir\HerMemory\docs\GUIDE.md。"
 Write-Host ""
 Write-Host "  注意事项"
 Write-Host "  1. AGENTS.md 可自由编辑。上游 Hermes 对其执行威胁扫描，含触发词的内容会被整体拦截。"

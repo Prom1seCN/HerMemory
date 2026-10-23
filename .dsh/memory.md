@@ -195,6 +195,22 @@ export HERMES_HOME=<spike>/home
      否则 125% 缩放下拿到的是虚拟化尺寸、`PrintWindow` 会裁掉右下角；UIA 按
      `AutomationProperties.Name="切换深浅色"` 找 ToggleButton 可以验证换主题全链路。
 
+## 事故：网关"已停止"、点启动无效（2026-10-23，已修）
+
+- **现象**：早上开机后托盘显示 Gateway 已停止；点「启动」仍是停止；登录也不自启。`hermes gateway status` 说任务在、进程无。
+- **根因**：`%LOCALAPPDATA%\hermes\tools\python-3.14.7+…\python.exe` 的 ACL 只有
+  SYSTEM / Administrators / OWNER RIGHTS，**没有 HCN**，所有者是 Administrators，且继承被切断。
+  0.22 内核升级时以管理员身份解包 uv / python-build-standalone，文件继承被写成了受保护 ACL。
+  于是**所有非提权进程**（登录计划任务、托盘里的「启动」）执行 python 都是「拒绝访问」；
+  只有提权进程（我 ssh / HIGHEST 计划任务）能跑，所以之前一直没暴露。
+- **判定链**：`schtasks /Run` 返回成功但 12s 内 wscript/python 都不出现 → 用 VBS 探针跑
+  `cmd /c python -c ...`，日志写「拒绝访问」→ `icacls python.exe` 看到缺用户 ACE。
+- **修法**：`icacls %LOCALAPPDATA%\hermes\{tools,installs} /inheritance:e /T /C`
+  （只扫 PM 落地的两棵树，约 60s；整棵 hermes 要 5 分钟以上，别那么干）。
+  install.ps1 在内核装完后自动执行这两条；本次已在真机手工执行并验证：
+  LIMITED 计划任务 `hermes gateway start` → `direct spawn` 成功，`schtasks /Run Hermes_Gateway` 也能拉起。
+- **教训**：凡是"提权进程写、非提权进程读"的目录，装完必须恢复继承；验证安装不能只用提权会话跑。
+
 ## 发布与白机测试（2026-10-23）
 
 - **Windows Sandbox 在这台 PC 上没有 TCP 出网**：ICMP 通、DNS 能解析（网关 172.31.64.1），

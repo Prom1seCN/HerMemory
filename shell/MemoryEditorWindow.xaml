@@ -7,7 +7,8 @@
         Foreground="{DynamicResource Ink}"
         FontFamily="{DynamicResource UiFont}"
         TextOptions.TextFormattingMode="Display"
-        UseLayoutRounding="True">
+        UseLayoutRounding="True"
+        PreviewKeyDown="Window_PreviewKeyDown">
     <Window.Resources>
         <Style x:Key="FileItem" TargetType="ListBoxItem">
             <Setter Property="Padding" Value="10,8"/>
@@ -66,6 +67,8 @@
                         Style="{StaticResource GhostButton}" Click="BtnHistory_Click"/>
                 <ToggleButton x:Name="PreviewToggle" Content="预览" IsChecked="True"
                               Style="{StaticResource ChipToggle}" Click="PreviewToggle_Click"/>
+                <Button x:Name="BtnCancel" Content="取消" Style="{StaticResource GhostButton}"
+                        Margin="8,0,0,0" Click="BtnCancel_Click"/>
                 <Button x:Name="BtnSave" Content="保存" Style="{StaticResource AccentButton}"
                         Padding="24,8,24,8" Margin="8,0,0,0" Click="BtnSave_Click"/>
             </StackPanel>

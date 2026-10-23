@@ -223,6 +223,29 @@ namespace HerMemory
 
         private void BtnSave_Click(object sender, RoutedEventArgs e) => Save(quiet: false);
 
+        /// <summary>取消 = 放弃本次编辑并关窗。有未保存修改时先确认；
+        /// 确认后把 _dirty 清掉，避免 Close() 触发 OnClosing 再问一次。</summary>
+        private void BtnCancel_Click(object sender, RoutedEventArgs e)
+        {
+            if (_dirty)
+            {
+                var r = System.Windows.MessageBox.Show(this,
+                    "放弃未保存的修改？", "编辑记忆",
+                    MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No);
+                if (r != MessageBoxResult.Yes) return;
+                _dirty = false;
+            }
+            Close();
+        }
+
+        /// <summary>Esc 等同「取消」——对话框的通用习惯。</summary>
+        private void Window_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            if (e.Key != Key.Escape) return;
+            e.Handled = true;
+            BtnCancel_Click(sender, e);
+        }
+
         private bool Save(bool quiet)
         {
             if (_current == null) return false;
