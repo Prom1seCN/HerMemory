@@ -391,7 +391,7 @@ namespace HerMemory
             {
                 CfgSetModels(_cfgDefaultModel.Length > 0 ? new[] { _cfgDefaultModel } : Array.Empty<string>(), null);
                 CfgHint.Foreground = Brush("#78909C");
-                CfgHint.Text = "API 地址已变更，请点「获取模型列表」核对并选择模型。";
+                CfgHint.Text = "Base URL 已变更，请点「获取模型列表」核对并选择模型。";
             }
         }
 
@@ -400,7 +400,7 @@ namespace HerMemory
             if (_cfgSaving) return;
             var url = new string(CfgUrl.Text.Where(c => c >= 0x21 && c <= 0x7E).ToArray()).TrimEnd('/');
             var key = new string(CfgKey.Text.Where(c => c >= 0x21 && c <= 0x7E).ToArray());
-            if (url.Length == 0 || key.Length == 0) { CfgHint.Text = "请填写 API 地址与 API Key。"; return; }
+            if (url.Length == 0 || key.Length == 0) { CfgHint.Text = "请填写 Base URL 与 API Key。"; return; }
             _cfgSaving = true;
             try
             {
@@ -493,7 +493,7 @@ namespace HerMemory
             var url = CleanAscii(CfgUrl.Text).TrimEnd('/');
             if (url.Length == 0)
             {
-                CfgHint.Text = "请先填写 API 地址。";
+                CfgHint.Text = "请先填写 Base URL。";
                 CfgHint.Foreground = Brush("#C62828");
                 return;
             }
@@ -513,7 +513,7 @@ namespace HerMemory
             var key = CleanAscii(CfgKey.Text);
             if (url.Length == 0 || key.Length == 0)
             {
-                CfgHint.Text = "请先填写 API 地址与 API Key。";
+                CfgHint.Text = "请先填写 Base URL 与 API Key。";
                 CfgHint.Foreground = Brush("#C62828");
                 return;
             }
@@ -2217,7 +2217,7 @@ namespace HerMemory
             var key = CleanAscii(KeyBox.Text);
             if (url.Length == 0 || key.Length == 0)
             {
-                ParamStatus.Text = "请填写 API 地址与 API Key。";
+                ParamStatus.Text = "请填写 Base URL 与 API Key。";
                 ParamStatus.Foreground = Brush("#C62828");
                 return;
             }
@@ -2747,7 +2747,7 @@ namespace HerMemory
             var url = CleanAscii(UrlBox.Text).TrimEnd('/');
             if (url.Length == 0)
             {
-                ParamStatus.Text = "请先填写 API 地址。";
+                ParamStatus.Text = "请先填写 Base URL。";
                 ParamStatus.Foreground = Brush("#C62828");
                 return;
             }

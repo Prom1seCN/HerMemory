@@ -523,7 +523,7 @@
 
                     <Border Style="{StaticResource Card}" Margin="0,18,0,0" Padding="20,4,20,20">
                         <StackPanel>
-                            <TextBlock Text="API 地址" Style="{StaticResource Label}"/>
+                            <TextBlock Text="Base URL" Style="{StaticResource Label}"/>
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
@@ -721,7 +721,7 @@
                                          HorizontalAlignment="Left" VerticalAlignment="Center" IsEnabled="False"/>
                             </Grid>
 
-                            <TextBlock Text="API 地址" Style="{StaticResource Label}"/>
+                            <TextBlock Text="Base URL" Style="{StaticResource Label}"/>
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
