@@ -517,7 +517,10 @@ namespace HerMemory
                 var lines = File.Exists(env) ? File.ReadAllLines(env).ToList() : new List<string>();
                 lines = lines.Where(l => !l.StartsWith("HERMES_CUSTOM_", StringComparison.Ordinal)).ToList();
                 lines.Add($"{keyEnv}={apiKey}");
-                File.WriteAllLines(env, lines, new System.Text.UTF8Encoding(false));
+                // 原子替换：写到临时文件再换名，避免网关正读 .env 时被截断成半截文件
+                var tmp = env + ".tmp";
+                File.WriteAllLines(tmp, lines, new System.Text.UTF8Encoding(false));
+                File.Move(tmp, env, overwrite: true);
                 return true;
             }
             catch { return false; }

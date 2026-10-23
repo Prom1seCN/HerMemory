@@ -40,12 +40,20 @@ namespace HerMemory
                         // 槽位名形如 git-2.53.0+3-win32-x64
                         foreach (var d in Directory.GetDirectories(tools, "git-*"))
                         {
-                            var exe = Path.Combine(d, "cmd", "git.exe");
-                            if (File.Exists(exe)) return exe;
+                            // PortableGit 两种布局都有：cmd\git.exe 是包装器，bin\git.exe 是真身
+                            foreach (var sub in new[] { "cmd", "bin" })
+                            {
+                                var exe = Path.Combine(d, sub, "git.exe");
+                                if (File.Exists(exe)) return exe;
+                            }
                         }
                     }
-                    var legacy = Path.Combine(HermesCtl.HermesHome, "git", "cmd", "git.exe");
-                    return File.Exists(legacy) ? legacy : null;
+                    foreach (var sub in new[] { "cmd", "bin" })
+                    {
+                        var legacy = Path.Combine(HermesCtl.HermesHome, "git", sub, "git.exe");
+                        if (File.Exists(legacy)) return legacy;
+                    }
+                    return null;
                 }
                 catch { return null; }
             }
