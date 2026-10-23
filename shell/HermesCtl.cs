@@ -396,9 +396,34 @@ namespace HerMemory
             return (baseUrl, keyEnv, keyValue);
         }
 
+        /// <summary>直接改 config.yaml 的两个记忆上限（毫秒级）。成功返回 true。
+        /// 为什么不用 `hermes config set`：每条 CLI 都要起一次 Python，且全进程串行，
+        /// 网关轮询占着锁时保存能拖到半分钟（2026-10-23 实测 40s）。这两个键是 memory: 段下的
+        /// 顶层标量，按行替换足够安全；键不存在则返回 false，由调用方退回 CLI。</summary>
+        public static bool SetMemoryLimits(int mem, int usr)
+        {
+            try
+            {
+                var path = Path.Combine(HermesHome, "config.yaml");
+                if (!File.Exists(path)) return false;
+                var text = File.ReadAllText(path);
+                var m = System.Text.RegularExpressions.Regex.Replace(
+                    text, @"(?m)^(\s*memory_char_limit:\s*)\d+\s*$", "${1}" + mem);
+                var u = System.Text.RegularExpressions.Regex.Replace(
+                    m, @"(?m)^(\s*user_char_limit:\s*)\d+\s*$", "${1}" + usr);
+                // 值本来就一样：直接算成功（否则会白白退回 CLI，慢 15 秒）
+                if (u == text) return true;
+                var tmp = path + ".tmp";
+                File.WriteAllText(tmp, u, new System.Text.UTF8Encoding(false));
+                File.Move(tmp, path, overwrite: true);   // Replace 在某些卷上会抛「路径格式不合法」
+                return true;
+            }
+            catch { return false; }
+        }
+
         /// <summary>读 config.yaml 里 "section.leaf" 的值（只处理一层缩进的简单结构）。
         /// 用途：取回 CLI 会打码的密钥原值。读不到返回空串。</summary>
-        private static string ReadConfigValue(string dotted)
+        public static string ReadConfigValue(string dotted)
         {
             try
             {

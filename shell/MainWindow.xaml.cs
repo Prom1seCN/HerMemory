@@ -514,8 +514,9 @@ namespace HerMemory
                 var usr = await Task.Run(() => ReadLimit("memory.user_char_limit"));
                 await Dispatcher.InvokeAsync(() =>
                 {
-                    if (mem.Length > 0) MemLimitBox.Text = mem;
-                    if (usr.Length > 0) UserLimitBox.Text = usr;
+                    // 只填空框：异步读回可能晚于用户输入/预设点击，不能把人家刚填的值盖回去
+                    if (mem.Length > 0 && string.IsNullOrWhiteSpace(MemLimitBox.Text)) MemLimitBox.Text = mem;
+                    if (usr.Length > 0 && string.IsNullOrWhiteSpace(UserLimitBox.Text)) UserLimitBox.Text = usr;
                 });
             }
             catch { }
@@ -525,8 +526,12 @@ namespace HerMemory
         {
             try
             {
+                // 先读 config.yaml（毫秒级）；读不到再退回 CLI（CLI 每次要起 Python，两三个秒）。
+                var v = HermesCtl.ReadConfigValue(key);
+                var m = System.Text.RegularExpressions.Regex.Match(v, @"(\d{3,7})");
+                if (m.Success) return m.Groups[1].Value;
                 var outp = HermesCtl.Run($"config get {key}", 20);
-                var m = System.Text.RegularExpressions.Regex.Match(outp, @"(\d{3,7})");
+                m = System.Text.RegularExpressions.Regex.Match(outp, @"(\d{3,7})");
                 return m.Success ? m.Groups[1].Value : "";
             }
             catch { return ""; }
@@ -562,18 +567,24 @@ namespace HerMemory
             MemoryHint.Text = "正在保存……";
             try
             {
-                var state = await Task.Run(HermesCtl.State);
+                // 用进程判活（读 pid 文件，毫秒级）而不是 gateway status —— 后者要起 Python，
+                // 会把「保存」拖到十秒以上（2026-10-23 实测）。
+                var running = _lastState == "running" || HermesCtl.GatewayProcessAlive();
                 var ok = await Task.Run(() =>
                 {
-                    HermesCtl.Run($"config set memory.memory_char_limit {mem}", 30);
-                    HermesCtl.Run($"config set memory.user_char_limit {usr}", 30);
+                    // 快路径：直接改 config.yaml（毫秒级）；结构不认识时才退回 CLI
+                    if (!HermesCtl.SetMemoryLimits(mem, usr))
+                    {
+                        HermesCtl.Run($"config set memory.memory_char_limit {mem}", 30);
+                        HermesCtl.Run($"config set memory.user_char_limit {usr}", 30);
+                    }
                     // 回读校验：config set 失败时 CLI 也可能退 0，只有读回对得上才算真的写进去了
                     return ReadLimit("memory.memory_char_limit") == mem.ToString()
                         && ReadLimit("memory.user_char_limit") == usr.ToString();
                 });
                 MemoryHint.Foreground = ok ? Brush("#2E7D32") : Brush("#C62828");
                 MemoryHint.Text = ok
-                    ? (state == "running"
+                    ? (running
                         ? "已保存。重启 Gateway 后生效（首页点「停止」再「启动」）。"
                         : "已保存，下次启动 Gateway 时生效。")
                     : "保存失败：配置没有写进去，请查看 Gateway 日志。";
