@@ -233,13 +233,13 @@
         </Style>
 
         <!-- ===== 按钮：返回 =====
-             一颗完整的小胶囊：浅色底 + 1px 描边 + 22px 圆形箭头底。
-             悬停：整颗泛青、箭头左移 1.5px、按钮上浮 1px；按压轻微回弹。 -->
+             青蓝主题：淡青底 + 实心青圆箭头 + 青色文字。悬停整颗加深、箭头上左移、按钮上浮 1px。 -->
         <Style x:Key="BackButton" TargetType="Button">
-            <Setter Property="Background" Value="{DynamicResource FieldBg}"/>
-            <Setter Property="Foreground" Value="{DynamicResource Ink}"/>
+            <Setter Property="Background" Value="{DynamicResource AccentSoft}"/>
+            <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
             <Setter Property="FontSize" Value="12.5"/>
-            <Setter Property="Padding" Value="4,4,13,4"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Padding" Value="5,4,13,4"/>
             <Setter Property="MinHeight" Value="30"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing}"/>
@@ -250,15 +250,14 @@
                             <Grid.RenderTransform>
                                 <TranslateTransform x:Name="tr"/>
                             </Grid.RenderTransform>
-                            <Border x:Name="bd" CornerRadius="15" Background="{TemplateBinding Background}"
-                                    BorderBrush="{DynamicResource CardBorder}" BorderThickness="1"/>
-                            <Border x:Name="tint" CornerRadius="15" Background="{DynamicResource AccentSoft}" Opacity="0"/>
+                            <Border CornerRadius="15" Background="{TemplateBinding Background}"/>
+                            <Border x:Name="tint" CornerRadius="15" Background="{DynamicResource Accent}" Opacity="0"/>
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center"
                                         Margin="{TemplateBinding Padding}">
-                                <Grid Width="22" Height="22" VerticalAlignment="Center">
-                                    <Ellipse x:Name="disc" Fill="{DynamicResource AccentSoft}"/>
-                                    <Path x:Name="chev" Data="M 0 0 L -5.5 5.5 L 0 11"
-                                          Stroke="{DynamicResource Accent}" StrokeThickness="1.8"
+                                <Grid Width="20" Height="20" VerticalAlignment="Center">
+                                    <Ellipse Fill="{DynamicResource Accent}"/>
+                                    <Path x:Name="chev" Data="M 0 0 L -5 5 L 0 10"
+                                          Stroke="{DynamicResource OnAccent}" StrokeThickness="1.9"
                                           StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                                           StrokeLineJoin="Round"
                                           HorizontalAlignment="Center" VerticalAlignment="Center">
@@ -276,7 +275,7 @@
                                 <BeginStoryboard>
                                     <Storyboard>
                                         <DoubleAnimation Storyboard.TargetName="tint" Storyboard.TargetProperty="Opacity"
-                                                         To="1" Duration="0:0:0.15"/>
+                                                         To="0.10" Duration="0:0:0.15"/>
                                         <DoubleAnimation Storyboard.TargetName="shift" Storyboard.TargetProperty="X"
                                                          To="-1.5" Duration="0:0:0.18"/>
                                         <DoubleAnimation Storyboard.TargetName="tr" Storyboard.TargetProperty="Y"
@@ -296,11 +295,51 @@
                                     </Storyboard>
                                 </BeginStoryboard>
                             </EventTrigger>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource Accent}"/>
-                            </Trigger>
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter Property="Opacity" Value="0.85"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ===== 细进度条：不确定态（网关启动/停止时用） ===== -->
+        <Style x:Key="ThinProgress" TargetType="ProgressBar">
+            <Setter Property="Height" Value="3"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ProgressBar">
+                        <Grid ClipToBounds="True">
+                            <Border CornerRadius="1.5" Background="{DynamicResource Hairline}"/>
+                            <Border x:Name="runner" Width="140" Height="3" CornerRadius="1.5"
+                                    HorizontalAlignment="Left">
+                                <Border.Background>
+                                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                        <GradientStop Color="#00000000" Offset="0"/>
+                                        <GradientStop Color="#22D3EE" Offset="0.5"/>
+                                        <GradientStop Color="#00000000" Offset="1"/>
+                                    </LinearGradientBrush>
+                                </Border.Background>
+                                <Border.RenderTransform>
+                                    <TranslateTransform x:Name="tr" X="-140"/>
+                                </Border.RenderTransform>
+                            </Border>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsIndeterminate" Value="True">
+                                <Trigger.EnterActions>
+                                    <BeginStoryboard>
+                                        <Storyboard RepeatBehavior="Forever">
+                                            <DoubleAnimation Storyboard.TargetName="tr" Storyboard.TargetProperty="X"
+                                                             From="-140" To="900" Duration="0:0:1.6">
+                                                <DoubleAnimation.EasingFunction>
+                                                    <SineEase EasingMode="EaseInOut"/>
+                                                </DoubleAnimation.EasingFunction>
+                                            </DoubleAnimation>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.EnterActions>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>

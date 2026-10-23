@@ -187,6 +187,9 @@ namespace HerMemory
 
         public void UpdateHomeStatus(string state)
         {
+            // 过渡期：别把界面翻回旧状态（用户点了启动，几秒内轮询一定还会看到 stopped）。
+            if (DateTime.UtcNow < _transitionUntil && state != _transitionTarget) return;
+            if (state == _transitionTarget) _transitionUntil = DateTime.MinValue;
             _lastState = state;
             HomeStatus.Text = state switch
             {
@@ -230,6 +233,10 @@ namespace HerMemory
         private string _cfgState = "";
         private bool _cfgSaving;
         private string _lastState = "unknown";
+        // 启停过渡：网关真正起来要几秒，这期间轮询会先看到"还没起来"。
+        // 用目标态+截止时间挡住旧状态回填，界面只显示"正在启动/停止……"。
+        private DateTime _transitionUntil = DateTime.MinValue;
+        private string _transitionTarget = "";
 
         // —— API 设置页 · 模型状态机 ——
         // 修于 2026-09-10。原实现在"只改 url/key、未点获取列表"时 SelectedItem 为 null，
@@ -544,25 +551,34 @@ namespace HerMemory
             if (_homeBusy) return;
             _homeBusy = true;
             var cmd = sender == HomeStart ? "start" : "stop";
+            _transitionTarget = cmd == "start" ? "running" : "stopped";
+            _transitionUntil = DateTime.UtcNow.AddSeconds(130);
+            try { StatusProgress.Visibility = Visibility.Visible; } catch { }
             SetHomeBusy(true);                                    // 立即给可见反馈（按钮置灰）
-            HomeStatus.Text = cmd == "stop" ? "正在停止……" : "正在启动……";
+            HomeStatus.Text = cmd == "stop" ? "正在停止 Gateway……" : "正在启动 Gateway……";
             HomeStatus.Foreground = Brush("#78909C");
             try
             {
-                var pre = _lastState;
                 await Task.Run(() => HermesCtl.Run($"gateway {cmd}", 120));
+                // 一直等到目标态出现（最多 60s）：网关启动要预热，4 秒内看不到进程很正常。
+                // 期间状态文字保持「正在启动 Gateway……」，不再闪回「已停止」。
                 var st = await Task.Run(HermesCtl.State);
-                // 短间隔轮询、状态一翻转就停：旧实现固定 3×1500ms，最快也要等满 4.5 秒才回填真实状态
-                for (int i = 0; i < 6 && st == pre; i++)
+                for (int i = 0; i < 100 && st != _transitionTarget; i++)
                 {
                     await Task.Delay(600);
                     st = await Task.Run(HermesCtl.State);
                 }
+                _transitionUntil = DateTime.MinValue;
                 _lastState = st;
                 UpdateHomeStatus(st);
             }
             catch (Exception ex) { ReportUiError("启停网关", ex); }
-            finally { _homeBusy = false; SetHomeBusy(false); }   // 必须 finally：异常时不清标记 = 这两个按钮永久失效
+            finally
+            {
+                try { StatusProgress.Visibility = Visibility.Collapsed; } catch { }
+                _homeBusy = false;
+                SetHomeBusy(false);
+            }   // 必须 finally：异常时不清标记 = 这两个按钮永久失效
         }
 
         /// <summary>刷新：立即重取 Gateway 状态（与 10s 托盘轮询同一入口）。</summary>
