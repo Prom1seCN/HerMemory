@@ -190,7 +190,7 @@ namespace HerMemory
             HomeMode = true;
             // 没有 Key 一定先配置：卸载重装后 ui-state 可能还在，不能因为一个残留的"已完成"
             // 标记就跳过引导——那样用户会对着一个不会说话的 AI 发呆。
-            if (!ApiConfigured()) { ShowSetup(); return; }
+            if (!ApiConfigured() && !_setupSkipped) { ShowSetup(); return; }
             if (!UiState.SetupDone)
             {
                 // 老用户升级上来时配置早就在了：直接标记完成，不打扰。
@@ -1165,11 +1165,13 @@ namespace HerMemory
         // ================= 首次启动：三步配置 =================
         // 安装器只负责装；API、微信、第一句话都在这里完成。状态存 UiState（与内核配置分开）。
         private bool _inSetup;
+        private bool _setupSkipped;   // 本次会话里用户点了「稍后再说」：允许先看主界面，不再弹引导
 
         /// <summary>进入三步骤配置页。设置页的「重新运行」也走这里。</summary>
         public void ShowSetup()
         {
             _inSetup = true;
+            _setupSkipped = false;
             ShowPage("PageSetup");
             RefreshSetup();
         }
@@ -1210,6 +1212,7 @@ namespace HerMemory
         {
             UiState.SetupDone = true;
             _inSetup = false;
+            _setupSkipped = false;
             _ = EnsureGatewayServiceAsync();
             GoHome();
         }
@@ -1236,6 +1239,7 @@ namespace HerMemory
             // 跳过后不再纠缠：状态记为已完成，之后想配可从「设置 → 配置向导」重进。
             UiState.SetupDone = true;
             _inSetup = false;
+            _setupSkipped = true;
             GoHome();
         }
 
