@@ -1217,19 +1217,39 @@ namespace HerMemory
             GoHome();
         }
 
-        /// <summary>确保网关服务（Windows 计划任务）已注册：安装器从 0.2.0 起只装程序，
-        /// 服务注册改由程序侧补齐。幂等，失败静默（体检页会如实报出来）。</summary>
+        /// <summary>确保网关服务（Windows 计划任务）已注册且可用。安装器从 0.2.0 起只装程序，
+        /// 服务注册改由程序侧补齐；内核升级会在 HERMES_HOME 留一个 .hm-kernel-upgrade 标记，
+        /// 见到就强制重建（旧任务指向已删除的旧 venv）。幂等，失败静默（体检页会如实报）。</summary>
         private static async Task EnsureGatewayServiceAsync()
         {
             try
             {
                 if (!ApiConfigured()) return;
-                if (HermesCtl.GatewayTaskUsable()) return;
-                if (HermesCtl.GatewayLauncherStale()) HermesCtl.ResetGatewayTask();
+
+                var marker = Path.Combine(HermesCtl.HermesHome, ".hm-kernel-upgrade");
+                var upgraded = false;
+                try { upgraded = File.Exists(marker); } catch { }
+
+                if (!upgraded && HermesCtl.GatewayTaskUsable()) return;
+
+                var stale = upgraded || HermesCtl.GatewayLauncherStale();
+                if (stale) HermesCtl.ResetGatewayTask();
+
                 // 与微信流程同一口径：登录自启按用户此刻的选择，别把用户关掉的又装回来。
+                // NONINTERACTIVE 必须给：上游安装器只认这个变量，缺了会走 input()，在无控制台的
+                // 进程里要么抛异常要么卡住，而 hermes 调用是全局串行的——一卡就拖死整个界面。
                 Environment.SetEnvironmentVariable("HERMES_GATEWAY_INSTALL_START_ON_LOGIN",
                     AutoStart.IsOn ? "1" : "0");
-                await Task.Run(() => HermesCtl.Run("gateway install", 600));
+                Environment.SetEnvironmentVariable("HERMES_NONINTERACTIVE", "1");
+                try { await Task.Run(() => HermesCtl.Run("gateway install", 600)); }
+                finally { Environment.SetEnvironmentVariable("HERMES_NONINTERACTIVE", null); }
+
+                if (HermesCtl.GatewayTaskUsable())
+                {
+                    try { if (File.Exists(marker)) File.Delete(marker); } catch { }
+                    // 升级前网关本来是跑着的，重建后顺手拉起来，别让用户开机发现 AI 离线
+                    if (stale) await Task.Run(() => { try { HermesCtl.Run("gateway start", 120); } catch { } });
+                }
             }
             catch { }
         }
@@ -1813,7 +1833,9 @@ namespace HerMemory
                         if (HermesCtl.GatewayLauncherStale()) HermesCtl.ResetGatewayTask();
                         Environment.SetEnvironmentVariable("HERMES_GATEWAY_INSTALL_START_ON_LOGIN",
                             AutoStart.IsOn ? "1" : "0");
-                        await Task.Run(() => HermesCtl.Run("gateway install", 600));
+                        Environment.SetEnvironmentVariable("HERMES_NONINTERACTIVE", "1");
+                        try { await Task.Run(() => HermesCtl.Run("gateway install", 600)); }
+                        finally { Environment.SetEnvironmentVariable("HERMES_NONINTERACTIVE", null); }
                         break;
                     case HealthFix.OpenLogs:
                         BtnHealthLogs_Click(sender, e);
@@ -3402,6 +3424,9 @@ namespace HerMemory
             try
             {
                 var appDir = _pendAppDir ?? AppPaths.ExeDir;
+                // 旧版（0.1.x）把自定义端点写成 OPENAI_*，v0.22 会据此把请求劫持到 OpenRouter。
+                // 放在安装收尾做：此时网关还没被拉起，清理后第一次启动就是干净路由。
+                try { HermesCtl.PurgeLegacyOpenAiEnv(); } catch { }
                 // 释放程序本体（约 70 MB）留在这个后台线程上；安装器独有，程序本体形态没这资源
                 if (AppPaths.IsSetup && !ExtractAppFiles(appDir)) return false;
 

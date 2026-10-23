@@ -423,6 +423,30 @@ namespace HerMemory
             return (baseUrl, keyEnv, keyValue);
         }
 
+        /// <summary>0.1.x 的安装器把自定义端点写成 OPENAI_BASE_URL / OPENAI_API_KEY；
+        /// v0.22 见到 OPENAI_API_KEY 会按 auth.py 的 resolve_provider 劫持到 OpenRouter。
+        /// 只在 BASE_URL 明确不是 OpenAI 官方时清理（用户真用 OpenAI 时不碰）。返回是否改动。</summary>
+        public static bool PurgeLegacyOpenAiEnv()
+        {
+            try
+            {
+                var env = Path.Combine(HermesHome, ".env");
+                if (!File.Exists(env)) return false;
+                var lines = File.ReadAllLines(env);
+                var baseLine = lines.FirstOrDefault(l => l.StartsWith("OPENAI_BASE_URL=", StringComparison.Ordinal));
+                var url = baseLine == null ? "" : baseLine["OPENAI_BASE_URL=".Length..].Trim().Trim('"');
+                if (url.Length == 0 || url.Contains("api.openai.com", StringComparison.OrdinalIgnoreCase)) return false;
+                if (!lines.Any(l => l.StartsWith("OPENAI_API_KEY=", StringComparison.Ordinal))) return false;
+                var kept = lines.Where(l => !l.StartsWith("OPENAI_API_KEY=", StringComparison.Ordinal)
+                                         && !l.StartsWith("OPENAI_BASE_URL=", StringComparison.Ordinal)).ToList();
+                var tmp = env + ".tmp";
+                File.WriteAllLines(tmp, kept, new System.Text.UTF8Encoding(false));
+                File.Move(tmp, env, overwrite: true);
+                return true;
+            }
+            catch { return false; }
+        }
+
         /// <summary>直接改 config.yaml 的两个记忆上限（毫秒级）。成功返回 true。
         /// 为什么不用 `hermes config set`：每条 CLI 都要起一次 Python，且全进程串行，
         /// 网关轮询占着锁时保存能拖到半分钟（2026-10-23 实测 40s）。这两个键是 memory: 段下的

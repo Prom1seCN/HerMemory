@@ -598,6 +598,20 @@ print(json.load(open(files[-1])).get('user_id', '') if files else '')" 2>/dev/nu
     fi
 fi
 
+# ---------- 10.5 兼容 0.1.x：清掉会劫持路由的 OPENAI_* ----------
+# v0.22 的 auth.py 见到 OPENAI_API_KEY 会按它选 provider（自定义端点会被劫持到 OpenRouter）。
+# 0.1.x 的安装器正是把自定义端点写成 OPENAI_BASE_URL / OPENAI_API_KEY 的。
+# 只清 BASE_URL 明确不是 OpenAI 官方的那种，用户真用 OpenAI 时不动。
+if [ -f "$HERMES_HOME/.env" ]; then
+    _olb="$(grep -E '^OPENAI_BASE_URL=' "$HERMES_HOME/.env" | head -1 | cut -d= -f2- | tr -d '\r')"
+    _olb="${_olb%\"}"; _olb="${_olb#\"}"
+    if [ -n "$_olb" ] && [ "${_olb#*api.openai.com}" = "$_olb" ] \
+       && grep -qE '^OPENAI_API_KEY=' "$HERMES_HOME/.env"; then
+        sed -i -E '/^OPENAI_(API_KEY|BASE_URL)=/d' "$HERMES_HOME/.env"
+        ok "已清理旧版遗留的 OPENAI_* 路由键（v0.22 会据此劫持到 OpenRouter）"
+    fi
+fi
+
 # ---------- 11. gateway 服务（消息通道 + cron） ----------
 if [ "${KERNEL_UPGRADED:-0}" = "1" ] || [ -f "$HERMES_HOME/.hm-kernel-upgrade" ]; then
     # 内核换了版本：旧 systemd 单元里的解释器/工作目录都是旧的，留着它网关就起不来。
