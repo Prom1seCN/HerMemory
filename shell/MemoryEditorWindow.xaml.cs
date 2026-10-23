@@ -353,17 +353,10 @@ namespace HerMemory
 
         // ================= 预览 =================
 
-        private void PreviewToggle_Click(object sender, RoutedEventArgs e)
-        {
-            var on = PreviewToggle.IsChecked == true;
-            PreviewHost.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
-            PreviewSplitter.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
-            if (on) RenderPreview();
-        }
-
+        /// <summary>预览常开（用户裁决：去掉开关，编辑器右侧一直是预览）。
+        /// 渲染失败只吞掉异常——编辑本身不受影响。</summary>
         private void RenderPreview()
         {
-            if (PreviewToggle.IsChecked != true) return;
             try { Preview.Document = MarkdownPreview.Render(Editor.Text, Theme.IsDark); }
             catch { }
         }
