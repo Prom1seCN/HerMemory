@@ -405,6 +405,9 @@ function Test-NetUrl([string]$url) {
         $resp = $req.GetResponse()
         $resp.Close()
         return $true
+    } catch [System.Net.WebException] {
+        # 能拿到 HTTP 响应（403/404 也算）说明网络是通的，只是这个路径不存在
+        return ($_.Exception.Response -ne $null)
     } catch { return $false }
 }
 
