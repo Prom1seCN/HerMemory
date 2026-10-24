@@ -86,6 +86,13 @@ powershell -File build-release.ps1 -Version 0.2.0      # 出 build\app\HerMemory
 ```
 `build-release.ps1` 构建前跑 `scripts/check-privacy.ps1`（随包源码不得含构建机用户名）。
 
+**构建机（PC）与 NAS 不自动同步**：两边独立仓库，代码只在 NAS 改，PC 需要显式同步
+（`git push` 后在 PC `git fetch && git reset --hard origin/main`）。**出包前先确认
+`git rev-parse HEAD` 两边一致**——否则会拿旧代码打出一个"看起来成功"的包（2026-10-25 踩过）。
+PC 上 `shell/obj/project.assets.json` 已含 win-x64，构建跳过 NuGet 还原：**约 44 秒**
+（Ryzen 7 8845H；程序本体 69.2 MB + Setup 409.6 MB）。别拿 NAS 跑 `.ps1` 的耗时当时钟——
+NAS 连不上 api.nuget.org，每条重试要等一两分钟，会误判成"构建要 20 分钟"。
+
 ## 本机（NAS）验证方式
 
 隔离 HOME 装一遍再验接缝，`build/spike/` 是现成的样板（`env.sh` 里有整套环境变量）：
