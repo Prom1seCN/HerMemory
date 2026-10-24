@@ -1155,6 +1155,23 @@ function Get-BootstrapPython {
     return $script:BootstrapPython
 }
 
+
+function Enable-MirrorFirst {
+    # HerMemory 发行版补丁：PM 下载产物时优先走 hermes-assets 镜像（国内可达），
+    # GitHub 作为后备。只改顺序，哈希校验不变；幂等，失败不影响安装。
+    try {
+        $f = Join-Path $InstallDir "pm\artifact_mirror.py"
+        if (-not (Test-Path -LiteralPath $f)) { return }
+        $src = Get-Content -LiteralPath $f -Raw
+        if ($src -match "MIRROR_FIRST") { return }
+        $pat = 'return Source\(url, dest, sha256, fallbacks=\(\) if url == archive else \(archive,\)\)'
+        if ($src -notmatch $pat) { return }
+        $repl = "if url == archive:`r`n        return Source(url, dest, sha256, fallbacks=())`r`n    return Source(archive, dest, sha256, fallbacks=(url,))  # MIRROR_FIRST"
+        $out = [regex]::Replace($src, $pat, $repl)
+        Set-Content -LiteralPath $f -Value $out -Encoding UTF8 -NoNewline
+    } catch { }
+}
+
 function Invoke-BootstrapPm {
     $bootPy = Get-BootstrapPython
     Push-Location $InstallDir
@@ -1162,6 +1179,7 @@ function Invoke-BootstrapPm {
         # Finish bootstrap uv before PM replaces or cleans its store entry.
         # Bare $SkipBrowser, like $InstallDir: under iex/scriptblock entry the
         # param() binding is not in $script: scope (see Initialize-ResolvedPaths).
+        Enable-MirrorFirst
         $pmArgs = @('install')
         if ($SkipBrowser) { $pmArgs += @('--without', 'agent-browser') }
         if ($SkipComputerUse) { $pmArgs += @('--without', 'cua-driver') }

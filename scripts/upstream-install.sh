@@ -852,7 +852,20 @@ bootstrap_pm() {
     # clone and downloads can outlast sudo's timestamp_timeout.
     if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then sudo -n -v 2>/dev/null || :; fi
     (cd "$INSTALL_DIR" && run_logged "Installing dependencies (hash-verified via uv.lock)" \
-        "$boot_py" -m pm.cli "${pm_args[@]}") \
+        # HerMemory 补丁：优先走国内镜像（GitHub 作为后备）；只改顺序，哈希校验不变
+    python3 - "$INSTALL_DIR" <<'PYEOF' 2>/dev/null || true
+import re, sys, pathlib
+f = pathlib.Path(sys.argv[1]) / "pm" / "artifact_mirror.py"
+if f.is_file():
+    src = f.read_text(encoding="utf-8")
+    if "MIRROR_FIRST" not in src:
+        pat = r"return Source\(url, dest, sha256, fallbacks=\(\) if url == archive else \(archive,\)\)"
+        if re.search(pat, src):
+            repl = ("if url == archive:\n        return Source(url, dest, sha256, fallbacks=())\n"
+                    "    return Source(archive, dest, sha256, fallbacks=(url,))  # MIRROR_FIRST")
+            f.write_text(re.sub(pat, repl, src), encoding="utf-8")
+PYEOF
+    "$boot_py" -m pm.cli "${pm_args[@]}") \
         || fail "pm install failed" deps_install_failed
     log_success "dependencies installed"
 }
