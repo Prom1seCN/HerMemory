@@ -764,6 +764,19 @@ if ($exJ -and $exJ.LinkType -eq "Junction" -and "$($exJ.Target)" -eq $jTarget) {
     Ok "memories 已以 junction 挂载至 vault：$memDir -> $jTarget"
 }
 
+# ---------- 5.5 命令别名 hermemory ----------
+# 用户装的是 HerMemory，终端里却要敲 hermes——补一个等价别名，纯转发，不带任何逻辑。
+try {
+    $aliasPath = Join-Path (Split-Path $HermesCli -Parent) "hermemory.cmd"
+    $aliasBody = @"
+@echo off
+"%~dp0hermes.exe" %*
+exit /b %errorlevel%
+"@
+    Set-Content -LiteralPath $aliasPath -Value $aliasBody -Encoding ASCII
+    Ok "命令别名：hermemory（等价于 hermes）"
+} catch { Warn "hermemory 别名写入失败：$($_.Exception.Message)" }
+
 # ---------- 6. 品牌皮肤 ----------
 # 先把"CLI 到底在不在"问清楚。不查的话，后面每一步都只是一句含糊的 CommandNotFoundException，
 # 而按 `Test-Done "upstream"` 跳过内核安装的那条路径**不做任何 PATH / CLI 校验**（见文件头注释）。

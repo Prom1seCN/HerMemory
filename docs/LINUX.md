@@ -16,6 +16,9 @@ bash install.sh          # 需要交互式终端；中途 Ctrl+C 可退出，重
 
 **换记忆库位置**：`HERMEMORY_VAULT_DIR=/srv/vault bash install.sh`（必须是绝对路径）。
 
+装完终端里多一个等价命令 **`hermemory`**（`~/.local/bin/hermemory`，纯转发到 `hermes`）：
+`hermemory --version`、`hermemory gateway status` 都可以，和 `hermes` 完全一样。
+
 **无交互安装**（不想回答那几段问题）：
 
 ```bash
@@ -33,6 +36,7 @@ hermes uninstall            # 移除内核与运行数据
 ```
 
 记忆库 `~/vault` 默认保留（那是资产，不是软件痕迹），确认不要了再 `rm -rf ~/vault`。
+别名也一并删掉：`rm -f ~/.local/bin/hermemory`。
 仓库目录直接删掉即可。
 
 ## 二、模型与 API Key

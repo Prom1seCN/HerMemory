@@ -27,6 +27,9 @@ Windows 桌面程序里也有同一份列表：主界面 →「常用命令」�
 
 ## 二、在终端里用（Linux / NAS）
 
+安装器会创建一个等价别名 **`hermemory`**——`hermemory` 与 `hermes` 完全等价（纯转发，参数原样传递）。
+下表统一写 `hermes`，把命令开头的 `hermes` 换成 `hermemory` 同样有效。
+
 | 命令 | 作用 |
 | --- | --- |
 | `hermes status` | 总览：内核、网关、模型 |

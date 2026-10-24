@@ -319,6 +319,23 @@ else
     ok "memories 已以符号链接挂载至 vault：$mem_dir -> $mem_target"
 fi
 
+# ---------- 5.5 命令别名 hermemory ----------
+# 用户装的是 HerMemory，终端里却要敲 hermes——补一个等价别名，纯转发，不带任何逻辑。
+if [ -d "$HOME/.local/bin" ]; then
+    cat > "$HOME/.local/bin/hermemory" <<'EOS'
+#!/usr/bin/env sh
+# hermemory = hermes（HerMemory 发行版的等价命令）
+self=$(command -v -- "$0" 2>/dev/null || printf '%s' "$0")
+dir=$(CDPATH= cd -- "$(dirname -- "$self")" 2>/dev/null && pwd)
+if [ -n "$dir" ] && [ -x "$dir/hermes" ]; then
+    exec "$dir/hermes" "$@"
+fi
+exec hermes "$@"
+EOS
+    chmod +x "$HOME/.local/bin/hermemory"
+    ok "命令别名：hermemory（等价于 hermes）"
+fi
+
 # ---------- 6. 品牌皮肤 ----------
 mkdir -p "$HERMES_HOME/skins"
 cp "$SRC/skins/hermemory.yaml" "$HERMES_HOME/skins/hermemory.yaml"
