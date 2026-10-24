@@ -483,6 +483,23 @@ if ($workingCli -and $haveVer -eq $WantHermesVersion) {
              [Environment]::NewLine + "（已装好的机器修复重跑不需要这一步；本机还没装好。）")
     }
 
+    # ---------- 2.05 预置运行时大件（git / python / node） ----------
+    # 随包的 payload\artifacts\<sha256> 直接塞进 PM 的下载缓存，PM 校验哈希后跳过下载。
+    # 国内直连镜像只有 200 KB/s 左右，这三个合计 149 MB——预置后首装不再卡在"installing git"。
+    $artRoot = Join-Path $SRC "artifacts"
+    if (Test-Path -LiteralPath $artRoot) {
+        $toolRoot = Join-Path $HermesHome "tools"
+        New-Item -ItemType Directory -Force -Path $toolRoot | Out-Null
+        $seeded = 0
+        foreach ($f in Get-ChildItem -LiteralPath $artRoot -File) {
+            $dir = Join-Path $toolRoot ("fetch-" + $f.Name)
+            New-Item -ItemType Directory -Force -Path $dir | Out-Null
+            Copy-Item -LiteralPath $f.FullName -Destination (Join-Path $dir "artifact.bin") -Force
+            $seeded++
+        }
+        if ($seeded -gt 0) { Log "已预置 $seeded 个运行时产物（git / python / node），无需下载" }
+    }
+
     # ---------- 国内镜像优先（默认开） ----------
     # GitHub 在国内常常是"TCP 能连、TLS 卡住"，PM 每个产物要先等 60 秒才回退镜像。
     # 做法：给子进程一个"死代理"（127.0.0.1:9 立刻拒绝），把 GitHub 变成快速失败，

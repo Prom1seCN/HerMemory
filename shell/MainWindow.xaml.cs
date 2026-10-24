@@ -3471,9 +3471,69 @@ namespace HerMemory
             _tipTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(6) };
             _tipTimer.Tick += (_, _) => { i = (i + 1) % lines.Count; InstallTip.Text = lines[i]; };
             _tipTimer.Start();
+            StartDownloadMeter();
         }
 
-        private void StopTips() => _tipTimer?.Stop();
+        private void StopTips() { _tipTimer?.Stop(); StopDownloadMeter(); }
+
+        // —— 下载进度（PM 的进度条只对 TTY 渲染，GUI 里看不到）——
+        // 轮询 PM 的缓存目录：partials（下载中的分片）与 tools\fetch-*（已下好的归档）。
+        private System.Windows.Threading.DispatcherTimer? _dlTimer;
+        private long _dlBytes;
+        private DateTime _dlAt;
+
+        private void StartDownloadMeter()
+        {
+            if (_dlTimer != null) return;
+            _dlBytes = 0; _dlAt = DateTime.UtcNow;
+            _dlTimer = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(2),
+            };
+            _dlTimer.Tick += (_, _) =>
+            {
+                try
+                {
+                    var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "hermes");
+                    long total = DirSize(Path.Combine(root, "cache", "partials"));
+                    var tools = Path.Combine(root, "tools");
+                    if (Directory.Exists(tools))
+                        foreach (var d in Directory.GetDirectories(tools, "fetch-*"))
+                            total += DirSize(d);
+                    var now = DateTime.UtcNow;
+                    var secs = Math.Max(0.5, (now - _dlAt).TotalSeconds);
+                    var speed = Math.Max(0, (total - _dlBytes) / secs);
+                    _dlBytes = total; _dlAt = now;
+                    if (total <= 0) return;
+                    InstallDl.Visibility = Visibility.Visible;
+                    InstallDl.Text = "已下载 " + (total / 1048576.0).ToString("F1") + " MB" +
+                        (speed > 1048576 ? " · " + (speed / 1048576.0).ToString("F1") + " MB/s"
+                                         : " · " + (speed / 1024).ToString("F0") + " KB/s");
+                }
+                catch { }
+            };
+            _dlTimer.Start();
+        }
+
+        private static long DirSize(string path)
+        {
+            try
+            {
+                if (!Directory.Exists(path)) return 0;
+                long n = 0;
+                foreach (var f in Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories))
+                    try { n += new FileInfo(f).Length; } catch { }
+                return n;
+            }
+            catch { return 0; }
+        }
+
+        private void StopDownloadMeter()
+        {
+            try { _dlTimer?.Stop(); } catch { }
+            _dlTimer = null;
+            try { InstallDl.Visibility = Visibility.Collapsed; } catch { }
+        }
 
         private void AddRetryButton()
         {

@@ -878,6 +878,9 @@
                     <ProgressBar x:Name="InstallBar" Height="8" Minimum="0" Maximum="100" Margin="0,18,0,8"/>
                     <TextBlock x:Name="InstallDetail" FontSize="12" Foreground="{DynamicResource Muted}"
                                TextWrapping="Wrap" MaxHeight="170" LineHeight="19"/>
+                    <!-- 下载进度：PM 的进度条只对 TTY 渲染，GUI 里不显示；这里轮询缓存目录自己算 -->
+                    <TextBlock x:Name="InstallDl" FontSize="11.5" Foreground="{DynamicResource Subtle}"
+                               Margin="0,6,0,0" Visibility="Collapsed"/>
                     <!-- 失败原因：红字，位于「重新安装」按钮上方（按钮由代码追加到本面板末尾） -->
                     <TextBlock x:Name="InstallFail" FontSize="12.5" Foreground="{DynamicResource Danger}"
                                TextWrapping="Wrap" Margin="0,14,0,0" Visibility="Collapsed"/>

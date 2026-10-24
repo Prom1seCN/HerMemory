@@ -82,6 +82,11 @@
     <BundledAsset Include="..\build\minimal\uv.exe" Condition="Exists('..\build\minimal\uv.exe')" />
     <BundledAsset Include="..\build\minimal\uv.version" Condition="Exists('..\build\minimal\uv.version')" />
     <EmbeddedResource Include="@(BundledAsset)" LogicalName="payload/%(Filename)%(Extension)" />
+    <!-- 运行时大件（git / python / node）：文件名就是 pm/lock.json 里的 sha256。
+         安装时 install.ps1 把它们预置进 PM 的下载缓存（%LOCALAPPDATA%\hermes\tools\fetch-<sha>），
+         PM 校验哈希后直接使用，不再联网下载——国内 200 KB/s 的线路最慢的就是这三个。 -->
+    <RuntimeArtifact Include="..\build\minimal\artifacts\*" Condition="Exists('..\build\minimal\artifacts')" />
+    <EmbeddedResource Include="@(RuntimeArtifact)" LogicalName="payload/artifacts/%(Filename)%(Extension)" />
   </ItemGroup>
 
   <!-- 安装器的前置产物断言：条件 Exists 只会「静默不嵌」，那会得到一个空有外壳的安装器。
