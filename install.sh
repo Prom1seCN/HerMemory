@@ -144,6 +144,13 @@ else
         # 旧 unit 会继续指向旧 venv。标记让重跑仍然知道"网关必须重建"。
         : > "$HERMES_HOME/.hm-kernel-upgrade" 2>/dev/null || true
     fi
+    # 联网预检：PM 要下载 Python / Node / 依赖（GitHub，失败回退 hermes-assets 镜像）。
+    # 没网时上游会在深处报一串 Python 下载异常——提前用中文说清楚。
+    if ! curl -sI -m 8 https://github.com >/dev/null 2>&1 \
+       && ! curl -sI -m 8 https://hermes-assets.nousresearch.com >/dev/null 2>&1; then
+        die "无法联网：安装需要下载 Python / Node / 依赖（GitHub 或镜像 hermes-assets.nousresearch.com）。请检查网络或代理后重试。"
+    fi
+
     UPSTREAM_INSTALLER="$SRC/scripts/upstream-install.sh"
     [ -f "$UPSTREAM_INSTALLER" ] || die "缺 vendored 上游安装器：$UPSTREAM_INSTALLER（发行包不完整，请重新 git clone 本仓库）"
 

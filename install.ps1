@@ -393,6 +393,21 @@ $VaultDir = $VaultDir.Trim().Trim('"').TrimEnd('\')
 if (-not [IO.Path]::IsPathRooted($VaultDir)) { Die "记忆库位置必须是绝对路径（实际：$VaultDir）" }
 $VaultDir = [IO.Path]::GetFullPath($VaultDir).TrimEnd('\')
 
+# ---------- 1.9 联网预检（只在需要装内核/运行环境时执行） ----------
+# 上游要用 PM 从 GitHub（失败时回退 hermes-assets 镜像）下载 Python / Node / PortableGit 等，
+# 没网时会在内核段深处失败，报一串英文下载错误——提前用中文说清楚。
+function Test-NetUrl([string]$url) {
+    try {
+        $req = [System.Net.HttpWebRequest]::Create($url)
+        $req.Method = "HEAD"
+        $req.Timeout = 8000
+        $req.Proxy = [System.Net.WebRequest]::DefaultWebProxy
+        $resp = $req.GetResponse()
+        $resp.Close()
+        return $true
+    } catch { return $false }
+}
+
 # ---------- 2. 上游内核（vendored 官方安装器 + 随包 git bundle，pin commit） ----------
 # 「已装」判据沿用 2026-09-16 的结论：CLI 真的跑得起来才算装上，文件在场不算。
 # 但**跑得起来还不够**：0.1.0 装的是 Hermes v0.21.0，它的 CLI 也跑得起来；只判可用
@@ -456,6 +471,13 @@ if ($workingCli -and $haveVer -eq $WantHermesVersion) {
     if ($SkipUpstream) { Die "hermes CLI 不可用，且指定了 -SkipUpstream" }
     if ((Test-Done "upstream") -or (Test-Path (Join-Path $HermesHome "hermes-agent"))) {
         Warn "检测到内核痕迹，但 hermes CLI 无法运行（PM 环境可能已失效）→ 将重建内核与环境。"
+    }
+
+    if (-not ((Test-NetUrl "https://github.com") -or (Test-NetUrl "https://hermes-assets.nousresearch.com"))) {
+        Die ("无法联网：安装需要下载 Python / Node / 依赖（GitHub，或镜像 hermes-assets.nousresearch.com）。" +
+             [Environment]::NewLine + "请检查网络或代理后重试。" +
+             [Environment]::NewLine + "Windows 沙盒请在 .wsb 配置里启用 <Networking>Enable</Networking>。" +
+             [Environment]::NewLine + "（已装好的机器修复重跑不需要这一步；本机还没装好。）")
     }
 
     $up = Join-Path $SRC "scripts\upstream-install.ps1"
