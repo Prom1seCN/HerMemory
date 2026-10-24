@@ -137,4 +137,9 @@ bash export.sh -o /srv/backup
 2. `tail -n 100 ~/.hermes/logs/*.log` —— 最近报错。
 3. `hermes doctor` —— 依赖和路径有没有坏。
 
+**回复开头还是 `⚕ Hermes`？** 皮肤没加载。`hermes skin list` 里应该有一行 `hermemory`；
+没有就说明 `~/.hermes/skins/hermemory.yaml` 缺顶层 `name: hermemory`（0.1.x 装的旧文件就是这样，
+加载器会静默丢弃它）。用仓库里的 `skins/hermemory.yaml` 覆盖，再 `hermes skin use hermemory`，
+回复标签就变成 `HerMemory`。安装器现在会自己核对这一步，未生效会直接告警。
+
 装内核时的旧目录保留在 `~/.hermes/hermes-agent.pre-*`，确认新版可用后可删。

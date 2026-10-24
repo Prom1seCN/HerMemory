@@ -775,8 +775,13 @@ if ((Run-Q $HermesCli --version) -ne 0) { Die (Format-CliBroken $HermesCli) }
 New-Item -ItemType Directory -Force -Path "$HermesHome\skins" | Out-Null
 Copy-Item "$SRC\skins\hermemory.yaml" "$HermesHome\skins\hermemory.yaml" -Force
 $_r = Run-QOut $HermesCli config set display.skin hermemory
-if ($_r.Code -eq 0) { Ok "皮肤已激活：HerMemory（/skin 可切换）" }
+if ($_r.Code -eq 0) { Ok "皮肤已配置：HerMemory（/skin 可切换）" }
 else { Warn ("display.skin 写入失败（非致命）。可在运行时执行 /skin hermemory 手动切换。" + (Show-Tail $_r.Out)) }
+# 配了不等于生效：皮肤 YAML 缺顶层 name 字段会被加载器静默丢弃（0.1.0 的旧文件就是这样，
+# 回复前缀仍是默认的「⚕ Hermes」）。这里以 skin list 的实际结果为准。
+$_skin = Run-QOut $HermesCli skin list
+if ($_skin.Out -match "(?m)^\s*\*?\s*hermemory\s+user\b") { Ok "皮肤已生效：hermemory" }
+else { Warn "皮肤未生效：hermemory.yaml 未被识别（检查文件顶层是否有 name: hermemory）" }
 
 # ---------- 7. 时区 ----------
 Log "时间注入取本机系统时钟。请在系统设置中确认时区为 (UTC+08:00) 北京。"

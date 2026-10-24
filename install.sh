@@ -322,8 +322,15 @@ fi
 # ---------- 6. 品牌皮肤 ----------
 mkdir -p "$HERMES_HOME/skins"
 cp "$SRC/skins/hermemory.yaml" "$HERMES_HOME/skins/hermemory.yaml"
-hermes config set display.skin hermemory >/dev/null 2>&1 && ok "皮肤已激活：HerMemory（/skin 可切换）" \
+hermes config set display.skin hermemory >/dev/null 2>&1 && ok "皮肤已配置：HerMemory（/skin 可切换）" \
     || warn "display.skin 写入失败（非致命）。可运行时执行 /skin hermemory 手动切换。"
+# 配了不等于生效：皮肤 YAML 缺顶层 name 字段会被加载器静默丢弃（0.1.0 的旧文件就是这样，
+# 回复前缀仍是默认的「⚕ Hermes」）。这里以 skin list 的实际结果为准。
+if hermes skin list 2>/dev/null | grep -qE '(^|[[:space:]])hermemory([[:space:]]|$)'; then
+    ok "皮肤已生效：hermemory"
+else
+    warn "皮肤未生效：hermemory.yaml 未被识别（检查文件顶层是否有 name: hermemory）"
+fi
 
 # ---------- 7. 时区 Asia/Shanghai（时钟错则时间感知全错） ----------
 if command -v timedatectl >/dev/null; then
