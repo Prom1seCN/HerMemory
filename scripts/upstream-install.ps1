@@ -1157,8 +1157,8 @@ function Get-BootstrapPython {
 
 
 function Enable-MirrorFirst {
-    # HerMemory 发行版补丁：PM 下载产物时优先走 hermes-assets 镜像（国内可达），
-    # GitHub 作为后备。只改顺序，哈希校验不变；幂等，失败不影响安装。
+    # HerMemory patch: make PM try the hermes-assets mirror first, GitHub as fallback.
+    # Order only; sha256 verification is unchanged. Idempotent; failures are ignored.
     try {
         $f = Join-Path $InstallDir "pm\artifact_mirror.py"
         if (-not (Test-Path -LiteralPath $f)) { return }
