@@ -483,6 +483,24 @@ if ($workingCli -and $haveVer -eq $WantHermesVersion) {
              [Environment]::NewLine + "（已装好的机器修复重跑不需要这一步；本机还没装好。）")
     }
 
+    # ---------- 国内镜像优先（默认开） ----------
+    # GitHub 在国内常常是"TCP 能连、TLS 卡住"，PM 每个产物要先等 60 秒才回退镜像。
+    # 做法：给子进程一个"死代理"（127.0.0.1:9 立刻拒绝），把 GitHub 变成快速失败，
+    # 同时用 NO_PROXY 放行真要访问的国内源——镜像、PyPI（清华）、npm（npmmirror）。
+    # 用户自己配了代理，或设了 HERMEMORY_NO_MIRROR_FIRST=1，就完全不动。
+    if (-not $env:HTTPS_PROXY -and -not $env:HTTP_PROXY -and -not $env:HERMEMORY_NO_MIRROR_FIRST) {
+        if (Test-NetUrl "https://hermes-assets.nousresearch.com") {
+            $env:HTTP_PROXY  = "http://127.0.0.1:9"
+            $env:HTTPS_PROXY = "http://127.0.0.1:9"
+            $env:NO_PROXY = "hermes-assets.nousresearch.com,nousresearch.com,registry.npmmirror.com,pypi.tuna.tsinghua.edu.cn,localhost,127.0.0.1"
+            $env:no_proxy = $env:NO_PROXY
+            $env:npm_config_noproxy = "registry.npmmirror.com"
+            Log "国内镜像优先：跳过 GitHub 直连，产物走 hermes-assets 镜像（要改回直连：设 HERMEMORY_NO_MIRROR_FIRST=1）"
+        } else {
+            Warn "镜像 hermes-assets 不可达，按原样直连（GitHub 可能较慢）"
+        }
+    }
+
     $up = Join-Path $SRC "scripts\upstream-install.ps1"
     if (-not (Test-Path $up)) { Die "缺 vendored 上游安装器：$up（发行包不完整，请重新获取 HerMemory）" }
     if (-not (Test-Path $KernelBundle)) { Die "缺内核包：$KernelBundle（发行包不完整，请重新获取 HerMemory）" }

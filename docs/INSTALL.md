@@ -11,6 +11,7 @@ HerMemory. Your memory.
 - Windows 10 / 11
 - 只需要安装包 `Setup.exe` 一个文件，无需预装 git、Python、Node 等任何工具（内核源码与 uv 已内嵌）
 - 首次运行 Windows 可能弹「Windows 已保护你的电脑」：点「更多信息」→「仍要运行」。安装包没有代码签名，这是 SmartScreen 的常规提示；个别杀软会把自解压的单文件 exe 误报，恢复并加入信任即可
+- **默认走国内镜像**：安装器会主动跳过 GitHub 直连（快速失败后走 hermes-assets 镜像），PyPI 走清华、npm 与 CPython 走 npmmirror——国内无梯子也能装完。要强制直连 GitHub：设 `HERMEMORY_NO_MIRROR_FIRST=1`。
 - **安装过程中需要联网**：Python 3.14、Node、Chromium（可选）与 Python 依赖由安装器现场下载，走官方 sha256 镜像与国内源（清华 PyPI / npmmirror）。GitHub 不通时会自动回退 `hermes-assets.nousresearch.com` 镜像；两个都连不上时安装器会在开始前直接报「无法联网」，不会装到一半才失败
 - **Windows 沙盒里测试**：`.wsb` 配置需要 `<Networking>Enable</Networking>`，否则沙盒内没有任何 TCP 出口，下载必然失败（这与 HerMemory 无关）。宿主机走代理时，沙盒不会自动继承，运行安装包前先在沙盒里设置：`set HTTPS_PROXY=http://<宿主机IP>:<端口>`（cmd）或 `$env:HTTPS_PROXY=...`（PowerShell），`HTTP_PROXY` 同理
 - 需要同意一次管理员授权（向导预检阶段弹出，用于创建符号链接与写入程序目录）。已开启开发者模式（设置 → 更新与安全 → 开发者选项）时不会因符号链接而请求提权

@@ -151,6 +151,18 @@ else
         die "无法联网：安装需要下载 Python / Node / 依赖（GitHub 或镜像 hermes-assets.nousresearch.com）。请检查网络或代理后重试。"
     fi
 
+    # 国内镜像优先（默认开）：GitHub 在国内常"能连但卡住"，PM 每个产物要等 60 秒才回退镜像。
+    # 给子进程一个死代理（127.0.0.1:9 立刻拒绝）让 GitHub 快速失败，用 NO_PROXY 放行国内源。
+    # 用户自己配了代理或设了 HERMEMORY_NO_MIRROR_FIRST=1 就不动。
+    if [ -z "${HTTPS_PROXY:-}${HTTP_PROXY:-}${https_proxy:-}${http_proxy:-}" ] \
+       && [ -z "${HERMEMORY_NO_MIRROR_FIRST:-}" ] \
+       && curl -sI -m 6 https://hermes-assets.nousresearch.com >/dev/null 2>&1; then
+        export HTTP_PROXY="http://127.0.0.1:9" HTTPS_PROXY="http://127.0.0.1:9"
+        export NO_PROXY="hermes-assets.nousresearch.com,nousresearch.com,registry.npmmirror.com,pypi.tuna.tsinghua.edu.cn,localhost,127.0.0.1"
+        export no_proxy="$NO_PROXY"
+        log "国内镜像优先：跳过 GitHub 直连，产物走 hermes-assets 镜像（改回直连：HERMEMORY_NO_MIRROR_FIRST=1）"
+    fi
+
     UPSTREAM_INSTALLER="$SRC/scripts/upstream-install.sh"
     [ -f "$UPSTREAM_INSTALLER" ] || die "缺 vendored 上游安装器：$UPSTREAM_INSTALLER（发行包不完整，请重新 git clone 本仓库）"
 
