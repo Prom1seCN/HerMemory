@@ -182,7 +182,31 @@ namespace HerMemory
                 }
                 r.BackupDir = backup;
             }
-            catch (Exception ex) { r.Notes.Add("备份未完成：" + ex.Message); }
+            catch (Exception ex)
+            {
+                r.Failed.Add(new("记忆与身份", "重置前备份", ex.Message));
+                r.Notes.Add("备份未完成，已中止，未清除任何文件。");
+                if (r.GatewayWasRunning) TryRestartGateway(r);
+                return r;
+            }
+            // 备份流程返回不代表四份记忆真的复制成功；逐份验哈希/字节，缺失就拒绝破坏性操作。
+            try
+            {
+                foreach (var f in new[] { "SOUL.md", "AGENTS.md", "MEMORY.md", "USER.md" })
+                {
+                    var src = Path.Combine(memoryDir, f);
+                    if (File.Exists(src) && !File.ReadAllBytes(src).SequenceEqual(
+                            File.ReadAllBytes(Path.Combine(r.BackupDir!, f))))
+                        throw new IOException("备份校验不一致：" + f);
+                }
+            }
+            catch (Exception ex)
+            {
+                r.Failed.Add(new("记忆与身份", "重置前备份校验", ex.Message));
+                r.Notes.Add("备份不可用，已中止，未清除任何文件。");
+                if (r.GatewayWasRunning) TryRestartGateway(r);
+                return r;
+            }
 
             // ---------- ③ 按计划执行 ----------
             foreach (var step in BuildPlan(memoryDir, factoryDir, hh, home))
@@ -246,6 +270,19 @@ namespace HerMemory
         }
 
         // ================= 文件操作 =================
+
+        /// <summary>备份失败后的兜底重启：绝不因为“保存回滚点失败”把网关留在停机状态。</summary>
+        private static void TryRestartGateway(Report r)
+        {
+            try
+            {
+                HermesCtl.Run("gateway start", 120);
+                for (int i = 0; i < 25 && !HermesCtl.GatewayProcessAlive(); i++) Thread.Sleep(400);
+                r.Restarted = HermesCtl.GatewayProcessAlive() || HermesCtl.State() == "running";
+            }
+            catch { r.Restarted = false; }
+        }
+
 
         private static bool Write(string dir, string name, byte[] bytes)
         {

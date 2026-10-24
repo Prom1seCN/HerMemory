@@ -15,7 +15,20 @@ namespace HerMemory
         private static readonly object _sync = new object();
 
         /// <summary>统一的进程执行：stdout/stderr 并发读取（避免单侧缓冲满导致死锁）+ 超时强杀。</summary>
-        private static string RunPsi(ProcessStartInfo psi, int timeoutSec)
+        private static string RunPsi(ProcessStartInfo psi, int timeoutSec) =>
+            RunPsiChecked(psi, timeoutSec).Output;
+
+        /// <summary>保留退出码与超时的底层执行结果。旧版把这两类失败折叠成空 stdout，
+        /// 调用方会把「命令根本没跑成」当成成功或空配置。</summary>
+        internal readonly record struct CommandResult(int ExitCode, bool TimedOut, string Output)
+        {
+            public bool Success => ExitCode == 0 && !TimedOut;
+            public string Error => TimedOut ? "命令执行超时"
+                : ExitCode == -1 && Output.Length == 0 ? "命令未能启动或执行失败"
+                : ExitCode == 0 ? "" : $"命令退出码 {ExitCode}：{Output.Trim()}";
+        }
+
+        private static CommandResult RunPsiChecked(ProcessStartInfo psi, int timeoutSec)
         {
             lock (_sync)
             {
@@ -28,8 +41,10 @@ namespace HerMemory
                     try { p.StandardInput.Close(); } catch { }
                     var so = p.StandardOutput.ReadToEndAsync();
                     var se = p.StandardError.ReadToEndAsync();
+                    var timedOut = false;
                     if (!p.WaitForExit(timeoutSec * 1000))
                     {
+                        timedOut = true;
                         try { p.Kill(true); } catch { }
                     }
                     // **绝不能在这里直接取 .Result**：若上面 Kill 失败（进程卡在不可中断状态），
@@ -40,10 +55,19 @@ namespace HerMemory
                     var sb = new System.Text.StringBuilder();
                     if (so.IsCompletedSuccessfully) sb.Append(so.Result);
                     if (se.IsCompletedSuccessfully) sb.Append(se.Result);
-                    return sb.ToString();
+                    return new CommandResult(timedOut ? -2 : p.HasExited ? p.ExitCode : -1, timedOut, sb.ToString());
                 }
-                catch { return ""; }
+                catch (Exception ex) { return new CommandResult(-1, false, ex.Message); }
             }
+        }
+
+        /// <summary>必须核实成败的 hermes 调用。参数逐个传递，不再拼进一条命令行：
+        /// 路径、模型名或凭据里的空格/引号不能被二次解析。</summary>
+        internal static CommandResult RunChecked(int timeoutSec, params string[] args)
+        {
+            var psi = HermsPsi();
+            foreach (var arg in args) psi.ArgumentList.Add(arg ?? "");
+            return RunPsiChecked(psi, timeoutSec);
         }
 
         /// <summary>执行原生命令并返回**退出码**（成败只能靠退出码判断时用，如 `schtasks /Query /TN`——
@@ -138,11 +162,18 @@ namespace HerMemory
                 if (!File.Exists(pidFile)) return false;
                 var m = System.Text.RegularExpressions.Regex.Match(
                     File.ReadAllText(pidFile), "\"pid\"\\s*:\\s*(\\d+)");
-                if (!m.Success) return false;
-                var pid = int.Parse(m.Groups[1].Value);
-                if (pid <= 0) return false;
+                if (!m.Success || !int.TryParse(m.Groups[1].Value, out var pid) || pid <= 0) return false;
                 using var p = Process.GetProcessById(pid);   // 进程不在 → 抛 ArgumentException
-                return !p.HasExited;
+                if (p.HasExited) return false;
+                // 仅 PID 存活不够：旧 gateway.pid 残留 + PID 复用会把别的进程当成网关。
+                // 只认 python* / hermes，且可读路径时必须落在本数据目录内；读不到路径就交给 CLI 复核。
+                var name = p.ProcessName;
+                if (!name.StartsWith("python", StringComparison.OrdinalIgnoreCase)
+                    && !name.Equals("hermes", StringComparison.OrdinalIgnoreCase)) return false;
+                var exe = p.MainModule?.FileName ?? "";
+                return exe.Length > 0 && exe.StartsWith(
+                    HermesHome.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar,
+                    StringComparison.OrdinalIgnoreCase);
             }
             catch { return false; }
         }
@@ -312,12 +343,12 @@ namespace HerMemory
         }
 
         /// <summary>统一构造 hermes 进程：NO_COLOR 关颜色码（URL 提取与关键词答题都依赖干净输出）。</summary>
-        private static ProcessStartInfo HermsPsi(string args)
+        private static ProcessStartInfo HermsPsi(string? args = null)
         {
             var psi = new ProcessStartInfo
             {
                 FileName = HermsExe,
-                Arguments = args,
+                Arguments = args ?? "",
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -352,13 +383,38 @@ namespace HerMemory
         /// <summary>gateway 原始状态输出。注意停止时输出为 "✗ Gateway is not running"——包含 "running"。</summary>
         public static string RawStatus(int timeoutSec = 15) => RunPsi(HermsPsi("gateway status"), timeoutSec);
 
-        /// <summary>状态二态：running / stopped。顺序关键：先判否定，"not running" 也包含 "running"；读取失败一律按停止。</summary>
-        public static string State()
+        /// <summary>把上游 status 文本分类。先判否定："not running" 本身也含 running。</summary>
+        internal static string ParseGatewayState(string output)
         {
-            var lower = RawStatus().ToLowerInvariant();
-            if (lower.Contains("not running") || lower.Contains("stopped")) return "stopped";
+            var lower = (output ?? "").ToLowerInvariant();
+            if (lower.Contains("not running") || lower.Contains("stopped")
+                || lower.Contains("startup_failed")) return "stopped";
             if (lower.Contains("running")) return "running";
-            return "stopped";
+            return "unknown";
+        }
+
+        /// <summary>本地身份文件优先，避免每次状态刷新都启动一个 Python；CLI 是准确的后备判据。</summary>
+        public static string State(int timeoutSec = 15)
+        {
+            if (GatewayProcessAlive()) return "running";
+            return ParseGatewayState(RawStatus(timeoutSec));
+        }
+
+        /// <summary>网关操作不能只看 CLI 是否打印了成功：最终以真实状态为准。
+        /// 复核有整体时限（30 秒），单次状态探测也用短超时，避免 CLI 卡住时把界面拖死。</summary>
+        internal static CommandResult GatewayCommand(string command, int timeoutSec = 120)
+        {
+            var r = RunChecked(timeoutSec, "gateway", command);
+            if (!r.Success) return r;
+            var desired = command == "stop" ? "stopped" : "running";
+            var deadline = Environment.TickCount64 + 30_000;
+            while (Environment.TickCount64 < deadline)
+            {
+                if (State(2) == desired) return r;
+                System.Threading.Thread.Sleep(500);
+            }
+            return new CommandResult(1, false,
+                $"gateway {command} 已执行，但 30 秒内仍未进入 {desired} 状态。请查看 gateway 日志。\n{r.Output}");
         }
 
         public static string Run(string args, int timeoutSec = 120) => RunPsi(HermsPsi(args), timeoutSec);
@@ -380,26 +436,16 @@ namespace HerMemory
             return string.IsNullOrEmpty(s) ? null : s;
         }
 
-        public static bool EnvHasWeixin()
-        {
-            try
-            {
-                var env = Path.Combine(HermesHome, ".env");
-                return File.Exists(env) && File.ReadAllLines(env)
-                    .Any(l => l.StartsWith("WEIXIN_ACCOUNT_ID=", StringComparison.Ordinal)
-                              && l.Length > "WEIXIN_ACCOUNT_ID=".Length);
-            }
-            catch { return false; }
-        }
+        public static bool EnvHasWeixin() =>
+            HasEnvValue(Path.Combine(HermesHome, ".env"), "WEIXIN_ACCOUNT_ID");
 
         // —— 模型接口配置（对齐 install.ps1 的 custom provider 机制） ——
         public static (string baseUrl, string keyEnv, string keyValue) GetModelCfg()
         {
-            var baseUrl = Clean(Run("config get model.base_url", 20));
+            var baseUrl = Clean(ReadConfigValue("model.base_url"));
             // 直接读 config.yaml：CLI 的 `config get model.api_key` 会把密钥打码成 sk-a...a84f，
             // 拿它回填等于把打码串写回去。yaml 里才是真值（明文或 ${ENV} 引用）。
             var apiRef = Clean(ReadConfigValue("model.api_key"));
-            if (apiRef.Length == 0) apiRef = Clean(Run("config get model.api_key", 20));
             var m = System.Text.RegularExpressions.Regex.Match(apiRef, @"\$\{([A-Z0-9_]+)\}");
             var keyEnv = m.Success ? m.Groups[1].Value : "";
             var keyValue = "";
@@ -407,10 +453,7 @@ namespace HerMemory
             {
                 var env = Path.Combine(HermesHome, ".env");
                 if (File.Exists(env))
-                    keyValue = File.ReadAllLines(env)
-                        .Where(l => l.StartsWith(keyEnv + "=", StringComparison.Ordinal))
-                        .Select(l => l[(keyEnv.Length + 1)..])
-                        .FirstOrDefault() ?? "";
+                    keyValue = ReadEnvValue(env, keyEnv);
             }
             else if (apiRef.Length > 0
                      && !apiRef.Contains("...", StringComparison.Ordinal)
@@ -432,17 +475,15 @@ namespace HerMemory
             {
                 var env = Path.Combine(HermesHome, ".env");
                 if (!File.Exists(env)) return false;
-                var lines = File.ReadAllLines(env);
-                var baseLine = lines.FirstOrDefault(l => l.StartsWith("OPENAI_BASE_URL=", StringComparison.Ordinal));
-                var keyLine = lines.FirstOrDefault(l => l.StartsWith("OPENAI_API_KEY=", StringComparison.Ordinal));
-                if (baseLine == null || keyLine == null) return false;
-                var url = baseLine["OPENAI_BASE_URL=".Length..].Trim().Trim('"').TrimEnd('/');
-                var key = keyLine["OPENAI_API_KEY=".Length..].Trim().Trim('"');
+                var url = ReadEnvValue(env, "OPENAI_BASE_URL").TrimEnd('/');
+                var key = ReadEnvValue(env, "OPENAI_API_KEY");
                 if (url.Length == 0 || key.Length == 0) return false;
                 if (url.Contains("api.openai.com", StringComparison.OrdinalIgnoreCase)) return false;
 
-                // 新配置里已经有 Key：只清理旧变量（它会把路由劫持到 OpenRouter）
-                if ((ReadConfigValue("model.api_key") ?? "").Trim().Length > 0)
+                // 「已有可用凭据」不能只看 model.api_key 有没有写：
+                // `${SOME_ENV}` 引用若在 .env 里根本没有那个键，等于没有 Key——此时清掉 OPENAI_*
+                // 会把用户唯一一份能用的凭据删掉。必须解开引用拿到真实值。
+                if (GetModelCfg().keyValue.Trim().Length > 0)
                     return PurgeLegacyOpenAiEnv();
 
                 // 没有模型名就别迁：写进去也用不了，反而把唯一一份凭据从 .env 里删了
@@ -464,16 +505,16 @@ namespace HerMemory
             {
                 var env = Path.Combine(HermesHome, ".env");
                 if (!File.Exists(env)) return false;
-                var lines = File.ReadAllLines(env);
-                var baseLine = lines.FirstOrDefault(l => l.StartsWith("OPENAI_BASE_URL=", StringComparison.Ordinal));
-                var url = baseLine == null ? "" : baseLine["OPENAI_BASE_URL=".Length..].Trim().Trim('"');
+                var url = ReadEnvValue(env, "OPENAI_BASE_URL");
                 if (url.Length == 0 || url.Contains("api.openai.com", StringComparison.OrdinalIgnoreCase)) return false;
-                if (!lines.Any(l => l.StartsWith("OPENAI_API_KEY=", StringComparison.Ordinal))) return false;
-                var kept = lines.Where(l => !l.StartsWith("OPENAI_API_KEY=", StringComparison.Ordinal)
-                                         && !l.StartsWith("OPENAI_BASE_URL=", StringComparison.Ordinal)).ToList();
-                var tmp = env + ".tmp";
-                File.WriteAllLines(tmp, kept, new System.Text.UTF8Encoding(false));
-                File.Move(tmp, env, overwrite: true);
+                if (ReadEnvValue(env, "OPENAI_API_KEY").Length == 0) return false;
+                static bool Legacy(string l) =>
+                    l.StartsWith("OPENAI_API_KEY=", StringComparison.Ordinal)
+                    || l.StartsWith("OPENAI_BASE_URL=", StringComparison.Ordinal)
+                    || l.StartsWith("export OPENAI_API_KEY=", StringComparison.Ordinal)
+                    || l.StartsWith("export OPENAI_BASE_URL=", StringComparison.Ordinal);
+                var kept = File.ReadAllLines(env).Where(l => !Legacy(l)).ToList();
+                WriteTextAtomic(env, kept);
                 return true;
             }
             catch { return false; }
@@ -545,41 +586,139 @@ namespace HerMemory
             return s.Trim().Trim('"').Trim();
         }
 
-        /// <summary>写入 BaseURL/Key（须在 Gateway 停止时调用）。与 install.ps1 同构：key 进 .env 的 HERMES_CUSTOM_*，config 引用之。</summary>
-        public static bool SetModelCfg(string baseUrl, string apiKey)
+        /// <summary>原子替换文本文件；固定临时文件名会让两个保存操作互相删对方的暂存。</summary>
+        internal static void WriteTextAtomic(string path, IEnumerable<string> lines)
+        {
+            var dir = Path.GetDirectoryName(path);
+            if (string.IsNullOrEmpty(dir)) throw new IOException("无效文件路径");
+            Directory.CreateDirectory(dir);
+            var tmp = Path.Combine(dir, "." + Path.GetFileName(path) + "." + Guid.NewGuid().ToString("N") + ".tmp");
+            try
+            {
+                File.WriteAllLines(tmp, lines, new System.Text.UTF8Encoding(false));
+                if (File.Exists(path)) File.Move(tmp, path, overwrite: true);
+                else File.Move(tmp, path);
+            }
+            finally { try { if (File.Exists(tmp)) File.Delete(tmp); } catch { } }
+        }
+
+        /// <summary>读取 .env 当前值；兼容可选 export 前缀，但不擅自解码转义。</summary>
+        internal static string ReadEnvValue(string path, string key)
+        {
+            if (!File.Exists(path)) return "";
+            var prefix = key + "=";
+            foreach (var raw in File.ReadAllLines(path))
+            {
+                var line = raw.StartsWith("export ", StringComparison.Ordinal) ? raw[7..] : raw;
+                if (line.StartsWith(prefix, StringComparison.Ordinal))
+                    return line[prefix.Length..].Trim().Trim('"').Trim('\'');
+            }
+            return "";
+        }
+
+        /// <summary>键是否存在/有值，交给设置、首启和迁移共用，不能只看 WEIXIN_ACCOUNT_ID 这串字。</summary>
+        internal static bool HasEnvValue(string path, string key) =>
+            ReadEnvValue(path, key).Trim().Length > 0;
+
+        /// <summary>模型配置保存（带回滚）。
+        /// 先把新 Key 写进 .env，再逐项写 config 并读回校验；任一步失败都把 config 与 .env
+        /// 恢复到本次保存前的内容，绝不让界面出现“半套新配置 + 一套旧凭据”的混合态。</summary>
+        public static bool SetModelCfg(string baseUrl, string apiKey) =>
+            SetModelCfgDetailed(baseUrl, apiKey).Success;
+
+        internal static CommandResult SetModelCfgDetailed(string baseUrl, string apiKey, string model = "")
         {
             try
             {
                 baseUrl = new string(baseUrl.Where(c => c >= 0x21 && c <= 0x7E).ToArray()).TrimEnd('/');
                 apiKey = new string(apiKey.Where(c => c >= 0x21 && c <= 0x7E).ToArray());
-                if (baseUrl.Length == 0 || apiKey.Length == 0) return false;
+                if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var u)
+                    || (u.Scheme != Uri.UriSchemeHttps && u.Scheme != Uri.UriSchemeHttp)
+                    || string.IsNullOrEmpty(u.Host) || apiKey.Length == 0)
+                    return new CommandResult(1, false, "Base URL 必须是有效的 http(s) 地址，API Key 不能为空。");
 
-                var u = new Uri(baseUrl);
                 var hostId = u.Host;
                 if (u.Port > 0) hostId += "_" + u.Port;
-                // 与 install.ps1 同构命名：非 [A-Z0-9] 连续段折叠为单个下划线（防止两侧产生不同 env 名）
                 var keyEnv = "HERMES_CUSTOM_" +
                     System.Text.RegularExpressions.Regex.Replace(hostId.ToUpperInvariant(), @"[^A-Z0-9]+", "_").Trim('_') +
                     "_API_KEY";
-
-                Run($"config set model.base_url {baseUrl}", 30);
-                Run($"config set {keyEnv} {apiKey}", 30);
-                Run("config set model.provider custom", 30);
-                Run($"config set model.api_key ${{{keyEnv}}}", 30);   // 注意 $ 前缀：必须插值出真实 env 名（曾是漏 $ 的字面量事故：${{keyEnv}} 写进 yaml → 网关 401）
-                Run("config set model.api_mode chat_completions", 30);
-
-                // .env：写入新键、清除其他 HERMES_CUSTOM_* 旧键
                 var env = Path.Combine(HermesHome, ".env");
-                var lines = File.Exists(env) ? File.ReadAllLines(env).ToList() : new List<string>();
-                lines = lines.Where(l => !l.StartsWith("HERMES_CUSTOM_", StringComparison.Ordinal)).ToList();
+                var envExisted = File.Exists(env);
+                var originalEnv = envExisted ? File.ReadAllLines(env).ToList() : new List<string>();
+                var lines = new List<string>(originalEnv);
+                lines.RemoveAll(l => l.StartsWith(keyEnv + "=", StringComparison.Ordinal)
+                    || l.StartsWith("export " + keyEnv + "=", StringComparison.Ordinal));
                 lines.Add($"{keyEnv}={apiKey}");
-                // 原子替换：写到临时文件再换名，避免网关正读 .env 时被截断成半截文件
-                var tmp = env + ".tmp";
-                File.WriteAllLines(tmp, lines, new System.Text.UTF8Encoding(false));
-                File.Move(tmp, env, overwrite: true);
-                return true;
+                WriteTextAtomic(env, lines);
+
+                var writes = new List<(string Key, string Value)>
+                {
+                    ("model.provider", "custom"),
+                    ("model.api_mode", "chat_completions"),
+                    ("model.api_key", "${" + keyEnv + "}"),
+                    ("model.base_url", baseUrl),
+                };
+                if (model.Length > 0) writes.Add(("model.default", model));
+                var originals = writes.Select(w => w.Key).Distinct()
+                    .ToDictionary(k => k, ReadConfigValue);
+
+                CommandResult Rollback()
+                {
+                    var bad = new List<string>();
+                    foreach (var (key, value) in originals)
+                    {
+                        if (value.Length == 0)
+                        {
+                            // 上游对“未设置”的 unset 会退 1，这里只求尽力恢复，不把它当失败。
+                            RunChecked(15, "config", "unset", key);
+                            continue;
+                        }
+                        // 值本来就对就别再写：失败注入/权限抖动会让这次写入失败，
+                        // 从而把一次其实完好的回滚误报成“回滚未完全成功”。
+                        if (string.Equals(ReadConfigValue(key), value, StringComparison.Ordinal)) continue;
+                        var s = RunChecked(30, "config", "set", key, value);
+                        if (!s.Success || !string.Equals(ReadConfigValue(key), value, StringComparison.Ordinal))
+                            bad.Add(key);
+                    }
+                    try
+                    {
+                        if (envExisted) WriteTextAtomic(env, originalEnv);
+                        else if (File.Exists(env)) File.Delete(env);
+                    }
+                    catch { bad.Add(".env"); }
+                    return bad.Count == 0
+                        ? new CommandResult(0, false, "")
+                        : new CommandResult(1, false, "且回滚未完全成功：" + string.Join("、", bad));
+                }
+
+                foreach (var (key, value) in writes)
+                {
+                    var r = RunChecked(30, "config", "set", key, value);
+                    if (!r.Success)
+                    {
+                        var back = Rollback();
+                        return new CommandResult(r.ExitCode, r.TimedOut,
+                            $"写入 {key} 失败：{r.Error}{(back.Success ? "（已恢复原配置）" : "；" + back.Error)}");
+                    }
+                    if (!string.Equals(ReadConfigValue(key), value, StringComparison.Ordinal))
+                    {
+                        var back = Rollback();
+                        return new CommandResult(1, false,
+                            $"写入 {key} 后读回不一致{(back.Success ? "（已恢复原配置）" : "；" + back.Error)}");
+                    }
+                }
+
+                // 成功后才移除其他服务商的旧自定义 Key；路由劫持变量也在这时清理。
+                var kept = File.ReadAllLines(env).Where(l =>
+                    !l.StartsWith("HERMES_CUSTOM_", StringComparison.Ordinal)
+                    && !l.StartsWith("OPENAI_API_KEY=", StringComparison.Ordinal)
+                    && !l.StartsWith("OPENAI_BASE_URL=", StringComparison.Ordinal)
+                    && !l.StartsWith("export HERMES_CUSTOM_", StringComparison.Ordinal)).ToList();
+                kept.Add($"{keyEnv}={apiKey}");
+                WriteTextAtomic(env, kept);
+                return new CommandResult(0, false, "");
             }
-            catch { return false; }
+            catch (Exception ex) { return new CommandResult(-1, false, ex.Message); }
         }
 
         // —— 关闭行为记忆：HKCU\Software\HerMemory\CloseAction（"tray" = 点 X 直接最小化不再询问；缺省 = 每次询问） ——

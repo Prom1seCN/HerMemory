@@ -128,6 +128,38 @@ function Show-Tail([string]$s, [int]$n = 8) {
     return [Environment]::NewLine + "输出末尾：" + [Environment]::NewLine + (($ls | ForEach-Object { "  " + $_ }) -join [Environment]::NewLine)
 }
 
+# 原子写文本（无 BOM）。.env / config.yaml 这类“别的进程可能正在读”的文件，
+# 直接 WriteAllLines 会在写到一半时留下半截内容；先写同目录临时文件再换名。
+function Write-LinesAtomicNoBom([string]$Path, [string[]]$Lines) {
+    $dir = Split-Path -Parent $Path
+    if (-not $dir) { throw "无效路径：$Path" }
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    $tmp = Join-Path $dir ("." + (Split-Path -Leaf $Path) + "." + [guid]::NewGuid().ToString("N") + ".tmp")
+    try {
+        [IO.File]::WriteAllLines($tmp, $Lines, (New-Object Text.UTF8Encoding($false)))
+        if (Test-Path -LiteralPath $Path) { Move-Item -LiteralPath $tmp -Destination $Path -Force }
+        else { Move-Item -LiteralPath $tmp -Destination $Path }
+    }
+    finally {
+        if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+function Write-TextAtomicNoBom([string]$Path, [string]$Text) {
+    $dir = Split-Path -Parent $Path
+    if (-not $dir) { throw "无效路径：$Path" }
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    $tmp = Join-Path $dir ("." + (Split-Path -Leaf $Path) + "." + [guid]::NewGuid().ToString("N") + ".tmp")
+    try {
+        [IO.File]::WriteAllText($tmp, $Text, (New-Object Text.UTF8Encoding($false)))
+        if (Test-Path -LiteralPath $Path) { Move-Item -LiteralPath $tmp -Destination $Path -Force }
+        else { Move-Item -LiteralPath $tmp -Destination $Path }
+    }
+    finally {
+        if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
+    }
+}
+
 # 从 launcher 的 exe 里读出它内嵌的解释器绝对路径（诊断用；v0.22 的启动器可能是
 # 运行时解析而非内嵌，读不到就由 Format-CliBroken 走「未读出」分支）。
 function Get-EmbeddedPython([string]$exe) {
@@ -440,14 +472,16 @@ if ($workingCli -and $haveVer -eq $WantHermesVersion) {
             Run-Quiet $HermesCli gateway stop
             Start-Sleep -Seconds 1
         }
+        $backupOk = $true
         foreach ($f in @("config.yaml", ".env")) {
             $src = Join-Path $HermesHome $f
             if (Test-Path $src) {
                 $bak = Join-Path $HermesHome ("$f.pre-hermemory-" + $ts)
-                try { Copy-Item $src $bak -Force; } catch { }
+                try { Copy-Item $src $bak -Force -ErrorAction Stop } catch { $backupOk = $false; Warn "备份 $f 失败：$($_.Exception.Message)" }
             }
         }
-        Log "已备份现有配置：config.yaml / .env（.pre-hermemory-$ts）"
+        if ($backupOk) { Log "已备份现有配置：config.yaml / .env（.pre-hermemory-$ts）" }
+        else { Warn "配置备份未完全成功；升级仍会继续，但回滚点可能不完整。" }
 
         # 旧 checkout 必须整体挪开，不能在原地切分支。
         # 原因（2026-10-21 实测）：仓库 contributors/emails/ 下有两个**仅大小写不同**的文件
@@ -486,18 +520,28 @@ if ($workingCli -and $haveVer -eq $WantHermesVersion) {
     # ---------- 2.05 预置运行时大件（git / python / node） ----------
     # 随包的 payload\artifacts\<sha256> 直接塞进 PM 的下载缓存，PM 校验哈希后跳过下载。
     # 国内直连镜像只有 200 KB/s 左右，这三个合计 149 MB——预置后首装不再卡在"installing git"。
-    $artRoot = Join-Path $SRC "artifacts"
-    if (Test-Path -LiteralPath $artRoot) {
+    # 两种布局都要认：① 内嵌 payload 解压目录 <src>\artifacts；
+    # ② 开发仓库从 build\ 直跑时在 <src>\build\minimal\artifacts（与 Get-ShippedAsset 同口径）。
+    $artRoot = ""
+    foreach ($cand in @((Join-Path $SRC "artifacts"), (Join-Path $SRC "build\minimal\artifacts"))) {
+        if (Test-Path -LiteralPath $cand) { $artRoot = $cand; break }
+    }
+    if ($artRoot) {
         $toolRoot = Join-Path $HermesHome "tools"
         New-Item -ItemType Directory -Force -Path $toolRoot | Out-Null
         $seeded = 0
         foreach ($f in Get-ChildItem -LiteralPath $artRoot -File) {
-            $dir = Join-Path $toolRoot ("fetch-" + $f.Name)
+            # 只预置 sha256 命名的归档：目录里可能混入 .txt/.sha 之类说明文件
+            if ($f.Name -notmatch '^[0-9a-fA-F]{64}$') { continue }
+            $dir = Join-Path $toolRoot ("fetch-" + $f.Name.ToLower())
             New-Item -ItemType Directory -Force -Path $dir | Out-Null
             Copy-Item -LiteralPath $f.FullName -Destination (Join-Path $dir "artifact.bin") -Force
             $seeded++
         }
         if ($seeded -gt 0) { Log "已预置 $seeded 个运行时产物（git / python / node），无需下载" }
+        else { Warn "随包运行时产物目录里没有 sha256 命名的文件：$artRoot" }
+    } else {
+        Warn "未发现随包运行时产物目录（artifacts\），本次安装需要联网下载 git / python / node。"
     }
 
 
@@ -1037,11 +1081,11 @@ Run-Quiet $HermesCli config unset OPENAI_BASE_URL
 # 存在性保护：.env 可能因上游未落盘而缺失，EAP=Stop 下直接 Get-Content 会中断安装
 $envClean = @()
 if (Test-Path "$HermesHome\.env") {
-    $envClean = @(Get-Content "$HermesHome\.env" -ErrorAction SilentlyContinue) | Where-Object { $_ -notmatch "^OPENAI_API_KEY=" -and $_ -notmatch "^OPENAI_BASE_URL=" }
+    $envClean = @(Get-Content "$HermesHome\.env" -ErrorAction SilentlyContinue) | Where-Object { $_ -notmatch "^(export )?OPENAI_API_KEY=" -and $_ -notmatch "^(export )?OPENAI_BASE_URL=" }
 }
 if (-not $envClean -or $envClean.Count -eq 0) { $envClean = @("$keyEnv=$apiKey") }
 # PS5.1 的 Set-Content -Encoding UTF8 会写 BOM——.env 首行键名会被 BOM 污染，必须无 BOM 落盘
-[IO.File]::WriteAllLines("$HermesHome\.env", [string[]]@($envClean), (New-Object Text.UTF8Encoding($false)))
+Write-LinesAtomicNoBom "$HermesHome\.env" ([string[]]@($envClean))
 Set-ConfigOrDie "model.default" $provModel
 Set-ConfigOrDie "model.provider" "custom"
 Set-ConfigOrDie "model.base_url" $provBase
@@ -1052,13 +1096,13 @@ $cfgPath = Join-Path $HermesHome "config.yaml"
 if ((Test-Path $cfgPath) -and -not (Select-String -Path $cfgPath -Pattern "provider: custom" -Quiet)) {
     $cfgText = Get-Content $cfgPath -Raw
     $cfgText = $cfgText -replace "(?m)^(  provider:).*$", "  provider: custom"
-    [IO.File]::WriteAllText($cfgPath, $cfgText, (New-Object Text.UTF8Encoding($false)))
+    Write-TextAtomicNoBom $cfgPath $cfgText
 }
 if ((Test-Path $cfgPath) -and -not (Select-String -Path $cfgPath -Pattern ([regex]::Escape("api_key: `${$keyEnv}")) -Quiet)) {
     $cfgText = Get-Content $cfgPath -Raw
     if ($cfgText -match "(?m)^  base_url: .*$") {
         $cfgText = $cfgText -replace "(?m)^(  base_url: .*)$", ("`$1`n  api_key: `${" + $keyEnv + "}`n  api_mode: chat_completions")
-        [IO.File]::WriteAllText($cfgPath, $cfgText, (New-Object Text.UTF8Encoding($false)))
+        Write-TextAtomicNoBom $cfgPath $cfgText
     }
 }
 Ok "配置完成（模型：$provModel）"
@@ -1115,18 +1159,18 @@ if ($Answers) {
         }
         if ($wxUserId) {
             $envLines = @(Get-Content $envFile -ErrorAction SilentlyContinue)
-            if ($envLines -match "WEIXIN_DM_POLICY") {
-                $envLines = $envLines -replace "^WEIXIN_DM_POLICY=.*", "WEIXIN_DM_POLICY=allowlist"
+            if ($envLines -match "^(export )?WEIXIN_DM_POLICY=") {
+                $envLines = $envLines -replace "^(export )?WEIXIN_DM_POLICY=.*", "WEIXIN_DM_POLICY=allowlist"
             } else {
                 $envLines += "WEIXIN_DM_POLICY=allowlist"
             }
-            if ($envLines -match "WEIXIN_ALLOWED_USERS") {
-                $envLines = $envLines -replace "^WEIXIN_ALLOWED_USERS=.*", "WEIXIN_ALLOWED_USERS=$wxUserId"
+            if ($envLines -match "^(export )?WEIXIN_ALLOWED_USERS=") {
+                $envLines = $envLines -replace "^(export )?WEIXIN_ALLOWED_USERS=.*", "WEIXIN_ALLOWED_USERS=$wxUserId"
             } else {
                 $envLines += "WEIXIN_ALLOWED_USERS=$wxUserId"
             }
             # 无 BOM UTF-8（@() 包裹防单行 .env 退化成字符串拼接）
-            [IO.File]::WriteAllLines($envFile, [string[]]$envLines, (New-Object Text.UTF8Encoding($false)))
+            Write-LinesAtomicNoBom $envFile ([string[]]$envLines)
             Ok "消息授权：仅允许本人微信 ID"
         }
     }

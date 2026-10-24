@@ -102,6 +102,10 @@
            Text="安装器缺少 uv：build\minimal\uv.exe 不存在。请先运行 build-offline.ps1 -Tag v0.22.2。" />
     <Error Condition="!Exists('$(MSBuildThisFileDirectory)..\build\minimal\uv.version')"
            Text="安装器缺少 uv 版本戳：build\minimal\uv.version 不存在。请先运行 build-offline.ps1 -Tag v0.22.2。" />
+    <!-- 运行时大件（git / python / node）按 sha256 命名，随包预置 PM 缓存。
+         一个都没有就意味着 Setup 会退化成“全量联网下载”，国内用户会卡在 200 KB/s。 -->
+    <Error Condition="'@(RuntimeArtifact)' == ''"
+           Text="安装器缺少运行时大件：build\minimal\artifacts\ 为空。请先运行 build-offline.ps1 采集 git/python/node。" />
   </Target>
 
 </Project>

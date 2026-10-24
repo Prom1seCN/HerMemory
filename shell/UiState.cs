@@ -53,7 +53,7 @@ namespace HerMemory
                     var p = FilePath;
                     if (p.Length == 0) return;
                     Directory.CreateDirectory(System.IO.Path.GetDirectoryName(p)!);
-                    File.WriteAllText(p, JsonSerializer.Serialize(new { setup_done = value }));
+                    HermesCtl.WriteTextAtomic(p, new[] { JsonSerializer.Serialize(new { setup_done = value }) });
                 }
                 catch { }
             }

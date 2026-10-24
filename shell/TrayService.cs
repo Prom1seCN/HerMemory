@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 
@@ -191,10 +191,10 @@ namespace HerMemory
             {
                 try
                 {
-                    var r = HermesCtl.Run($"gateway {cmd}", 120);
+                    var r = HermesCtl.GatewayCommand(cmd, 120);
                     if (!silent)
                     {
-                        var brief = r.Trim();
+                        var brief = r.Success ? r.Output.Trim() : r.Error;
                         if (brief.Length > 300) brief = brief[..300];
                         Ui(() =>
                         {
@@ -316,6 +316,7 @@ namespace HerMemory
         public void Dispose()
         {
             // 逐项 try：任何一项失败都不能阻断其余清理（否则托盘图标会残留在通知区）
+            try { Theme.Changed -= SyncDarkMenu; } catch { }
             try { _poll.Stop(); } catch { }
             try { _poll.Dispose(); } catch { }
             try { _icon.Visible = false; } catch { }

@@ -11,6 +11,8 @@
     hermes-agent.upstream-commit 上游真实的 pin commit（审计用，不参与安装）
     uv.exe                       PM 的引导器（版本/哈希直接取自上游 pm/lock.json）
     uv.version                   uv 版本（install.ps1 用它算 PM store 槽位名）
+    artifacts\<sha256>           运行时大件（git / python / node），按哈希命名；
+                                 install.ps1 会把它们预置进 PM 下载缓存，安装时免下载
 
   为什么是「快照仓库」而不是上游真仓库：
     上游 v0.22 的 Stage-Repository 只认真正的 git 仓库（clone --filter=blob:none --branch main，
@@ -44,6 +46,7 @@ New-Item -ItemType Directory -Force -Path $Out, $Work | Out-Null
 
 function Step([string]$n) { Write-Host ""; Write-Host "=== $n ===" -ForegroundColor Cyan }
 function Ok([string]$m)   { Write-Host "[完成] $m" -ForegroundColor Green }
+function Warn([string]$m) { Write-Host "[注意] $m" -ForegroundColor Yellow }
 function Fail([string]$m) { Write-Host "[错误] $m" -ForegroundColor Red; exit 1 }
 
 $Bundle    = Join-Path $Out "hermes-agent.bundle"
@@ -52,7 +55,7 @@ $UpTxt     = Join-Path $Out "hermes-agent.upstream-commit"
 $Src = Join-Path $Work "pin-src"
 
 # ---------- 1. 取上游 pin 工作树 ----------
-Step "1/5 获取上游 pin 工作树（$Tag）"
+Step "1/6 获取上游 pin 工作树（$Tag）"
 if ((Test-Path $Bundle) -and (Test-Path $CommitTxt) -and -not $Force) {
     Ok "已存在，跳过：$Bundle（要重建加 -Force）"
 } else {
@@ -71,7 +74,7 @@ if ((Test-Path $Bundle) -and (Test-Path $CommitTxt) -and -not $Force) {
     if (-not (Test-Path (Join-Path $Src "pyproject.toml"))) { Fail "工作树里没有 pyproject.toml" }
 
     # ---------- 2. 重做成快照仓库（单提交 + tag） ----------
-    Step "2/5 重建为快照仓库"
+    Step "2/6 重建为快照仓库"
     # 记下上游受控文件清单：重建后必须一个不少。有些文件上游仍在跟踪、却已写进自己的
     # .gitignore（web/public/fonts、website/src/data、hello-runtime 的 js），普通 `git add -A`
     # 会把它们当忽略项丢掉 —— 快照树就不再等于 pin 的树了。
@@ -107,7 +110,7 @@ if ((Test-Path $Bundle) -and (Test-Path $CommitTxt) -and -not $Force) {
     Write-Host "snapshot commit: $snapshotCommit"
 
     # ---------- 3. 打 bundle 并做克隆冒烟测试 ----------
-    Step "3/5 打 bundle + 克隆冒烟测试"
+    Step "3/6 打 bundle + 克隆冒烟测试"
     if (Test-Path $Bundle) { Remove-Item $Bundle -Force }
     $prev = $ErrorActionPreference; $ErrorActionPreference = "Continue"
     try { & git -C $Src bundle create $Bundle main "refs/tags/$Tag" 2>&1 | Out-String | Write-Host } finally { $ErrorActionPreference = $prev }
@@ -141,7 +144,7 @@ if ((Test-Path $Bundle) -and (Test-Path $CommitTxt) -and -not $Force) {
 }
 
 # ---------- 4. uv（版本与哈希取上游 pm/lock.json，不手抄） ----------
-Step "4/5 取 uv 引导器"
+Step "4/6 取 uv 引导器"
 $UvExe = Join-Path $Out "uv.exe"
 $UvVerFile = Join-Path $Out "uv.version"
 if ((Test-Path $UvExe) -and -not (Test-Path $UvVerFile)) {
@@ -188,13 +191,74 @@ if ((Test-Path $UvExe) -and -not $Force) {
     Ok "uv $uvVer 就绪"
 }
 
-# ---------- 5. 汇总 ----------
-Step "5/5 汇总"
+# ---------- 5. 运行时大件（git / python / node，按 sha256 命名） ----------
+# 为什么随包：PM 装依赖时要下载这三个（合计约 149 MB）。境内直连 GitHub / 官方源
+# 实测只有 200 KB/s，首装会长时间卡在 "installing git"，用户以为程序坏了。
+# 把文件按 lock 里的 sha256 命名放进 artifacts\，install.ps1 会预置进 PM 缓存，
+# PM 校验哈希后直接使用（缓存命中 0.12 秒，实测）。
+Step "5/6 采集运行时大件（git / python / node）"
+$UvLock = Join-Path $Src "pm\lock.json"
+$ArtDir = Join-Path $Out "artifacts"
+if (-not (Test-Path $UvLock)) {
+    Warn "读不到 pm\lock.json，跳过运行时大件采集（安装时将联网下载）。"
+} else {
+    $lock = Get-Content $UvLock -Raw -Encoding UTF8 | ConvertFrom-Json
+    $want = @()
+    foreach ($name in @('git', 'python', 'node')) {
+        $pkg = $lock.packages.$name
+        if (-not $pkg) { continue }
+        $art = $pkg.artifacts.'win32-x64'
+        if (-not $art -or -not $art.url -or -not $art.sha256) { continue }
+        $want += [pscustomobject]@{ Name = $name; Url = $art.url; Sha = "$($art.sha256)".ToLower() }
+    }
+    if ($want.Count -eq 0) {
+        Warn "pm\lock.json 里没有 win32-x64 的 git/python/node 制品，跳过大件采集。"
+    } else {
+        New-Item -ItemType Directory -Force -Path $ArtDir | Out-Null
+        foreach ($w in $want) {
+            $dst = Join-Path $ArtDir $w.Sha
+            if ((Test-Path $dst) -and -not $Force) {
+                $have = (Get-FileHash $dst -Algorithm SHA256).Hash.ToLower()
+                if ($have -eq $w.Sha) {
+                    Write-Host ("  已有 {0}（{1:N1} MB）" -f $w.Name, ((Get-Item $dst).Length / 1MB)) -ForegroundColor Green
+                    continue
+                }
+                Warn "$($w.Name) 的随包文件哈希不符，重新下载。"
+                Remove-Item $dst -Force -ErrorAction SilentlyContinue
+            }
+            Write-Host "[download] $($w.Name)  $($w.Url)"
+            $tmp = Join-Path $Work ($w.Name + ".download")
+            try {
+                Invoke-WebRequest -Uri $w.Url -OutFile $tmp -UseBasicParsing
+            } catch {
+                Warn "$($w.Name) 下载失败（$($_.Exception.Message)）；安装时将联网下载。"
+                Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+                continue
+            }
+            $actual = (Get-FileHash $tmp -Algorithm SHA256).Hash.ToLower()
+            if ($actual -ne $w.Sha) {
+                Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+                Fail "$($w.Name) 下载内容哈希不符：期望 $($w.Sha)，实际 $actual（随包文件必须与 lock 一致）"
+            }
+            Move-Item -LiteralPath $tmp -Destination $dst -Force
+            Write-Host ("  -> {0}（{1:N1} MB）" -f $w.Name, ((Get-Item $dst).Length / 1MB)) -ForegroundColor Green
+        }
+    }
+}
+
+# ---------- 6. 汇总 ----------
+Step "6/6 汇总"
 $items = Get-ChildItem $Out -File | Sort-Object Name
 foreach ($f in $items) {
     Write-Host ("  {0,-30} {1,10:N1} MB" -f $f.Name, ($f.Length / 1MB))
 }
+$artFiles = @(Get-ChildItem (Join-Path $Out "artifacts") -File -ErrorAction SilentlyContinue)
+if ($artFiles.Count -gt 0) {
+    $artMb = ($artFiles | Measure-Object Length -Sum).Sum / 1MB
+    Write-Host ("  {0,-30} {1,10:N1} MB" -f ("artifacts\ (" + $artFiles.Count + " 件)"), $artMb)
+}
 $total = ($items | Measure-Object Length -Sum).Sum / 1MB
+if ($artFiles.Count -gt 0) { $total += $artMb }
 Write-Host ""
 Ok ("随包素材完成：{0}（合计 {1:N1} MB）" -f $Out, $total)
 Write-Host "下一步：build-release.ps1 出包（程序本体 + 安装器）"

@@ -851,9 +851,11 @@ bootstrap_pm() {
     # Refresh the sudo ticket cached in prerequisites (never prompts): the
     # clone and downloads can outlast sudo's timestamp_timeout.
     if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then sudo -n -v 2>/dev/null || :; fi
-    (cd "$INSTALL_DIR" && run_logged "Installing dependencies (hash-verified via uv.lock)" \
-        # HerMemory 补丁：优先走国内镜像（GitHub 作为后备）；只改顺序，哈希校验不变
-    python3 - "$INSTALL_DIR" <<'PYEOF' 2>/dev/null || true
+    (
+        cd "$INSTALL_DIR" || exit
+        # HerMemory patch: prefer the hermes-assets mirror, GitHub as fallback.
+        # Order only; sha256 verification is unchanged. Idempotent.
+        if ! "$boot_py" - "$INSTALL_DIR" 2>/dev/null <<'PYEOF'
 import re, sys, pathlib
 f = pathlib.Path(sys.argv[1]) / "pm" / "artifact_mirror.py"
 if f.is_file():
@@ -865,8 +867,12 @@ if f.is_file():
                     "    return Source(archive, dest, sha256, fallbacks=(url,))  # MIRROR_FIRST")
             f.write_text(re.sub(pat, repl, src), encoding="utf-8")
 PYEOF
-    "$boot_py" -m pm.cli "${pm_args[@]}") \
-        || fail "pm install failed" deps_install_failed
+        then
+            log_warn "HerMemory mirror-first patch failed; using upstream download order"
+        fi
+        run_logged "Installing dependencies (hash-verified via uv.lock)" \
+            "$boot_py" -m pm.cli "${pm_args[@]}"
+    ) || fail "pm install failed" deps_install_failed
     log_success "dependencies installed"
 }
 

@@ -41,6 +41,7 @@ namespace HerMemory
         {
             try
             {
+                if (string.IsNullOrEmpty(exePath)) return;
                 using var k = Registry.CurrentUser.OpenSubKey(RunKey, true);
                 if (k?.GetValue(ValueName) is not string v) return;
                 if (v.IndexOf(exePath, StringComparison.OrdinalIgnoreCase) < 0) return;

@@ -380,7 +380,7 @@ function Get-PmStoreRoot {
 }
 
 # The MACHINE's architecture (registry PROCESSOR_ARCHITECTURE), not the
-# interpreter's — an x64 powershell on Windows-on-ARM must stage arm64.
+# interpreter's -- an x64 powershell on Windows-on-ARM must stage arm64.
 function Get-WindowsArch {
     $machineArch = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment' -ErrorAction SilentlyContinue).PROCESSOR_ARCHITECTURE
     if ($machineArch -eq 'ARM64') { return 'arm64' }
@@ -510,7 +510,7 @@ function Invoke-DownloadWithProgress {
 # Provision uv for this host from the pinned pm/lock.json artifact. Stages
 # the EXACT artifact pm itself uses into the same store slot
 # (<store>\uv-<version>-<target>\), sha256-verified, so pm adopts the same
-# bytes — no astral-latest, no irm|iex. Returns the uv.exe path.
+# bytes -- no astral-latest, no irm|iex. Returns the uv.exe path.
 function Get-Uv {
     # Always the pinned artifact, never a uv already on PATH: Hermes runs only
     # its own packaged toolchain.
@@ -535,7 +535,7 @@ function Get-Uv {
         $extractDir = Join-Path $tmpDir "unpacked"
         Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
         # The zip carries uv.exe (+ uvx.exe) at the root or under one
-        # versioned wrapper dir — take whichever layout arrived.
+        # versioned wrapper dir -- take whichever layout arrived.
         $found = Get-ChildItem -Path $extractDir -Filter "uv.exe" -Recurse | Select-Object -First 1
         if (-not $found) { Fail "uv.exe not found in the downloaded archive" uv_unusable }
         New-Item -ItemType Directory -Force -Path $entry | Out-Null
@@ -1128,7 +1128,7 @@ function Stage-Venv {
 # Delegate the whole python+venv+tools install to pm: stage the pinned uv,
 # let uv locate Python and exit before PM starts. PM provisions the interpreter,
 # the venv (default extras = [all], matching `hermes update`), and the
-# tool store — all hash-verified against pm/lock.json + uv.lock. install.ps1
+# tool store -- all hash-verified against pm/lock.json + uv.lock. install.ps1
 # no longer runs `uv sync` directly; pm is the single install authority
 # (the run_locked_uv_sync contract moved into pm/environment.py).
 # This tool-only bootstrap runs before PM's own dependencies exist. pm.cli
@@ -1539,7 +1539,7 @@ if ($Stage) {
     }
 }
 
-# No -Stage: run the whole ladder — the same authoritative list the
+# No -Stage: run the whole ladder -- the same authoritative list the
 # manifest prints, so -IncludeDesktop inserts desktop here too.
 $script:InstallStarted = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 $script:InstallStage = "prerequisites"

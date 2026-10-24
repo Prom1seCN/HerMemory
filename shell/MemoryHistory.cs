@@ -228,7 +228,7 @@ namespace HerMemory
                 if (File.Exists(target))
                 {
                     try { File.Replace(tmp, target, null, true); }
-                    catch { File.Copy(tmp, target, true); try { File.Delete(tmp); } catch { } }
+                    catch { File.Move(tmp, target, true); }
                 }
                 else File.Move(tmp, target);
                 return true;

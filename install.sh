@@ -621,13 +621,13 @@ files = sorted(glob.glob(os.path.join(home, 'weixin/accounts/*.json')), key=os.p
 print(json.load(open(files[-1])).get('user_id', '') if files else '')" 2>/dev/null || true)
         fi
         if [ -n "$WX_USER_ID" ]; then
-            if grep -q "WEIXIN_DM_POLICY" "$HERMES_HOME/.env" 2>/dev/null; then
-                sed -i "s|^WEIXIN_DM_POLICY=.*|WEIXIN_DM_POLICY=allowlist|" "$HERMES_HOME/.env"
+            if grep -qE '^(export )?WEIXIN_DM_POLICY=' "$HERMES_HOME/.env" 2>/dev/null; then
+                sed -i -E 's|^(export )?WEIXIN_DM_POLICY=.*|WEIXIN_DM_POLICY=allowlist|' "$HERMES_HOME/.env"
             else
                 echo "WEIXIN_DM_POLICY=allowlist" >> "$HERMES_HOME/.env"
             fi
-            if grep -q "WEIXIN_ALLOWED_USERS" "$HERMES_HOME/.env" 2>/dev/null; then
-                sed -i "s|^WEIXIN_ALLOWED_USERS=.*|WEIXIN_ALLOWED_USERS=$WX_USER_ID|" "$HERMES_HOME/.env"
+            if grep -qE '^(export )?WEIXIN_ALLOWED_USERS=' "$HERMES_HOME/.env" 2>/dev/null; then
+                sed -i -E "s|^(export )?WEIXIN_ALLOWED_USERS=.*|WEIXIN_ALLOWED_USERS=$WX_USER_ID|" "$HERMES_HOME/.env"
             else
                 echo "WEIXIN_ALLOWED_USERS=$WX_USER_ID" >> "$HERMES_HOME/.env"
             fi
@@ -639,15 +639,28 @@ fi
 # ---------- 10.5 兼容 0.1.x：把 OPENAI_* 迁移成 model.* ----------
 # v0.22 的 auth.py 见到 OPENAI_API_KEY 会按它选 provider（自定义端点会被劫持到 OpenRouter）。
 # 0.1.x 的安装器正是把自定义端点写成 OPENAI_BASE_URL / OPENAI_API_KEY 的，这里就地迁移：
-#   · 已有 model.api_key → 只删旧变量
-#   · 没有 → 用旧值补出 HERMES_CUSTOM_<host>_API_KEY + model.*（与 9.5 段同一套写法）
+#   · model.* 三件套（base_url / api_key / default）齐了 → 只删旧变量
+#   · 缺任一件且能读到模型名 → 用旧值补出 HERMES_CUSTOM_<host>_API_KEY + model.*
 #   · 取不到模型名 → 原样保留并提示，绝不在没有模型名的情况下把凭据删掉
+# .env 里允许带可选的 export 前缀，匹配与删除都要认这一形态。
+_cfg_has() {
+    local _v
+    _v="$(hermes config get "$1" 2>/dev/null || true)"
+    case "$_v" in
+        ""|*"not set"*|*"Config key"*|*"Error"*) return 1 ;;
+        *) return 0 ;;
+    esac
+}
 if [ -f "$HERMES_HOME/.env" ]; then
-    _olb="$(grep -E '^OPENAI_BASE_URL=' "$HERMES_HOME/.env" | head -1 | cut -d= -f2- | tr -d '\r' | tr -d '"')"
-    _okey="$(grep -E '^OPENAI_API_KEY=' "$HERMES_HOME/.env" | head -1 | cut -d= -f2- | tr -d '\r' | tr -d '"')"
+    _olb="$(grep -E '^(export )?OPENAI_BASE_URL=' "$HERMES_HOME/.env" | head -1 | sed -E 's/^(export )?OPENAI_BASE_URL=//' | tr -d '\r' | tr -d '"')"
+    _okey="$(grep -E '^(export )?OPENAI_API_KEY=' "$HERMES_HOME/.env" | head -1 | sed -E 's/^(export )?OPENAI_API_KEY=//' | tr -d '\r' | tr -d '"')"
     if [ -n "$_olb" ] && [ -n "$_okey" ] && [ "${_olb#*api.openai.com}" = "$_olb" ]; then
-        if grep -qE '^[[:space:]]+api_key:[[:space:]]*[^[:space:]"'"'"']+' "$HERMES_HOME/config.yaml" 2>/dev/null; then
-            sed -i -E '/^OPENAI_(API_KEY|BASE_URL)=/d' "$HERMES_HOME/.env"
+        _cfg_complete=0
+        if _cfg_has model.base_url && _cfg_has model.api_key && _cfg_has model.default; then
+            _cfg_complete=1
+        fi
+        if [ "$_cfg_complete" = "1" ]; then
+            sed -i -E '/^(export )?OPENAI_(API_KEY|BASE_URL)=/d' "$HERMES_HOME/.env"
             ok "已清理旧版遗留的 OPENAI_*（会劫持模型路由）"
         else
             _m="$(hermes config get model.default 2>/dev/null | tr -d '[:space:]' || true)"
@@ -658,12 +671,13 @@ if [ -f "$HERMES_HOME/.env" ]; then
                 _slug="$(printf '%s' "$_olb" | sed -E 's#^https?://([^/]+).*#\1#' | tr '[:lower:]' '[:upper:]' | sed -E 's/[^A-Z0-9]+/_/g; s/^_+//; s/_+$//')"
                 _kenv="HERMES_CUSTOM_${_slug}_API_KEY"
                 hermes config set "$_kenv" "$_okey" >/dev/null 2>&1 || true
-                grep -q "^${_kenv}=" "$HERMES_HOME/.env" 2>/dev/null || echo "${_kenv}=$_okey" >> "$HERMES_HOME/.env"
+                grep -qE "^(export )?${_kenv}=" "$HERMES_HOME/.env" 2>/dev/null || echo "${_kenv}=$_okey" >> "$HERMES_HOME/.env"
                 cfg_set model.base_url "$_olb"
                 cfg_set model.provider custom
                 cfg_set model.api_key "\${${_kenv}}"
                 cfg_set model.api_mode chat_completions
-                sed -i -E '/^OPENAI_(API_KEY|BASE_URL)=/d' "$HERMES_HOME/.env"
+                cfg_set model.default "$_m"
+                sed -i -E '/^(export )?OPENAI_(API_KEY|BASE_URL)=/d' "$HERMES_HOME/.env"
                 ok "已把旧版 OPENAI_* 迁移为 model.* 配置（模型：$_m）"
             fi
         fi
