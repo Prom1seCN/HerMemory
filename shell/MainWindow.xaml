@@ -614,7 +614,7 @@
                 <Border Style="{StaticResource PageHeadRule}"/>
             </StackPanel>
             <ScrollViewer Grid.Row="1" Margin="0,14,0,0" VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
-                <StackPanel x:Name="CmdList" MaxWidth="680" HorizontalAlignment="Left"/>
+                <StackPanel x:Name="CmdList"/>
             </ScrollViewer>
             <TextBlock x:Name="CmdHint" Grid.Row="2" Style="{StaticResource Hint}" Margin="2,10,0,0"/>
         </Grid>
