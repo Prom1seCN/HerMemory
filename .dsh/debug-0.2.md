@@ -1,3 +1,47 @@
+## 2026-10-25 全量 debug（0.2.0）
+
+提交 `3110b3e`。范围：安装器（Win/Linux）、shell（C#）、构建脚本、编码约定。
+
+### 已修（每条都有复现或验证）
+
+**A. "命令跑过就算成功"（最贵的一类）**
+1. `SetModelCfg` 丢弃全部 `config set` 结果 → 界面报"保存成功"而配置没写全。改：逐项校验退出码 + 读回值，失败回滚。
+2. 真机实测发现：迁移时只检查 `model.api_key` 是否存在，**不解析 `${ENV}` 引用**；引用指向不存在的键时会删掉用户唯一可用的 `OPENAI_*` 凭据。改：用 `GetModelCfg().keyValue` 判断"真的有 Key"。
+3. `GatewayCommand` 未复核状态 → 网关没起来也报成功。改：按真实状态复核（30 秒时限，单次探测用短超时）。
+4. 微信解绑/重绑 `catch {}` 吞掉删除失败 → 界面显示"已解绑"而绑定仍在。改：失败向上抛 + 网关按原状态恢复。
+5. `AiReset` 备份失败只记 Notes 继续清空记忆。改：备份失败或校验不一致即中止。
+
+**B. 安装流程可用性**
+6. 安装子进程先 `await Pump(stdout)` 再 `WaitForExitAsync(ct)`：子进程卡住时**取消/超时永远不生效**。改：`ct.Register` 先杀进程，管道回收加 5 秒兜底。
+7. 下载统计硬编码 `%LOCALAPPDATA%\hermes` → 自定义数据目录时永远不显示进度。改：用 `HermesHome`。
+8. "程序没能写入"与"快捷方式没写上"共用一句话。改：分开判定，文案分别给出对应处置。
+
+**C. 编码（本轮反复踩中的根因）**
+9. `install.ps1` / `build-offline.ps1` 在我的编辑中丢了 BOM；PS 5.1 下按 ANSI 解中文注释 → `Unexpected token`。已恢复 BOM 并用真 PS 5.1 解析器验证。
+10. `scripts/upstream-install.ps1` 含 15 个非 ASCII 字节（em dash），按无 BOM 约定应为纯 ASCII。已清零。
+11. 迁移/清理 `OPENAI_*` 只匹配行首，不认 `export ` 前缀 → 漏删，路由仍被劫持。Win/Linux 均已兼容。
+
+**D. Linux 安装器**
+12. 镜像补丁的 heredoc 写 CRLF 到 `artifact_mirror.py`（与 Windows 路径不一致），且失败静默。改：LF + 失败告警。
+13. §10.5 "model.* 是否完整"用正则判 config.yaml：缩进结构判断失误会误删凭据。改：用 `hermes config get` 判定；迁移补写 `model.default`。
+
+**E. 构建链缺口**
+14. `install.ps1` 只在 `<src>\artifacts` 找预置大件，而 `build-offline.ps1` **根本不产出它们**——干净机器构建必然缺输入。改：install 认两种布局；build-offline 新增 §5 按 lock 哈希采集 git/python/node；csproj 缺件即构建失败。
+
+### 验证
+- 真 PowerShell 5.1 解析 5 个 .ps1：全部 OK
+- bash -n / Python AST / XAML 解析：全部通过
+- WPF（app）与 Setup 模式编译：0 错误 0 警告（除离线 NuGet 审计警告）
+- 隔离 HOME 跑 Linux install.sh：首跑/重跑幂等，`MEMORY.md` 不被覆盖，`hermemory` 别名可用
+- Linux 迁移三例实测：完整配置→只清理；缺件+有模型名→补齐；缺模型名→保留凭据不动
+- **在真 Windows 上编译并运行 HermesCtl 测试台（29 项全过）**：含 env 解析、原子写无 BOM/无残留、状态解析、`GetModelCfg` 对缺失引用的处理、迁移拒绝、purge 边界、以及用真实 `hermes.exe` 桩验证**保存成功路径与 mid-save 失败回滚**
+
+### 未验证（需真机）
+- 完整全新安装（沙箱网络受限）、0.1.x 真机升级、GPU/WPF 渲染
+- `build-offline.ps1` 新增 §5 的实网下载（需在 PC 上跑一次）
+
+---
+
 # HerMemory 0.2.x 完整 Debug · 问题清单
 
 > 目标：程序本身（安装器 / shell / 脚本 / 构建产物）× 真实用户旅程（全新安装、0.1.0 升级、
