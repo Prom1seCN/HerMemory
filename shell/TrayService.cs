@@ -134,6 +134,11 @@ namespace HerMemory
             catch { }
         }
 
+        /// <summary>上次用 CLI 复核「stopped」的时间。本地判据说 running 是确定的，不必复核；
+        /// 说 stopped 才有歧义（例如服务托管但 pid 文件缺失），低频复核一次即可。</summary>
+        private DateTime _lastCliProbeUtc = DateTime.MinValue;
+        private const int CliProbeIntervalSeconds = 60;
+
         private async Task PollAsync(System.Windows.Forms.ToolStripMenuItem miStatus)
         {
             if (_busy) return;
@@ -142,15 +147,46 @@ namespace HerMemory
             string raw;
             try
             {
-                (state, raw) = await Task.Run(() =>
+                // ① 纯本地判据（毫秒级、零子进程）。网关在跑时这里就返回 running——
+                // 旧实现每 10 秒起一次 `hermes gateway status`：要加载 50+ 个插件、耗时数秒、
+                // 每次还创建一个 conhost，用户看到托盘图标每隔几秒闪一下，白烧一成半 CPU。
+                var local = await Task.Run(() => HermesCtl.ProbeState());
+                if (local == "running")
                 {
-                    var raw = HermesCtl.RawStatus();
-                    var lower = raw.ToLowerInvariant();
-                    // 顺序关键："not running" 也包含 "running"——必须先判否定；二态，读取失败按停止
-                    if (lower.Contains("not running") || lower.Contains("stopped")) return ("stopped", raw);
-                    if (lower.Contains("running")) return ("running", raw);
-                    return ("stopped", raw);
-                });
+                    state = "running";
+                    raw = "local:gateway.pid";
+                }
+                else
+                {
+                    // ② 本地说停止：先看进程表里有没有“归属本目录却没有 pid 文件”的网关进程。
+                    //    没有 → 确定停止，**一次 CLI 都不起**（稳态下零闪烁、零开销）。
+                    //    有 → 才算有歧义，用 CLI 复核，且最多每 60 秒一次。
+                    var ambiguous = await Task.Run(() => HermesCtl.AnyGatewayProcessInHome());
+                    if (!ambiguous)
+                    {
+                        state = "stopped";
+                        raw = "local:no-gateway-process";
+                    }
+                    else
+                    {
+                        var now = DateTime.UtcNow;
+                        if ((now - _lastCliProbeUtc).TotalSeconds < CliProbeIntervalSeconds)
+                        {
+                            state = "stopped";
+                            raw = "local:ambiguous-throttled";
+                        }
+                        else
+                        {
+                            _lastCliProbeUtc = now;
+                            (state, raw) = await Task.Run(() =>
+                            {
+                                var r = HermesCtl.RawStatus();
+                                var st = HermesCtl.ParseGatewayState(r);
+                                return (st == "unknown" ? "stopped" : st, r);
+                            });
+                        }
+                    }
+                }
             }
             catch
             {
@@ -213,6 +249,8 @@ namespace HerMemory
                 {
                     // 必须 finally：异常时若没重启轮询，托盘状态会永久冻结
                     Ui(() => { try { _poll.Start(); } catch { } });
+                    // 用户刚点过启停：允许下一次轮询用 CLI 精确复核一次（平时不会）
+                    _lastCliProbeUtc = DateTime.MinValue;
                     // 立即刷新一次：不必等下一个 10 秒轮询（避免 tooltip/菜单显示旧状态）
                     if (_miStatus != null) _ = PollAsync(_miStatus);
                 }

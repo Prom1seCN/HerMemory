@@ -93,6 +93,21 @@ PC 上 `shell/obj/project.assets.json` 已含 win-x64，构建跳过 NuGet 还�
 （Ryzen 7 8845H；程序本体 69.2 MB + Setup 409.6 MB）。别拿 NAS 跑 `.ps1` 的耗时当时钟——
 NAS 连不上 api.nuget.org，每条重试要等一两分钟，会误判成"构建要 20 分钟"。
 
+## 托盘状态轮询（2026-10-25 事故）
+
+**症状**：托盘图标每隔几秒闪一下；`agent.log` 每 10 秒一条 "Plugin discovery complete"；
+conhost 越堆越多（一度 10 个）。
+
+**根因**：`TrayService.PollAsync` 每 10 秒调 `HermesCtl.RawStatus()` → 起一个完整
+`hermes gateway status` 子进程。该 CLI 要加载 50+ 插件，**实测单个进程存活约 6 秒**，
+即托盘有 60% 时间在跑 CLI，每次还创建一个 conhost。
+
+**修法**（已落地）：高频轮询只走 `HermesCtl.ProbeState()` —— 纯本地读 `gateway.pid` +
+`gateway_state.json` + PID 归属校验，**零子进程**。实测：运行中 1.0 ms/次、停止 6.3 ms/次。
+只有「本地说停止、但进程表里确有归属本目录的网关进程」（无 pid 文件的歧义态）才用 CLI
+复核，且最多 60 秒一次。用户点启停后允许一次精确复核。
+**纪律**：任何 10 秒级轮询都不许调 `hermes` CLI；`State()`（会起 CLI）只用于用户主动动作。
+
 ## 本机（NAS）验证方式
 
 隔离 HOME 装一遍再验接缝，`build/spike/` 是现成的样板（`env.sh` 里有整套环境变量）：

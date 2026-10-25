@@ -163,10 +163,19 @@ namespace HerMemory
                 var m = System.Text.RegularExpressions.Regex.Match(
                     File.ReadAllText(pidFile), "\"pid\"\\s*:\\s*(\\d+)");
                 if (!m.Success || !int.TryParse(m.Groups[1].Value, out var pid) || pid <= 0) return false;
+                return PidLooksLikeOurGateway(pid);
+            }
+            catch { return false; }
+        }
+
+        /// <summary>PID 存活且像本数据目录的网关进程。仅 PID 存活不够：旧 gateway.pid 残留 +
+        /// PID 复用会把别的进程当成网关。只认 python* / hermes，且路径必须落在本数据目录内。</summary>
+        private static bool PidLooksLikeOurGateway(int pid)
+        {
+            try
+            {
                 using var p = Process.GetProcessById(pid);   // 进程不在 → 抛 ArgumentException
                 if (p.HasExited) return false;
-                // 仅 PID 存活不够：旧 gateway.pid 残留 + PID 复用会把别的进程当成网关。
-                // 只认 python* / hermes，且可读路径时必须落在本数据目录内；读不到路径就交给 CLI 复核。
                 var name = p.ProcessName;
                 if (!name.StartsWith("python", StringComparison.OrdinalIgnoreCase)
                     && !name.Equals("hermes", StringComparison.OrdinalIgnoreCase)) return false;
@@ -176,6 +185,65 @@ namespace HerMemory
                     StringComparison.OrdinalIgnoreCase);
             }
             catch { return false; }
+        }
+
+        /// <summary>进程表里是否存在归属本数据目录的网关进程（python* / hermes）。
+        /// 用途：本地判据说"停止"时，用它判断这次判断是否有歧义（有进程却无 pid 文件），
+        /// 只有歧义才值得起一次 CLI 复核。纯本地枚举，毫秒级。</summary>
+        public static bool AnyGatewayProcessInHome()
+        {
+            try
+            {
+                var prefix = HermesHome.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                foreach (var p in Process.GetProcesses())
+                {
+                    try
+                    {
+                        var n = p.ProcessName;
+                        if (!n.StartsWith("python", StringComparison.OrdinalIgnoreCase)
+                            && !n.Equals("hermes", StringComparison.OrdinalIgnoreCase)) continue;
+                        var exe = p.MainModule?.FileName ?? "";
+                        if (exe.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return true;
+                    }
+                    catch { }
+                    finally { try { p.Dispose(); } catch { } }
+                }
+            }
+            catch { }
+            return false;
+        }
+
+        /// <summary>**纯本地**状态探测，零子进程。托盘每 10 秒调用一次，绝不能起 CLI：
+        /// `hermes gateway status` 要加载 50+ 个插件、耗时数秒，并给每次调用创建一个 conhost
+        /// （用户看到的就是托盘图标每隔几秒闪一下；实测占掉单核一成半）。
+        ///
+        /// 判据与上游 gateway/status.py::live_gateway_pid_for_home 同口径：
+        ///   ① gateway.pid 里的 PID 存活且归属本数据目录 → running（确定）
+        ///   ② 没有可用 pid 时看 gateway_state.json：`gateway_state` 不在
+        ///      {null, stopped, startup_failed} 且其 pid 存活 → running（服务托管、pid 文件缺失的场景）
+        ///   ③ 其余 → stopped（**有歧义**，调用方可用 CLI 低频复核）
+        /// 返回 running 是确定的；返回 stopped 才需要外部复核。</summary>
+        public static string ProbeState()
+        {
+            if (GatewayProcessAlive()) return "running";
+            try
+            {
+                var stateFile = Path.Combine(HermesHome, "gateway_state.json");
+                if (File.Exists(stateFile))
+                {
+                    using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(stateFile));
+                    var st = doc.RootElement.TryGetProperty("gateway_state", out var s) ? s.GetString() : null;
+                    if (!string.IsNullOrEmpty(st) && st != "stopped" && st != "startup_failed"
+                        && st != "startup" && st != "starting")
+                    {
+                        if (doc.RootElement.TryGetProperty("pid", out var pel)
+                            && pel.TryGetInt32(out var pid) && pid > 0 && PidLooksLikeOurGateway(pid))
+                            return "running";
+                    }
+                }
+            }
+            catch { }
+            return "stopped";
         }
 
         /// <summary>HERMES_HOME 的解析：① 本进程环境变量（含向导在「安装位置」页显式设的那个）
@@ -354,6 +422,9 @@ namespace HerMemory
                 RedirectStandardError = true,
                 RedirectStandardInput = true,
                 CreateNoWindow = true,
+                // 双保险：即便某个启动器仍想画窗口，也按隐藏窗口启动（配合 CreateNoWindow，
+                // 避免托盘探活/命令执行时闪出 conhost 或任务栏按钮）。
+                WindowStyle = ProcessWindowStyle.Hidden,
             };
             psi.EnvironmentVariables["NO_COLOR"] = "1";
             // 非交互标记：上游 is_noninteractive()（hermes_cli/setup.py）只认这个变量，**不检查 stdin**。
@@ -393,11 +464,13 @@ namespace HerMemory
             return "unknown";
         }
 
-        /// <summary>本地身份文件优先，避免每次状态刷新都启动一个 Python；CLI 是准确的后备判据。</summary>
+        /// <summary>精确状态（会起 CLI 复核）。用于用户主动动作后的确认；**不要放进高频轮询**——
+        /// 高频轮询用 <see cref="ProbeState"/>（纯本地，零子进程）。</summary>
         public static string State(int timeoutSec = 15)
         {
-            if (GatewayProcessAlive()) return "running";
-            return ParseGatewayState(RawStatus(timeoutSec));
+            if (ProbeState() == "running") return "running";
+            var cli = ParseGatewayState(RawStatus(timeoutSec));
+            return cli == "unknown" ? "stopped" : cli;
         }
 
         /// <summary>网关操作不能只看 CLI 是否打印了成功：最终以真实状态为准。
