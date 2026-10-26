@@ -104,6 +104,13 @@ PM 的 `extract()` **只看后缀**决定解包方式（`.zip` / `.tar.gz`），
 **干净环境实测**（2026-10-26，临时 HERMES_HOME + 随包素材）：安装阶段 **906 秒 / 2.4 GB**，
 `hermes --version` 与 `pm doctor` 全绿。
 
+**沙盒验收套路**（`.sandbox-out/`，PC 上是唯一能跑真安装的地方）：
+`.wsb` 映射仓库（只读）+ `.sandbox-out`（可写），`boot.ps1` 里用
+`schtasks /Create /RL HIGHEST /IT` 起提权任务绕开 UAC，驱动脚本用 UIA 点向导并把
+截图/树 dump 到 `.sandbox-out`。**驱动脚本必须带 UTF-8 BOM**（无 BOM → PS5.1 按 GBK 读中文按钮名
+→ 语法错误 → 任务静默失败）。向导有两页都叫「开始安装」（预检页 / 位置页），要连点两次；
+安装页的标志是出现「中止安装」。
+
 **构建机（PC）与 NAS 不自动同步**：两边独立仓库，代码只在 NAS 改，PC 需要显式同步
 （`git push` 后在 PC `git fetch && git reset --hard origin/main`）。**出包前先确认
 `git rev-parse HEAD` 两边一致**——否则会拿旧代码打出一个"看起来成功"的包（2026-10-25 踩过）。

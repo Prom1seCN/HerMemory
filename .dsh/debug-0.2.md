@@ -42,7 +42,20 @@ PM 的 `extract()` 只看后缀（`.zip` / `.tar.gz`）决定解包方式；`ins
 修法：`build-offline.ps1` 产出 `runtime.json`（sha256 → 原始文件名），`install.ps1` 照着命名，
 并清掉旧版本留下的 `artifact.bin`；没有清单时按文件头猜（`PK`→zip / `1F8B`→tar.gz / `MZ`→7z.exe）。
 
-### 验证（真机，非推理）
+### 验证 ①：Windows 沙盒（用户的原始场景）
+
+全新 Windows Sandbox（Win11 26100，8 GB，Networking Enable），把 `build\Setup.exe` 拷进去点「开始安装」，
+**14:31:31 开始 → 14:51 页面显示「安装完成」，程序落到 `C:\Program Files\HerMemory`**，
+桌面出现 HerMemory 图标。全程用 UI Automation 驱动向导（UIA 树逐页 dump 存证：
+`.sandbox-out/tree-*.txt`、`run*.png`）。
+
+自动化要点（复用 `.sandbox-out/` 的老套路）：
+- 沙盒内 `schtasks /Create /RL HIGHEST /IT` 起提权任务，**绕开 UAC**（沙盒里没人点「是」）。
+- 驱动脚本必须带 UTF-8 **BOM**：无 BOM 时 PS 5.1 按 GBK 读中文按钮名，整个脚本语法错误、
+  任务静默失败（2026-10-26 踩了一轮）。
+- 向导有两页都叫「开始安装」（预检页 / 位置页），要连点两次；安装页的标志是出现「中止安装」。
+
+### 验证 ②：干净 HERMES_HOME（真机，非推理）
 
 - 干净 `HERMES_HOME`（`D:\tmp\hmtest\home2`）跑完整 `install.ps1` 安装阶段：
   **EXIT=0，906 秒**；`hermes --version` → `Hermes Agent v0.22.2`，`Python: 3.14.7`。
