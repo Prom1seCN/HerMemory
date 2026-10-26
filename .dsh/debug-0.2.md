@@ -55,6 +55,21 @@ PM 的 `extract()` 只看后缀（`.zip` / `.tar.gz`）决定解包方式；`ins
   任务静默失败（2026-10-26 踩了一轮）。
 - 向导有两页都叫「开始安装」（预检页 / 位置页），要连点两次；安装页的标志是出现「中止安装」。
 
+### 验证 ③：真机整机清空后重装（2026-10-26 16:28–16:58）
+
+用户要求「假设空白机器」验证。做法：先用程序自己的卸载器卸（vault 勾选保持**不删**），
+再手工清掉卸载器删不掉的残留（`%LOCALAPPDATA%\hermes` 被占用、`C:\Program Files\HerMemory`），
+确认真的空白（无 program files / 无数据目录 / 无计划任务 / 无 Run 项 / 无卸载项）后，
+跑同一个 `build\Setup.exe`。
+
+结果：**16:34:06 点「开始安装」→ 约 16:54 页面「安装完成」，约 20 分钟**；
+`hermes --version` = v0.22.2，`pm doctor` 的 node/python/ripgrep/uv 全绿，
+网关（登录项 `Hermes_Gateway.vbs`）与托盘自启都自动建好，vault 15 个文件原样。
+
+**发现（未修）**：卸载器的「退出后由临时脚本删程序文件」这次没生效，
+`C:\Program Files\HerMemory\HerMemory.exe` 仍在，需手工删；卸载器本身如实报了
+「以下目录未能完全删除（因为文件被占用）」，不是静默失败。
+
 ### 验证 ②：干净 HERMES_HOME（真机，非推理）
 
 - 干净 `HERMES_HOME`（`D:\tmp\hmtest\home2`）跑完整 `install.ps1` 安装阶段：
