@@ -81,10 +81,28 @@ Hermes Agent 的发行版：三层壳。
 ## 构建
 
 ```powershell
-powershell -File build-offline.ps1 -Tag v0.22.2        # 出 build\minimal\{hermes-agent.bundle,uv.exe,uv.version}
+powershell -File build-offline.ps1 -Tag v0.22.2        # 出 build\minimal\{bundle,uv.exe,uv.version,python.json,runtime.json,artifacts\}
 powershell -File build-release.ps1 -Version 0.2.0      # 出 build\app\HerMemory.exe 与 build\Setup.exe
 ```
 `build-release.ps1` 构建前跑 `scripts/check-privacy.ps1`（随包源码不得含构建机用户名）。
+
+`build\minimal\python.json`（版本/sha256/uv 目录名）与 `runtime.json`（sha256 → 原始文件名）
+由 build-offline 从上游 `pm/lock.json` 生成，缺任何一个 `build-release` 直接失败——它们不是可选件。
+
+**PM 下载缓存契约**：`<HERMES_HOME>\tools\fetch-<sha256>\<原始文件名>`。
+PM 的 `extract()` **只看后缀**决定解包方式（`.zip` / `.tar.gz`），把文件改名成 `artifact.bin`
+会让 node / python / ripgrep 全部报 `unsupported archive`（2026-10-26 实测，装到依赖阶段才炸）。
+预置随包大件必须按 `runtime.json` 的原名落位。
+
+**引导 Python 不再联网**：`install.ps1` 把随包 CPython 解压成 uv 的受管布局
+`<HERMES_HOME>\python\cpython-3.14.7-windows-x86_64-none`（纯解压目录即可，uv 不需要 receipt），
+再设 `UV_PYTHON_INSTALL_DIR` + `HERMEMORY_BOOTSTRAP_PYTHON`，上游直接取用。
+
+**代理自愈**：`install.ps1`/`install.sh` 开跑前探 `HTTP(S)_PROXY`/`ALL_PROXY` 的端口，连不上就摘掉
+（uv 走进程环境，Clash 退出后残留的变量会让每次连接 10061）。国内镜像同时进 `NO_PROXY`。
+
+**干净环境实测**（2026-10-26，临时 HERMES_HOME + 随包素材）：安装阶段 **906 秒 / 2.4 GB**，
+`hermes --version` 与 `pm doctor` 全绿。
 
 **构建机（PC）与 NAS 不自动同步**：两边独立仓库，代码只在 NAS 改，PC 需要显式同步
 （`git push` 后在 PC `git fetch && git reset --hard origin/main`）。**出包前先确认

@@ -1,3 +1,59 @@
+## 2026-10-26 首装失败的两个真因
+
+用户报「安装未成功」，日志尾部：
+
+```
+[M] bootstrap Python installation failed
+Caused by: Failed to download https://registry.npmmirror.com/-/binary/python-build-standalone/20260807/
+           cpython-3.14.7+20260807-x86_64-pc-windows-msvc-install_only_stripped.tar.gz
+Caused by: tunnel error: failed to create underlying connection
+Caused by: 由于目标计算机积极拒绝，无法连接。(os error 10061)
+```
+
+### 根因 1：引导 Python 必须联网，且 uv 信进程环境里的代理
+
+`10061` = `WSAECONNREFUSED`，即代理软件的端口没在听（Clash 退出后变量还留在环境里）。
+.NET 的联网预检读的是 WinHTTP 设置，**看不到这类死代理** → 预检通过，装到一半才炸。
+
+- `install.ps1` 把随包 CPython 解压成 uv 的受管布局
+  （`<HERMES_HOME>\python\cpython-3.14.7-windows-x86_64-none`），`UV_PYTHON_INSTALL_DIR` 指过去，
+  并导出 `HERMEMORY_BOOTSTRAP_PYTHON` 给上游 → 引导阶段零下载。
+  真机验证：纯解压目录（没有 uv 的 receipt）也能被 `uv python find --managed-python` 命中，exit 0。
+- `install.ps1` §0.15 代理自愈：逐个探 `HTTP(S)_PROXY` / `ALL_PROXY` 的端口，连不上就摘掉并明说。
+  国内镜像同时塞进 `NO_PROXY`；清华 PyPI 探不通时自动换阿里/官方。
+- `install.sh` 同样处理（bash `/dev/tcp` + `timeout 1`）。
+- `upstream-install.ps1` / `.sh` 优先用 `HERMEMORY_BOOTSTRAP_PYTHON`；镜像失败后再试官方 releases。
+
+### 根因 2（干净环境跑出来的，比 1 更致命）：随包大件的缓存文件名丢了后缀
+
+干净 `HERMES_HOME` 实测：
+
+```
+node:   install failed: unsupported archive: artifact.bin
+python: install failed: unsupported archive: artifact.bin
+ripgrep: install failed: unsupported archive: artifact.bin
+[X] dependency install failed
+```
+
+PM 的 `extract()` 只看后缀（`.zip` / `.tar.gz`）决定解包方式；`install.ps1` 预置缓存时把文件统一写成
+`artifact.bin`，于是 node / python / ripgrep **必然**解不开。之前记的「缓存命中 0.12 秒」只测了下载、
+没测解包——**下载成功不等于装得上**。
+
+修法：`build-offline.ps1` 产出 `runtime.json`（sha256 → 原始文件名），`install.ps1` 照着命名，
+并清掉旧版本留下的 `artifact.bin`；没有清单时按文件头猜（`PK`→zip / `1F8B`→tar.gz / `MZ`→7z.exe）。
+
+### 验证（真机，非推理）
+
+- 干净 `HERMES_HOME`（`D:\tmp\hmtest\home2`）跑完整 `install.ps1` 安装阶段：
+  **EXIT=0，906 秒**；`hermes --version` → `Hermes Agent v0.22.2`，`Python: 3.14.7`。
+- `hermes pm doctor`：node 26.7.0 / npm 12.0.2 / python 3.14.7+20260901 / ripgrep 15.2.0 / uv 0.12.3 全部 ✓。
+- 死代理（`HTTPS_PROXY=http://127.0.0.1:9`）下重跑：告警一行后照常安装。
+
+### 教训
+
+安装器里任何「下载完成了」都不能当成「装好了」——必须跑到下一段真的用上它。
+这次两个 bug 都在**上一轮改动新增的代码**里，且都没有被端到端跑过。
+
 ## 2026-10-25 全量 debug（0.2.0）
 
 提交 `3110b3e`。范围：安装器（Win/Linux）、shell（C#）、构建脚本、编码约定。
