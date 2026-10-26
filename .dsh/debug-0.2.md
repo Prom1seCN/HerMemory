@@ -55,6 +55,29 @@ PM 的 `extract()` 只看后缀（`.zip` / `.tar.gz`）决定解包方式；`ins
   任务静默失败（2026-10-26 踩了一轮）。
 - 向导有两页都叫「开始安装」（预检页 / 位置页），要连点两次；安装页的标志是出现「中止安装」。
 
+### 2026-10-26 同学机器升级失败：`$src` 顶掉了 `$SRC`
+
+现象（升级 v0.21.0 → v0.22.2）：
+
+```
+[error] 缺 vendored 上游安装器：C:\Users\huanc\AppData\Local\hermes\.env\scripts\upstream-install.ps1
+```
+
+同一条日志里还连着三条「找不到随包素材」（artifacts / CPython / vendored 安装器）。
+
+根因：升级分支的备份循环 `foreach ($f in @("config.yaml",".env")) { $src = Join-Path $HermesHome $f }`。
+**PowerShell 变量名大小写不敏感**，`$src` 与 `$SRC` 是同一个变量 → 循环最后一轮把 `$SRC` 顶成
+`<HERMES_HOME>\.env`，之后所有「随包素材在哪」的判断全错。实测复现：
+
+```
+old style -> $SRC = C:\Users\x\AppData\Local\hermes\.env
+```
+
+只有**从旧版本升级**才会踩（全新安装不进那个分支，内核版本相同也会跳过）。
+
+修法：`$SRC` 全量改名 `$SrcRoot`（18 处），备份循环变量改 `$srcFile`，
+vendored 安装器改用 `Get-ShippedAsset`（双 base 兜底）。
+
 ### 验证 ③：真机整机清空后重装（2026-10-26 16:28–16:58）
 
 用户要求「假设空白机器」验证。做法：先用程序自己的卸载器卸（vault 勾选保持**不删**），
