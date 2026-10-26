@@ -64,7 +64,10 @@ function Warn([string]$m) { Write-Host "[note] $m" -ForegroundColor Yellow }
 function Die([string]$m)  { Write-Host "[error] $m" -ForegroundColor Red; exit 1 }
 # 离线包 = payload 里带 uv-cache.zip。它自带全部依赖与运行时大件，**任何网络检查都要跳过**，
 # 否则断网机器会被预检挡在门外（离线包的意义就是没有网也能装）。
-$IsOfflinePayload = Test-Path -LiteralPath (Get-ShippedAsset "uv-cache.zip")
+$IsOfflinePayload = $false
+foreach ($oc in @((Join-Path $SrcRoot "uv-cache.zip"), (Join-Path $SrcRoot "build\minimal\uv-cache.zip"))) {
+    if (Test-Path -LiteralPath $oc) { $IsOfflinePayload = $true; break }
+}
 if ($IsOfflinePayload) { Log "离线安装包：随包携带全部依赖，跳过所有联网检查" }
 Log "安装源：$SrcRoot"
 # PS 5.1 坑：EAP=Stop 时原生命令 2>$null 会把 stderr 变成终止性错误（NativeCommandError）。
