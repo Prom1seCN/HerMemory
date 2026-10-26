@@ -1,4 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <HmPayloadDir Condition="'$(HmPayloadDir)' == ''">..\build\minimal</HmPayloadDir>
+  </PropertyGroup>
 
   <PropertyGroup>
     <!-- 发行形态（2026-09-15 拆包）：
