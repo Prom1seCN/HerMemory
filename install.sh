@@ -164,6 +164,43 @@ else
     [ -n "${UV_PYTHON_INSTALL_MIRROR:-}" ] || export UV_PYTHON_INSTALL_MIRROR="https://registry.npmmirror.com/-/binary/python-build-standalone"
     log "在线镜像：PyPI 走清华 / npm 走 npmmirror / CPython 走 npmmirror（用户已自设则沿用）"
 
+    # ---- 代理自愈（2026-10-26）----
+    # 装过 clash / v2ray 的机器常留着 HTTP(S)_PROXY 指向已经退出的本地端口：uv / pip / curl
+    # 每次连接都被内核直接拒绝（ECONNREFUSED），而安装要到很深处才炸，报一串英文。
+    # 开跑前逐个探端口，连不上就摘掉变量并说清楚。
+    _probe_tcp() {
+        local hp="$1" host port
+        case "$hp" in *://*) hp="${hp#*://}" ;; esac
+        hp="${hp%%/*}"
+        case "$hp" in *:*) host="${hp%:*}" ; port="${hp##*:}" ;; *) return 0 ;; esac
+        [ -n "$host" ] && [ -n "$port" ] || return 0
+        if command -v timeout >/dev/null 2>&1; then
+            timeout 1 bash -c "exec 3<>/dev/tcp/$host/$port" 2>/dev/null
+        else
+            (exec 3<>"/dev/tcp/$host/$port") 2>/dev/null
+        fi
+    }
+    _dead_proxies=""
+    for _pv_name in HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy; do
+        eval "_pv_val=\${$_pv_name:-}"
+        [ -n "${_pv_val:-}" ] || continue
+        if ! _probe_tcp "$_pv_val"; then
+            unset "$_pv_name"
+            _dead_proxies="$_dead_proxies $_pv_name=$_pv_val"
+        fi
+    done
+    if [ -n "$_dead_proxies" ]; then
+        warn "已忽略连不上的代理设置（端口没有在听）：$_dead_proxies；本次安装全程直连。"
+    fi
+    # 国内镜像直连更快更稳：塞进 NO_PROXY，别让用户的外网代理绕一圈。
+    for _np in registry.npmmirror.com pypi.tuna.tsinghua.edu.cn mirrors.aliyun.com mirrors.ustc.edu.cn localhost 127.0.0.1; do
+        case ",${NO_PROXY:-}," in
+            *",$_np,"*) ;;
+            *) NO_PROXY="${NO_PROXY:+$NO_PROXY,}$_np" ;;
+        esac
+    done
+    export NO_PROXY
+
     # 内核来源：同目录 bundle → 直链 bundle → GitHub（由上游自己 clone）
     KERNEL_BUNDLE=""
     for cand in "$SRC/hermes-agent.bundle" "$PWD/hermes-agent.bundle"; do

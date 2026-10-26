@@ -602,13 +602,39 @@ if ($workingCli -and $haveVer -eq $WantHermesVersion) {
     if ($artRoot) {
         $toolRoot = Join-Path $HermesHome "tools"
         New-Item -ItemType Directory -Force -Path $toolRoot | Out-Null
+        # 缓存文件名必须保留原始后缀：PM 的 extract() 只看后缀决定解包方式
+        # （.zip / .tar.gz），一律写成 artifact.bin 会让 node / python / ripgrep
+        # 全部报 "unsupported archive"（2026-10-26 实测）。
+        $artNames = @{}
+        $rtManifest = Get-ShippedAsset "runtime.json"
+        if (Test-Path -LiteralPath $rtManifest) {
+            try {
+                $rtData = Get-Content -LiteralPath $rtManifest -Raw -Encoding UTF8 | ConvertFrom-Json
+                foreach ($a in $rtData.artifacts) {
+                    if ($a.sha256 -and $a.name) { $artNames["$($a.sha256)".ToLower()] = "$($a.name)" }
+                }
+            } catch { Warn "runtime.json 读不出来（$($_.Exception.Message)），改用文件头推断后缀" }
+        }
         $seeded = 0
         foreach ($f in Get-ChildItem -LiteralPath $artRoot -File) {
             # 只预置 sha256 命名的归档：目录里可能混入 .txt/.sha 之类说明文件
             if ($f.Name -notmatch '^[0-9a-fA-F]{64}$') { continue }
-            $dir = Join-Path $toolRoot ("fetch-" + $f.Name.ToLower())
+            $sha = $f.Name.ToLower()
+            $leaf = $artNames[$sha]
+            if (-not $leaf) {
+                # 没有清单时的兜底：按文件头猜（PM 只认 zip 与 tar.*，git 的 SFX 靠包名分发）
+                $head = New-Object byte[] 4
+                try { $fs = [IO.File]::OpenRead($f.FullName); [void]$fs.Read($head, 0, 4); $fs.Close() } catch { }
+                if ($head[0] -eq 0x50 -and $head[1] -eq 0x4B) { $leaf = "package-$sha.zip" }
+                elseif ($head[0] -eq 0x1F -and $head[1] -eq 0x8B) { $leaf = "package-$sha.tar.gz" }
+                elseif ($head[0] -eq 0x4D -and $head[1] -eq 0x5A) { $leaf = "package-$sha.7z.exe" }
+                else { $leaf = "package-$sha.bin" }
+            }
+            $dir = Join-Path $toolRoot ("fetch-" + $sha)
             New-Item -ItemType Directory -Force -Path $dir | Out-Null
-            Copy-Item -LiteralPath $f.FullName -Destination (Join-Path $dir "artifact.bin") -Force
+            # 清掉旧版本留下的错误命名（artifact.bin），否则 PM 会一直用那个解不开的文件
+            Get-ChildItem -LiteralPath $dir -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+            Copy-Item -LiteralPath $f.FullName -Destination (Join-Path $dir $leaf) -Force
             $seeded++
         }
         if ($seeded -gt 0) { Log "已预置 $seeded 个运行时产物（git / python / node），无需下载" }

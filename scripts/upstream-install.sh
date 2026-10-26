@@ -816,6 +816,14 @@ stage_venv() {
 bootstrap_python() {
     ensure_uv
     local _py
+    # HerMemory patch: an explicitly provided interpreter wins, so a packaged
+    # install never needs the network here (a stale HTTP(S)_PROXY makes uv die).
+    if [ -n "${HERMEMORY_BOOTSTRAP_PYTHON:-}" ] && [ -x "${HERMEMORY_BOOTSTRAP_PYTHON}" ] \
+        && "${HERMEMORY_BOOTSTRAP_PYTHON}" --version >/dev/null 2>&1; then
+        boot_py="$HERMEMORY_BOOTSTRAP_PYTHON"
+        log_success "bootstrap Python $("$boot_py" -c 'import sys;print("%d.%d.%d"%sys.version_info[:3])' 2>/dev/null) (shipped)"
+        return 0
+    fi
     # Read packages.python.version by following object names and braces, not
     # indentation — same pre-Python reader contract as setup-hermes.sh's pin().
     _py="$(awk -F '"' '
@@ -830,7 +838,11 @@ bootstrap_python() {
     # This interpreter only boots PM; PM still owns the exact runtime pin.
     if ! boot_py="$(UV_SYSTEM_PYTHON=1 UV_NO_PROJECT=1 "$UV_CMD" python find --managed-python "$_py" 2>/dev/null)" \
         && ! boot_py="$("$UV_CMD" python find --system --no-project "$_py" 2>/dev/null)"; then
+        # Mirror first (China), then the official python-build-standalone
+        # releases: uv's mirror layout is <base>/<release>/<file>.
         run_logged "Downloading Python $_py" "$UV_CMD" python install --no-bin --no-registry "$_py" \
+            || run_logged "Downloading Python $_py (github)" "$UV_CMD" python install --no-bin --no-registry \
+                --mirror "https://github.com/astral-sh/python-build-standalone/releases/download" "$_py" \
             || fail "bootstrap Python installation failed" python_install_failed
         boot_py="$(UV_SYSTEM_PYTHON=1 UV_NO_PROJECT=1 "$UV_CMD" python find --managed-python "$_py")" || fail "bootstrap Python lookup failed" python_install_failed
     fi

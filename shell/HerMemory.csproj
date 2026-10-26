@@ -84,6 +84,8 @@
     <!-- python.json：随包 CPython 的版本/sha256/uv 受管目录名。install.ps1 靠它把 Python
          解压成「已安装」布局，引导阶段零下载（死代理事故的修复）。 -->
     <BundledAsset Include="..\build\minimal\python.json" Condition="Exists('..\build\minimal\python.json')" />
+    <!-- runtime.json：运行时大件的 sha256 → 原始文件名。PM 只看后缀解包，改名前必须查它。 -->
+    <BundledAsset Include="..\build\minimal\runtime.json" Condition="Exists('..\build\minimal\runtime.json')" />
     <EmbeddedResource Include="@(BundledAsset)" LogicalName="payload/%(Filename)%(Extension)" />
     <!-- 运行时大件（git / python / node）：文件名就是 pm/lock.json 里的 sha256。
          安装时 install.ps1 把它们预置进 PM 的下载缓存（%LOCALAPPDATA%\hermes\tools\fetch-<sha>），
@@ -112,6 +114,8 @@
     <!-- 缺 python.json 时安装器会退化成「联网下载 CPython」——那正是 2026-10-26 首装失败的原因。 -->
     <Error Condition="!Exists('$(MSBuildThisFileDirectory)..\build\minimal\python.json')"
            Text="安装器缺少 python.json：build\minimal\python.json 不存在。请运行 build-offline.ps1（它会从 pm/lock.json 生成）。" />
+    <Error Condition="!Exists('$(MSBuildThisFileDirectory)..\build\minimal\runtime.json')"
+           Text="安装器缺少 runtime.json：build\minimal\runtime.json 不存在。请运行 build-offline.ps1（它会把 sha256 与原始文件名对上）。" />
   </Target>
 
 </Project>

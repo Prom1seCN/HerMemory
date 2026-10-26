@@ -16,6 +16,10 @@
     python.json                  随包 CPython 的元数据（版本 / sha256 / uv 受管目录名）：
                                  install.ps1 靠它把 Python 解压成「已安装」布局，
                                  引导阶段因此不需要联网（2026-10-26 死代理事故的修复）
+    runtime.json                 运行时大件的 sha256 → 原始文件名。**文件名必须对**：
+                                 PM 的 extract() 只看后缀决定怎么解包（.zip / .tar.gz），
+                                 统一叫 artifact.bin 会让 node/python/ripgrep 全部解不开
+                                 （2026-10-26 实测：unsupported archive: artifact.bin）
 
   为什么是「快照仓库」而不是上游真仓库：
     上游 v0.22 的 Stage-Repository 只认真正的 git 仓库（clone --filter=blob:none --branch main，
@@ -254,6 +258,16 @@ if (-not (Test-Path $UvLock)) {
             Move-Item -LiteralPath $tmp -Destination $dst -Force
             Write-Host ("  -> {0}（{1:N1} MB）" -f $w.Name, ((Get-Item $dst).Length / 1MB)) -ForegroundColor Green
         }
+
+        # runtime.json：sha256 → 原始文件名。PM 只看后缀决定解包方式，改名前必须先看这里。
+        $rtItems = @()
+        foreach ($w in $want) {
+            $base = ($w.Url -split '/')[-1]
+            try { $base = [Uri]::UnescapeDataString($base) } catch { }
+            $rtItems += [pscustomobject]@{ sha256 = $w.Sha; name = $base; package = $w.Name }
+        }
+        [IO.File]::WriteAllText((Join-Path $Out "runtime.json"), ([ordered]@{ artifacts = $rtItems } | ConvertTo-Json -Depth 4), (New-Object System.Text.UTF8Encoding($false)))
+        Ok "runtime.json 已写出（$($rtItems.Count) 件：$((($rtItems | ForEach-Object { $_.package }) -join ' / '))）"
 
         # python.json：install.ps1 据此把随包 CPython 解压成 uv 的「已安装」布局
         # （<UV_PYTHON_INSTALL_DIR>\cpython-<ver>-windows-x86_64-none\python.exe），
