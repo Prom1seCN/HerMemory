@@ -516,6 +516,38 @@ if ($env:UV_DEFAULT_INDEX -eq "https://pypi.tuna.tsinghua.edu.cn/simple") {
     }
 }
 
+# ---------- 1.95 DNS 预检（PyPI 官方 CDN 必须能解析） ----------
+# uv 按 uv.lock 里记录的**官方源地址**下载 wheel（files.pythonhosted.org），`--locked` 下
+# 镜像替换不了（实测 UV_INDEX_URL 指清华 → "lockfile needs to be updated"）。所以这个域名
+# 解析不了，安装注定在中途失败；提前说清楚，比让人等二十分钟看一屏红色英文强。
+# 2026-10-26 同学机器实录：os error 11001/11002，同一个域名时好时坏（DNS 服务器不靠谱）。
+function Test-DnsResolvable([string]$name) {
+    try {
+        $addrs = [System.Net.Dns]::GetHostAddresses($name)
+        return ($addrs -and $addrs.Count -gt 0)
+    } catch { return $false }
+}
+$dnsNeed = @("pypi.org", "files.pythonhosted.org")
+$dnsBad = @()
+foreach ($dn in $dnsNeed) {
+    $okDns = $false
+    for ($try = 1; $try -le 3; $try++) {
+        if (Test-DnsResolvable $dn) { $okDns = $true; break }
+        Start-Sleep -Milliseconds 700
+    }
+    if (-not $okDns) { $dnsBad += $dn }
+}
+if ($dnsBad.Count -gt 0) {
+    Warn ("域名解析失败：" + ($dnsBad -join "、"))
+    Die ("安装依赖要从 PyPI 官方 CDN 下载，这两个域名解析不了就装不下去。" + [Environment]::NewLine +
+         "这不是安装包的问题，是这台机器的 DNS。" + [Environment]::NewLine +
+         "修法（任选其一，然后点「重新安装」，已完成步骤会自动跳过）：" + [Environment]::NewLine +
+         "  ① 网卡 DNS 改成 223.5.5.5 / 223.6.6.6（或 119.29.29.29），保存后执行 ipconfig /flushdns；" + [Environment]::NewLine +
+         "  ② 开启代理软件（Clash/v2ray 等）并确认系统代理生效；" + [Environment]::NewLine +
+         "  ③ 换一个网络（手机热点）重试。" + [Environment]::NewLine +
+         "自检命令：nslookup files.pythonhosted.org （能返回 IP 就说明 DNS 好了）")
+}
+
 # ---------- 2. 上游内核（vendored 官方安装器 + 随包 git bundle，pin commit） ----------
 # 「已装」判据沿用 2026-09-16 的结论：CLI 真的跑得起来才算装上，文件在场不算。
 # 但**跑得起来还不够**：0.1.0 装的是 Hermes v0.21.0，它的 CLI 也跑得起来；只判可用
