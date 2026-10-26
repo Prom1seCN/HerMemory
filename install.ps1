@@ -43,18 +43,18 @@ $HmUpgradeMarker = Join-Path $HermesHome ".hm-kernel-upgrade"
 # 不导出时 $HermesHome 只是本脚本的变量：上游会按自己的默认值落位，并把**错误路径**持久化下去
 # ——比"自定义目录不生效"更糟。子进程（uv / git / hermes）同样依赖它定位同一份 home。
 $env:HERMES_HOME = $HermesHome
-$SRC = Split-Path -Parent $MyInvocation.MyCommand.Path
-if ($SrcDir) { $SRC = $SrcDir.Trim().Trim('"').TrimEnd('\') }
-# 兜底：$SRC 下找不到随包素材时，依次退到脚本自身目录、payload 缓存里最新的一份。
+$SrcRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+if ($SrcDir) { $SrcRoot = $SrcDir.Trim().Trim('"').TrimEnd('\') }
+# 兜底：$SrcRoot 下找不到随包素材时，依次退到脚本自身目录、payload 缓存里最新的一份。
 # 少了 vendor 安装器/出厂文件，安装会在中途硬停——宁可在这里挑对，也不要让用户看到"发行包不完整"。
-if (-not (Test-Path (Join-Path $SRC "scripts\upstream-install.ps1"))) {
+if (-not (Test-Path (Join-Path $SrcRoot "scripts\upstream-install.ps1"))) {
     $srcCands = @($PSScriptRoot)
     try {
         $srcCands += @(Get-ChildItem (Join-Path $env:LOCALAPPDATA "HerMemory\payload") -Directory -ErrorAction SilentlyContinue |
             Sort-Object Name -Descending | ForEach-Object { $_.FullName })
     } catch { }
     foreach ($c in $srcCands) {
-        if ($c -and (Test-Path (Join-Path $c "scripts\upstream-install.ps1"))) { $SRC = $c; break }
+        if ($c -and (Test-Path (Join-Path $c "scripts\upstream-install.ps1"))) { $SrcRoot = $c; break }
     }
 }
 
@@ -62,7 +62,7 @@ function Log([string]$m)  { Write-Host "[HerMemory] $m" -ForegroundColor Cyan }
 function Ok([string]$m)   { Write-Host "[完成] $m" -ForegroundColor Green }
 function Warn([string]$m) { Write-Host "[note] $m" -ForegroundColor Yellow }
 function Die([string]$m)  { Write-Host "[error] $m" -ForegroundColor Red; exit 1 }
-Log "安装源：$SRC"
+Log "安装源：$SrcRoot"
 # PS 5.1 坑：EAP=Stop 时原生命令 2>$null 会把 stderr 变成终止性错误（NativeCommandError）。
 # Run-Quiet 在函数作用域内降级 EAP，stderr 静默流出——专用于允许失败的原生调用。
 # ⚠ **绝不能写 `& $args`**：PowerShell 会把数组隐式转成字符串（[string]@('a','b') = 'a b'），
@@ -328,7 +328,7 @@ $PinCommit = ""
 #   ② 开发仓库（从 build\ 里直接跑 Setup.exe 时 <src> 是仓库根）：<src>\build\minimal\hermes-agent.bundle
 # 只认 ① 会得到"缺内核包：…\hermes-agent.bundle"——一条只有开发者才会踩到、但很难自查的错误。
 function Get-ShippedAsset([string]$name) {
-    foreach ($base in @($SRC, $PSScriptRoot)) {
+    foreach ($base in @($SrcRoot, $PSScriptRoot)) {
         if (-not $base) { continue }
         $flat = Join-Path $base $name
         if (Test-Path -LiteralPath $flat) { return $flat }
@@ -337,7 +337,7 @@ function Get-ShippedAsset([string]$name) {
         $nested2 = Join-Path (Join-Path $base "..\build\minimal") $name
         if (Test-Path -LiteralPath $nested2) { return ([IO.Path]::GetFullPath($nested2)) }
     }
-    return (Join-Path $SRC $name)
+    return (Join-Path $SrcRoot $name)
 }
 
 $commitStamp = Get-ShippedAsset "hermes-agent.commit"
@@ -546,11 +546,14 @@ if ($workingCli -and $haveVer -eq $WantHermesVersion) {
             Start-Sleep -Seconds 1
         }
         $backupOk = $true
+        # ⚠ 变量名不能叫 $src：PowerShell 大小写不敏感，会顶掉上面的 $SrcRoot
+        # → 之后所有"随包素材在哪"的判断全错（2026-10-26 同学机器实录：升级 0.21→0.22 时
+        # $SrcRoot 变成 <HERMES_HOME>\.env，报「缺 vendored 上游安装器 …\.env\scripts\…」）。
         foreach ($f in @("config.yaml", ".env")) {
-            $src = Join-Path $HermesHome $f
-            if (Test-Path $src) {
+            $srcFile = Join-Path $HermesHome $f
+            if (Test-Path $srcFile) {
                 $bak = Join-Path $HermesHome ("$f.pre-hermemory-" + $ts)
-                try { Copy-Item $src $bak -Force -ErrorAction Stop } catch { $backupOk = $false; Warn "备份 $f 失败：$($_.Exception.Message)" }
+                try { Copy-Item $srcFile $bak -Force -ErrorAction Stop } catch { $backupOk = $false; Warn "备份 $f 失败：$($_.Exception.Message)" }
             }
         }
         if ($backupOk) { Log "已备份现有配置：config.yaml / .env（.pre-hermemory-$ts）" }
@@ -596,7 +599,7 @@ if ($workingCli -and $haveVer -eq $WantHermesVersion) {
     # 两种布局都要认：① 内嵌 payload 解压目录 <src>\artifacts；
     # ② 开发仓库从 build\ 直跑时在 <src>\build\minimal\artifacts（与 Get-ShippedAsset 同口径）。
     $artRoot = ""
-    foreach ($cand in @((Join-Path $SRC "artifacts"), (Join-Path $SRC "build\minimal\artifacts"))) {
+    foreach ($cand in @((Join-Path $SrcRoot "artifacts"), (Join-Path $SrcRoot "build\minimal\artifacts"))) {
         if (Test-Path -LiteralPath $cand) { $artRoot = $cand; break }
     }
     if ($artRoot) {
@@ -721,7 +724,7 @@ if ($workingCli -and $haveVer -eq $WantHermesVersion) {
     }
 
 
-    $up = Join-Path $SRC "scripts\upstream-install.ps1"
+    $up = Get-ShippedAsset "scripts\upstream-install.ps1"
     if (-not (Test-Path $up)) { Die "缺 vendored 上游安装器：$up（发行包不完整，请重新获取 HerMemory）" }
     if (-not (Test-Path $KernelBundle)) { Die "缺内核包：$KernelBundle（发行包不完整，请重新获取 HerMemory）" }
 
@@ -868,7 +871,7 @@ if ($SkipBrowser -or $SkipComputerUse) {
 
 # ---------- 2.5 内核 UX 补丁（发行版自有，幂等）：微信二维码改为链接+浏览器提示 ----------
 $wxPy = Join-Path $HermesHome "hermes-agent\gateway\platforms\weixin.py"
-$wxPatch = Join-Path $SRC "scripts\patch_weixin_qr.py"
+$wxPatch = Join-Path $SrcRoot "scripts\patch_weixin_qr.py"
 $wxPython = Get-HermesPython
 if ((Test-Path $wxPy) -and (Test-Path $wxPatch) -and $wxPython) {
     & $wxPython $wxPatch $wxPy
@@ -878,7 +881,7 @@ if ((Test-Path $wxPy) -and (Test-Path $wxPatch) -and $wxPython) {
 # $HERMES_HOME\scripts\ 下的文件，所以这里放一份。默认不创建定时任务（自动化默认关闭，
 # 由用户在设置页自己开）。
 $dailyDir = Join-Path $HermesHome "scripts"
-$dailySrc = Join-Path $SRC "scripts\hermemory_daily_new.py"
+$dailySrc = Join-Path $SrcRoot "scripts\hermemory_daily_new.py"
 if (Test-Path $dailySrc) {
     New-Item -ItemType Directory -Force -Path $dailyDir | Out-Null
     Copy-Item $dailySrc (Join-Path $dailyDir "hermemory_daily_new.py") -Force
@@ -894,12 +897,12 @@ Ok "记忆库结构：$VaultDir\{用户文档, HerMemory\memory\}"
 foreach ($f in @("MEMORY.md","USER.md","SOUL.md","AGENTS.md","AUTOMATION.md")) {
     $dst = "$VaultDir\HerMemory\memory\$f"
     if (Test-Path $dst) { Log "已存在，跳过：$dst（不覆盖既有文件）" }
-    else { Copy-Item "$SRC\memory\$f" $dst; Ok "铺设出厂文件：HerMemory\memory\$f" }
+    else { Copy-Item "$SrcRoot\memory\$f" $dst; Ok "铺设出厂文件：HerMemory\memory\$f" }
 }
 
 # ---------- 4.5 使用文档进记忆库 ----------
 New-Item -ItemType Directory -Force -Path "$VaultDir\HerMemory\docs" | Out-Null
-Copy-Item "$SRC\docs\*" "$VaultDir\HerMemory\docs\" -Recurse -Force
+Copy-Item "$SrcRoot\docs\*" "$VaultDir\HerMemory\docs\" -Recurse -Force
 Ok "使用文档已就位：HerMemory\docs\"
 Progress "files"
 
@@ -913,7 +916,7 @@ function AdoptExistingIdentity([string]$srcFile, [string]$vaultFile) {
         if ($it.LinkType -eq "SymbolicLink" -or $it.Length -eq 0) { return }
         $existing = Get-Content -LiteralPath $srcFile -Raw -ErrorAction Stop
         if ([string]::IsNullOrWhiteSpace($existing)) { return }
-        $factoryPath = Join-Path $SRC ("memory\" + (Split-Path -Leaf $vaultFile))
+        $factoryPath = Join-Path $SrcRoot ("memory\" + (Split-Path -Leaf $vaultFile))
         $factory = if (Test-Path -LiteralPath $factoryPath) { Get-Content -LiteralPath $factoryPath -Raw } else { "" }
         $target = if (Test-Path -LiteralPath $vaultFile) { Get-Content -LiteralPath $vaultFile -Raw } else { "" }
         if ([string]::IsNullOrWhiteSpace($target) -or $target.Trim() -eq $factory.Trim()) {
@@ -1016,7 +1019,7 @@ if ($exJ -and $exJ.LinkType -eq "Junction" -and "$($exJ.Target)" -eq $jTarget) {
             } else {
                 # 冲突：vault 里已有内容。但如果那内容只是**出厂模板**（刚装好的新库），
                 # 用户真记忆必须顶掉模板；否则 AI 读到的还是空模板，接管等于没发生。
-                $factoryFile = Join-Path $SRC ("memory\" + $rel)
+                $factoryFile = Join-Path $SrcRoot ("memory\" + $rel)
                 $isFactory = $false
                 if (Test-Path -LiteralPath $factoryFile) {
                     try {
@@ -1063,7 +1066,7 @@ if (-not (Test-Path $HermesCli)) {
 # 文件在 ≠ 跑得起来：CLI 是 uv 造的启动器，内嵌解释器绝对路径，venv 失效后它就再也起不来。
 if ((Run-Q $HermesCli --version) -ne 0) { Die (Format-CliBroken $HermesCli) }
 New-Item -ItemType Directory -Force -Path "$HermesHome\skins" | Out-Null
-Copy-Item "$SRC\skins\hermemory.yaml" "$HermesHome\skins\hermemory.yaml" -Force
+Copy-Item "$SrcRoot\skins\hermemory.yaml" "$HermesHome\skins\hermemory.yaml" -Force
 $_r = Run-QOut $HermesCli config set display.skin hermemory
 if ($_r.Code -eq 0) { Ok "皮肤已配置：HerMemory（/skin 可切换）" }
 else { Warn ("display.skin 写入失败（非致命）。可在运行时执行 /skin hermemory 手动切换。" + (Show-Tail $_r.Out)) }
