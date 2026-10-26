@@ -62,6 +62,10 @@ function Log([string]$m)  { Write-Host "[HerMemory] $m" -ForegroundColor Cyan }
 function Ok([string]$m)   { Write-Host "[完成] $m" -ForegroundColor Green }
 function Warn([string]$m) { Write-Host "[note] $m" -ForegroundColor Yellow }
 function Die([string]$m)  { Write-Host "[error] $m" -ForegroundColor Red; exit 1 }
+# 离线包 = payload 里带 uv-cache.zip。它自带全部依赖与运行时大件，**任何网络检查都要跳过**，
+# 否则断网机器会被预检挡在门外（离线包的意义就是没有网也能装）。
+$IsOfflinePayload = Test-Path -LiteralPath (Get-ShippedAsset "uv-cache.zip")
+if ($IsOfflinePayload) { Log "离线安装包：随包携带全部依赖，跳过所有联网检查" }
 Log "安装源：$SrcRoot"
 # PS 5.1 坑：EAP=Stop 时原生命令 2>$null 会把 stderr 变成终止性错误（NativeCommandError）。
 # Run-Quiet 在函数作用域内降级 EAP，stderr 静默流出——专用于允许失败的原生调用。
@@ -528,6 +532,7 @@ function Test-DnsResolvable([string]$name) {
     } catch { return $false }
 }
 $dnsNeed = @("pypi.org", "files.pythonhosted.org")
+if ($IsOfflinePayload) { $dnsNeed = @() }
 $dnsBad = @()
 foreach ($dn in $dnsNeed) {
     $okDns = $false
@@ -618,7 +623,7 @@ if ($workingCli -and $haveVer -eq $WantHermesVersion) {
         Warn "检测到内核痕迹，但 hermes CLI 无法运行（PM 环境可能已失效）→ 将重建内核与环境。"
     }
 
-    if (-not ((Test-NetUrl "https://github.com") -or (Test-NetUrl "https://hermes-assets.nousresearch.com"))) {
+    if (-not $IsOfflinePayload -and -not ((Test-NetUrl "https://github.com") -or (Test-NetUrl "https://hermes-assets.nousresearch.com"))) {
         Die ("无法联网：安装需要下载 Python / Node / 依赖（GitHub，或镜像 hermes-assets.nousresearch.com）。" +
              [Environment]::NewLine + "请检查网络或代理后重试。" +
              [Environment]::NewLine + "Windows 沙盒请在 .wsb 配置里启用 <Networking>Enable</Networking>。" +
