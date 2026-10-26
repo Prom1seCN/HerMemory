@@ -1,4 +1,4 @@
-﻿#requires -Version 5.1
+#requires -Version 5.1
 <#
   HerMemory 发行构建 —— 拆包后的「双产物」。
 
@@ -126,7 +126,7 @@ $offlineExe = Join-Path $Root "build\Setup_offline.exe"
 if (Test-Path $offlinePayload) {
     Step "3b/3 发布离线安装器（含 Python 依赖缓存与全部运行时大件）"
     $SetupOfflineDir = Join-Path $Root "build\setup-offline"
-    & $dotnet publish $Shell @common "-p:SetupMode=true" "-p:AssemblyName=HerMemorySetup" "-p:HmPayloadDir=..\build\minimal-offline" "-o" "$SetupOfflineDir"
+    & $dotnet publish $Shell @common "--no-incremental" "-p:SetupMode=true" "-p:AssemblyName=HerMemorySetup" "-p:HmPayloadDir=..\build\minimal-offline" "-o" "$SetupOfflineDir"
     if ($LASTEXITCODE -ne 0) { throw "离线安装器发布失败（exit $LASTEXITCODE）" }
     $off = Join-Path $SetupOfflineDir "HerMemorySetup.exe"
     Copy-Item $off $offlineExe -Force
