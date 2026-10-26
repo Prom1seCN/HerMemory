@@ -16,6 +16,10 @@
     python.json                  随包 CPython 的元数据（版本 / sha256 / uv 受管目录名）：
                                  install.ps1 靠它把 Python 解压成「已安装」布局，
                                  引导阶段因此不需要联网（2026-10-26 死代理事故的修复）
+    pm-wheelhouse\*.whl          PM 自己运行时（packaging / ruamel.yaml / tomli-w / truststore）
+                                 的 4 个纯 Python wheel。PM 引导固定走 PyPI 官方源且不吃镜像，
+                                 国内 DNS 解析不了 files.pythonhosted.org 时安装会死在这里，
+                                 所以随包带上，离线装（约 250 KB）
     runtime.json                 运行时大件的 sha256 → 原始文件名。**文件名必须对**：
                                  PM 的 extract() 只看后缀决定怎么解包（.zip / .tar.gz），
                                  统一叫 artifact.bin 会让 node/python/ripgrep 全部解不开
@@ -301,6 +305,44 @@ if (-not (Test-Path $UvLock)) {
             Warn "pm/lock.json 里没有 python 制品，无法生成 python.json（引导阶段会联网下载）。"
         }
     }
+}
+
+# ---------- 5.7 PM 运行时 wheel（离线装 pm 自身依赖） ----------
+Step "5.7/6 采集 PM 运行时 wheel"
+$pmLock = Join-Path $Src "pm\uv.lock"
+$WhDir = Join-Path $Out "pm-wheelhouse"
+if (-not (Test-Path $pmLock)) {
+    Warn "读不到 pm\uv.lock，跳过 PM runtime wheel 采集（安装时要连 PyPI 官方源）。"
+} else {
+    New-Item -ItemType Directory -Force -Path $WhDir | Out-Null
+    $pmText = Get-Content $pmLock -Raw
+    $pairs = [regex]::Matches($pmText, '\{ url = "(https://files\.pythonhosted\.org/[^"]+\.whl)", hash = "sha256:([0-9a-fA-F]{64})"')
+    if ($pairs.Count -eq 0) { Warn "pm\uv.lock 里没找到 wheel 记录。" }
+    $got = 0
+    foreach ($m in $pairs) {
+        $url = $m.Groups[1].Value
+        $sha = $m.Groups[2].Value.ToLower()
+        $name = ($url -split '/')[-1]
+        $dst = Join-Path $WhDir $name
+        if ((Test-Path $dst) -and -not $Force) {
+            $h = (Get-FileHash -LiteralPath $dst -Algorithm SHA256).Hash.ToLower()
+            if ($h -eq $sha) { $got++; continue }
+            Remove-Item $dst -Force -ErrorAction SilentlyContinue
+        }
+        try {
+            $tmp = Join-Path $WhDir ($name + ".part")
+            Invoke-WebRequest -Uri $url -OutFile $tmp -UseBasicParsing
+            $h = (Get-FileHash -LiteralPath $tmp -Algorithm SHA256).Hash.ToLower()
+            if ($h -ne $sha) { Remove-Item $tmp -Force; Fail "wheel 哈希不符：$name" }
+            Move-Item -LiteralPath $tmp -Destination $dst -Force
+            Write-Host "  -> $name" -ForegroundColor Green
+            $got++
+        } catch {
+            if ($AllowMissingArtifacts) { Warn "wheel 下载失败：$name（$($_.Exception.Message)）" }
+            else { Fail "PM runtime wheel 下载失败：$name（$($_.Exception.Message)）。安装时会退回连 PyPI 官方源，国内很可能失败。" }
+        }
+    }
+    Ok "PM runtime wheel：$got 个（$( [math]::Round((Get-ChildItem $WhDir -File -EA SilentlyContinue | Measure-Object Length -Sum).Sum/1KB,0) ) KB）"
 }
 
 # ---------- 6. 汇总 ----------

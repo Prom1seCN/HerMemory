@@ -646,6 +646,24 @@ if ($workingCli -and $haveVer -eq $WantHermesVersion) {
         Warn "未发现随包运行时产物目录（artifacts\），本次安装需要联网下载 git / python / node。"
     }
 
+    # ---------- 2.055 PM 运行时 wheelhouse（离线装 pm 自己的 4 个依赖） ----------
+    # PM 引导时会先给它自己建一个 runtime venv（packaging / ruamel.yaml / tomli-w / truststore）。
+    # 上游这一步固定走 PyPI 官方源且 `--no-config`，**刻意不吃镜像**——实测把 UV_INDEX_URL 指向
+    # 清华后 `uv sync --locked` 直接报 "lockfile needs to be updated"。于是国内 DNS 一旦解析不了
+    # files.pythonhosted.org（os error 11002），安装就死在这里（2026-10-26 同学机器实录）。
+    # 随包带这 4 个 wheel（合计约 250 KB），由 vendored 补丁在离线模式下安装。
+    $pmWh = ""
+    foreach ($pmWhCand in @((Join-Path $SrcRoot "pm-wheelhouse"), (Join-Path $SrcRoot "build\minimal\pm-wheelhouse"))) {
+        if (Test-Path -LiteralPath $pmWhCand) { $pmWh = $pmWhCand; break }
+    }
+    if ($pmWh -and (Test-Path -LiteralPath $pmWh)) {
+        $pmWhCount = @(Get-ChildItem -LiteralPath $pmWh -Filter *.whl -File -ErrorAction SilentlyContinue).Count
+        if ($pmWhCount -gt 0) {
+            $env:HERMEMORY_PM_WHEELHOUSE = $pmWh
+            Log "PM 运行时 wheelhouse 已就位（$pmWhCount 个 wheel，离线安装）"
+        }
+    }
+
     # ---------- 2.06 引导 Python：随包解压，零下载 ----------
     # 上游 Get-BootstrapPython 用 `uv python install` 从镜像下 CPython。这一步是整条安装链上
     # 唯一「必须联网才能拿到解释器」的地方，也最容易死在别人的网络配置上（见 0.15 的死代理）。
@@ -772,14 +790,19 @@ if ($workingCli -and $haveVer -eq $WantHermesVersion) {
     if ($upExit -ne 0) {
         $tailText = (($upTail | Select-Object -Last 12) -join [Environment]::NewLine)
         # 常见失败给可执行的下一步，别让用户对着 uv 的英文栈猜。
-        $allTail = ($upTail -join "`n")
+        $allTail = (($upTail | Select-Object -Last 16) -join "`n")
         $hint = ""
-        if ($allTail -match "bootstrap Python|python_install_failed|cpython-\d") {
+        if ($allTail -match "bootstrap Python installation failed|python_install_failed") {
             $hint += [Environment]::NewLine + "提示：卡在「引导 Python」。本发行版随包带了 CPython，正常情况下这里不联网；" +
                      [Environment]::NewLine + "出现这句说明随包素材没用上（或本机是 ARM64）。可依次尝试：" +
                      [Environment]::NewLine + "  ① 退出 Clash / v2ray / sing-box 等代理软件后重装；" +
                      [Environment]::NewLine + "  ② 重新下载 Setup.exe（安装包可能不完整）；" +
                      [Environment]::NewLine + "  ③ 换一个网络环境重试。"
+        }
+        if ($allTail -match "dns error|11001|11002|WSAHOST|Name or service not known") {
+            $hint += [Environment]::NewLine + "提示：域名解析失败（DNS）。多数是代理软件/系统 DNS 抽风：" +
+                     [Environment]::NewLine + "  ① 把网卡 DNS 改成 223.5.5.5 或 119.29.29.29 后点「重新安装」；" +
+                     [Environment]::NewLine + "  ② 或先退出代理软件再重试。已完成步骤会自动跳过。"
         }
         if ($allTail -match "tunnel error|10061|\bproxy\b|Proxy") {
             $hint += [Environment]::NewLine + "提示：日志里出现代理或「连接被拒」。多为代理软件已退出但系统里还留着代理设置；" +

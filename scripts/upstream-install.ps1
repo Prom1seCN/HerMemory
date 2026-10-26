@@ -1194,6 +1194,32 @@ function Enable-MirrorFirst {
     } catch { }
 }
 
+function Enable-PmWheelhouse {
+    # HerMemory patch: PM builds its own runtime (4 pure-python packages) from the
+    # official PyPI index with --no-config, so a mirror cannot help and a DNS
+    # failure for files.pythonhosted.org kills the install (os error 11002).
+    # install.ps1 ships the wheels; teach stage_runtime to install them offline.
+    $wh = $env:HERMEMORY_PM_WHEELHOUSE
+    if (-not $wh) { return }
+    try { if (-not (Test-Path -LiteralPath $wh)) { return } } catch { return }
+    try {
+        $f = Join-Path $InstallDir "pm\runtime_stage.py"
+        if (-not (Test-Path -LiteralPath $f)) { return }
+        $src = Get-Content -LiteralPath $f -Raw
+        if ($src -match "HERMEMORY_PM_WHEELHOUSE") { return }
+        $needle = '    env = runtime_environment()' + "`n"
+        if (-not $src.Contains($needle)) { return }
+        $inject = '    env = runtime_environment()' + "`n" + `
+                  '    import os as _hm_os' + "`n" + `
+                  '    _hm_wh = _hm_os.environ.get("HERMEMORY_PM_WHEELHOUSE")' + "`n" + `
+                  '    if _hm_wh and Path(_hm_wh).is_dir():' + "`n" + `
+                  '        wheelhouse = Path(_hm_wh)' + "`n"
+        $out = $src.Replace($needle, $inject)
+        [IO.File]::WriteAllText($f, $out, (New-Object System.Text.UTF8Encoding($false)))
+        Write-Ok "PM runtime wheelhouse: $wh"
+    } catch { }
+}
+
 function Invoke-BootstrapPm {
     $bootPy = Get-BootstrapPython
     Push-Location $InstallDir
@@ -1202,6 +1228,7 @@ function Invoke-BootstrapPm {
         # Bare $SkipBrowser, like $InstallDir: under iex/scriptblock entry the
         # param() binding is not in $script: scope (see Initialize-ResolvedPaths).
         Enable-MirrorFirst
+        Enable-PmWheelhouse
         $pmArgs = @('install')
         if ($SkipBrowser) { $pmArgs += @('--without', 'agent-browser') }
         if ($SkipComputerUse) { $pmArgs += @('--without', 'cua-driver') }
