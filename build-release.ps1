@@ -126,7 +126,11 @@ $offlineExe = Join-Path $Root "build\Setup_offline.exe"
 if (Test-Path $offlinePayload) {
     Step "3b/3 发布离线安装器（含 Python 依赖缓存与全部运行时大件）"
     $SetupOfflineDir = Join-Path $Root "build\setup-offline"
-    & $dotnet publish $Shell @common "--no-incremental" "-p:SetupMode=true" "-p:AssemblyName=HerMemorySetup" "-p:HmPayloadDir=..\build\minimal-offline" "-o" "$SetupOfflineDir"
+    # 离线版必须重新编译：publish 的增量判定会复用线上版那份 dll，导致离线素材根本没嵌进去
+    # （实测两个 exe 都是 409.8 MB）。清掉 obj 强制重建。
+    $shellObj = Join-Path $Root "shell\obj"
+    if (Test-Path $shellObj) { Remove-Item $shellObj -Recurse -Force -ErrorAction SilentlyContinue }
+    & $dotnet publish $Shell @common "-p:SetupMode=true" "-p:AssemblyName=HerMemorySetup" "-p:HmPayloadDir=..\build\minimal-offline" "-o" "$SetupOfflineDir"
     if ($LASTEXITCODE -ne 0) { throw "离线安装器发布失败（exit $LASTEXITCODE）" }
     $off = Join-Path $SetupOfflineDir "HerMemorySetup.exe"
     Copy-Item $off $offlineExe -Force
