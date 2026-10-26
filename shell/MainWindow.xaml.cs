@@ -4229,7 +4229,7 @@ namespace HerMemory
                     && !string.IsNullOrEmpty(installLoc) && !string.IsNullOrEmpty(AppPaths.ExeDir)
                     && string.Equals(installLoc.TrimEnd('\\'), AppPaths.ExeDir.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
                 {
-                    ScheduleSelfDelete(AppPaths.ExeDir);
+                    ScheduleSelfDelete(AppPaths.ExePath);
                     appDirScheduled = true;
                 }
             }
@@ -4253,18 +4253,36 @@ namespace HerMemory
         }
 
         /// <summary>删除程序自身所在目录。exe 正在运行、映像被占用，无法当场删除，
-        /// 于是交给一个临时 cmd：等本进程退出后再删，最后自删脚本。
+        /// 于是交给一个临时 cmd：**轮询到 exe 真能删掉**再删目录，最后自删脚本。
+        ///
+        /// 旧实现固定 `ping -n 5`（约 4 秒）后直接 rd。但卸载器会停在「卸载完成」页等用户点
+        /// 「退出」，4 秒一到 exe 还在跑，rd 必然失败，脚本紧接着 del %~f0 把自己也删了——
+        /// 现场无痕、程序目录残留（2026-10-26 真机实测：TEMP 里一个 hm-gc-*.cmd 都没有，
+        /// C:\Program Files\HerMemory 还在）。改成轮询，最多等 2 分钟再强删。
         /// 用 ping 而不是 timeout 做延迟——timeout 需要控制台，CreateNoWindow 下会直接失败。</summary>
-        private static void ScheduleSelfDelete(string appDir)
+        private static void ScheduleSelfDelete(string exePath)
         {
             try
             {
-                if (string.IsNullOrWhiteSpace(appDir)) return;
+                if (string.IsNullOrWhiteSpace(exePath)) return;
+                var appDir = Path.GetDirectoryName(exePath);
+                var exeName = Path.GetFileName(exePath);
+                if (string.IsNullOrWhiteSpace(appDir) || string.IsNullOrWhiteSpace(exeName)) return;
                 var bat = Path.Combine(Path.GetTempPath(), $"hm-gc-{Guid.NewGuid():N}.cmd");
                 var sb = new System.Text.StringBuilder();
                 sb.AppendLine("@echo off");
-                sb.AppendLine("ping 127.0.0.1 -n 5 >nul");   // 约 4 秒：等本进程与托盘完全退出，否则文件仍被锁
-                sb.AppendLine($"rd /s /q \"{appDir}\"");
+                sb.AppendLine("setlocal");
+                sb.AppendLine($"set \"HM_EXE={exePath}\"");
+                sb.AppendLine($"set \"HM_DIR={appDir}\"");
+                sb.AppendLine("set /a HM_N=0");
+                sb.AppendLine(":hm_wait");
+                sb.AppendLine("ping 127.0.0.1 -n 2 >nul");
+                sb.AppendLine("del /f /q \"%HM_EXE%\" 2>nul");
+                sb.AppendLine("if not exist \"%HM_EXE%\" goto hm_gone");
+                sb.AppendLine("set /a HM_N+=1");
+                sb.AppendLine("if %HM_N% lss 60 goto hm_wait");
+                sb.AppendLine(":hm_gone");
+                sb.AppendLine("rd /s /q \"%HM_DIR%\"");
                 sb.AppendLine("del \"%~f0\"");
                 // **必须按 ANSI（简中 = GBK/936）落盘**：cmd.exe 解析 .cmd 用的是当前 ANSI 代码页，
                 // 不是 UTF-8。用 UTF-8 写会把中文路径读成乱码 → rd 什么也删不到，且静默正常退出。
