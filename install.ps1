@@ -379,7 +379,7 @@ foreach ($pxName in @('HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'h
     $pxVal = [Environment]::GetEnvironmentVariable($pxName)
     if (-not $pxVal) { continue }
     # 只处理带显式端口的写法（host:port / scheme://host:port）；没说端口的没法探，别乱摘
-    if ($pxVal -notmatch ':\d{2,5}\s*$') { continue }
+    if ($pxVal -notmatch ':\d{1,5}\s*$') { continue }
     $pxHost = ""; $pxPort = 0
     try {
         $pxProbe = $pxVal.Trim()
