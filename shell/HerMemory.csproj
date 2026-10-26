@@ -81,6 +81,9 @@
     <BundledAsset Include="..\build\minimal\hermes-agent.commit" Condition="Exists('..\build\minimal\hermes-agent.commit')" />
     <BundledAsset Include="..\build\minimal\uv.exe" Condition="Exists('..\build\minimal\uv.exe')" />
     <BundledAsset Include="..\build\minimal\uv.version" Condition="Exists('..\build\minimal\uv.version')" />
+    <!-- python.json：随包 CPython 的版本/sha256/uv 受管目录名。install.ps1 靠它把 Python
+         解压成「已安装」布局，引导阶段零下载（死代理事故的修复）。 -->
+    <BundledAsset Include="..\build\minimal\python.json" Condition="Exists('..\build\minimal\python.json')" />
     <EmbeddedResource Include="@(BundledAsset)" LogicalName="payload/%(Filename)%(Extension)" />
     <!-- 运行时大件（git / python / node）：文件名就是 pm/lock.json 里的 sha256。
          安装时 install.ps1 把它们预置进 PM 的下载缓存（%LOCALAPPDATA%\hermes\tools\fetch-<sha>），
@@ -106,6 +109,9 @@
          一个都没有就意味着 Setup 会退化成“全量联网下载”，国内用户会卡在 200 KB/s。 -->
     <Error Condition="'@(RuntimeArtifact)' == ''"
            Text="安装器缺少运行时大件：build\minimal\artifacts\ 为空。请先运行 build-offline.ps1 采集 git/python/node。" />
+    <!-- 缺 python.json 时安装器会退化成「联网下载 CPython」——那正是 2026-10-26 首装失败的原因。 -->
+    <Error Condition="!Exists('$(MSBuildThisFileDirectory)..\build\minimal\python.json')"
+           Text="安装器缺少 python.json：build\minimal\python.json 不存在。请运行 build-offline.ps1（它会从 pm/lock.json 生成）。" />
   </Target>
 
 </Project>

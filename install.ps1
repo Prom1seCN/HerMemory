@@ -359,6 +359,53 @@ if (-not $env:UV_PYTHON_INSTALL_MIRROR) {
     $env:UV_PYTHON_INSTALL_MIRROR = "https://registry.npmmirror.com/-/binary/python-build-standalone"
 }
 
+# ---------- 0.15 代理自愈 ----------
+# 装过 Clash / v2ray / sing-box 的机器常留着 HTTP(S)_PROXY 指向 127.0.0.1:7897，而代理进程
+# 早就退了。uv / pip / node 走的是进程环境，于是每次连接都被内核直接拒绝（WSAECONNREFUSED
+# 10061）；.NET 的联网预检读的是 WinHTTP 设置，看不到这类死代理，于是预检通过、安装半路才炸
+# （2026-10-26 实录：uv 报 "tunnel error: failed to create underlying connection"）。
+# 开跑前逐个探端口，连不上就摘掉变量——比让用户对着 uv 的英文栈猜要体面得多。
+function Test-TcpPort([string]$HostName, [int]$Port, [int]$TimeoutMs = 800) {
+    if (-not $HostName -or $Port -le 0) { return $true }
+    try {
+        $c = New-Object System.Net.Sockets.TcpClient
+        $iar = $c.BeginConnect($HostName, $Port, $null, $null)
+        if (-not $iar.AsyncWaitHandle.WaitOne($TimeoutMs)) { $c.Close(); return $false }
+        $c.EndConnect($iar); $c.Close(); return $true
+    } catch { return $false }
+}
+$deadProxies = @()
+foreach ($pxName in @('HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy')) {
+    $pxVal = [Environment]::GetEnvironmentVariable($pxName)
+    if (-not $pxVal) { continue }
+    # 只处理带显式端口的写法（host:port / scheme://host:port）；没说端口的没法探，别乱摘
+    if ($pxVal -notmatch ':\d{2,5}\s*$') { continue }
+    $pxHost = ""; $pxPort = 0
+    try {
+        $pxProbe = $pxVal.Trim()
+        if ($pxProbe -notmatch '://') { $pxProbe = "http://" + $pxProbe }
+        $pxUri = [Uri]$pxProbe
+        if ($pxUri.Host) { $pxHost = $pxUri.Host; $pxPort = $pxUri.Port }
+    } catch { }
+    if (-not $pxHost -or $pxPort -le 0) { continue }
+    if (Test-TcpPort $pxHost $pxPort) { continue }
+    Remove-Item ("Env:" + $pxName) -ErrorAction SilentlyContinue
+    $deadProxies += ("$pxName=$pxVal")
+}
+if ($deadProxies.Count -gt 0) {
+    Warn ("已忽略连不上的代理设置（端口没有在听）：" + ($deadProxies -join "，") + "；本次安装全程直连。")
+}
+# 国内镜像直连更快更稳：塞进 NO_PROXY，别让用户的外网代理绕一圈。
+foreach ($npName in @('NO_PROXY', 'no_proxy')) {
+    $npList = @()
+    $npCur = [Environment]::GetEnvironmentVariable($npName)
+    if ($npCur) { $npList += ($npCur -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
+    foreach ($d in @('registry.npmmirror.com', 'pypi.tuna.tsinghua.edu.cn', 'mirrors.aliyun.com', 'mirrors.ustc.edu.cn', 'localhost', '127.0.0.1')) {
+        if ($npList -notcontains $d) { $npList += $d }
+    }
+    Set-Item -Path ("Env:" + $npName) -Value ($npList -join ",") -ErrorAction SilentlyContinue
+}
+
 # 运行期目录（PM store / 工具二进制）固定在数据目录内，不写用户主目录与系统盘别处。
 # 上游默认就是 $HermesHome\tools；显式设一次是为了让「预置 uv」与上游取到同一个槽位。
 if (-not $env:HERMES_RUNTIME_DIR) { $env:HERMES_RUNTIME_DIR = Join-Path $HermesHome "tools" }
@@ -441,6 +488,32 @@ function Test-NetUrl([string]$url) {
         # 能拿到 HTTP 响应（403/404 也算）说明网络是通的，只是这个路径不存在
         return ($_.Exception.Response -ne $null)
     } catch { return $false }
+}
+
+# 索引镜像自检：默认清华源偶尔抽风（维护窗口/被墙/DNS 污染），换阿里或官方，别让用户在
+# 装到一半时收到一屏 pip 超时。用户自己设过索引就完全不动。
+function Test-IndexUrl([string]$Url) {
+    if (-not (Get-Command curl.exe -ErrorAction SilentlyContinue)) { return $true }  # 没 curl 就别乱判
+    try {
+        $probe = $Url.TrimEnd('/') + "/"
+        $code = [string](& curl.exe -s -o NUL --noproxy "*" -m 8 -w "%{http_code}" $probe)
+        return ($code -match '^[23]')
+    } catch { return $false }
+}
+if ($env:UV_DEFAULT_INDEX -eq "https://pypi.tuna.tsinghua.edu.cn/simple") {
+    if (-not (Test-IndexUrl $env:UV_DEFAULT_INDEX)) {
+        $picked = ""
+        foreach ($alt in @("https://mirrors.aliyun.com/pypi/simple", "https://pypi.org/simple")) {
+            if (Test-IndexUrl $alt) { $picked = $alt; break }
+        }
+        if ($picked) {
+            Warn "清华 PyPI 镜像连不上，本次改用 $picked"
+            $env:UV_DEFAULT_INDEX = $picked
+            $env:PIP_INDEX_URL = $picked
+        } else {
+            Warn "清华 / 阿里 / 官方 PyPI 都探不通：依赖安装大概率会失败，先查网络。"
+        }
+    }
 }
 
 # ---------- 2. 上游内核（vendored 官方安装器 + 随包 git bundle，pin commit） ----------
@@ -544,6 +617,83 @@ if ($workingCli -and $haveVer -eq $WantHermesVersion) {
         Warn "未发现随包运行时产物目录（artifacts\），本次安装需要联网下载 git / python / node。"
     }
 
+    # ---------- 2.06 引导 Python：随包解压，零下载 ----------
+    # 上游 Get-BootstrapPython 用 `uv python install` 从镜像下 CPython。这一步是整条安装链上
+    # 唯一「必须联网才能拿到解释器」的地方，也最容易死在别人的网络配置上（见 0.15 的死代理）。
+    # 随包本来就带了与 pm/lock.json 完全一致的 CPython，这里按 uv 的受管解释器布局解压到位：
+    # uv 的 find 会直接命中，引导阶段不需要任何网络。
+    $PyPinVersion = "3.14.7"
+    $PyPinSha     = "5d9242012dded591d723a3a572dda265173ad58d8a3e6fdbc6dac8f94f36c80a"
+    $PyDirName    = "cpython-3.14.7-windows-x86_64-none"
+    $pyMan = Get-ShippedAsset "python.json"
+    if (Test-Path -LiteralPath $pyMan) {
+        try {
+            $pyMeta = Get-Content -LiteralPath $pyMan -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ($pyMeta.version) { $PyPinVersion = "$($pyMeta.version)" }
+            if ($pyMeta.sha256) { $PyPinSha = "$($pyMeta.sha256)".ToLower() }
+            if ($pyMeta.dir) { $PyDirName = "$($pyMeta.dir)" }
+        } catch { Warn "python.json 读不出来（$($_.Exception.Message)），按内置 pin 处理" }
+    }
+    $pyArchArm = $false
+    try {
+        if ((Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment' -ErrorAction SilentlyContinue).PROCESSOR_ARCHITECTURE -eq 'ARM64') { $pyArchArm = $true }
+    } catch { }
+    if ($pyArchArm) {
+        Warn "本机是 ARM64：随包 CPython 只有 x64 版，引导阶段交给 uv 自行下载。"
+    } else {
+        $pyRoot = Join-Path $HermesHome "python"
+        $pyDir = Join-Path $pyRoot $PyDirName
+        $pyExe = Join-Path $pyDir "python.exe"
+        if (-not (Test-Path -LiteralPath $pyExe)) {
+            $pyArt = ""
+            if ($artRoot) { $pyArt = Join-Path $artRoot $PyPinSha }
+            if ($pyArt -and (Test-Path -LiteralPath $pyArt)) {
+                $okHash = $true
+                try {
+                    $pyHash = (Get-FileHash -LiteralPath $pyArt -Algorithm SHA256).Hash.ToLower()
+                    if ($pyHash -ne $PyPinSha) { $okHash = $false; Warn "随包 CPython 哈希不符（期望 $PyPinSha，实际 $pyHash），不使用" }
+                } catch { $okHash = $false; Warn "随包 CPython 校验失败：$($_.Exception.Message)" }
+                if ($okHash) {
+                    $pyStage = Join-Path $HermesHome (".python-stage-" + [Guid]::NewGuid().ToString("N"))
+                    try {
+                        New-Item -ItemType Directory -Force -Path $pyStage | Out-Null
+                        if (-not (Get-Command tar.exe -ErrorAction SilentlyContinue)) { throw "本机没有 tar.exe（Windows 10 1803 以前）" }
+                        & tar.exe -xzf $pyArt -C $pyStage 2>$null
+                        if ($LASTEXITCODE) { throw "tar 解压失败（退出码 $LASTEXITCODE）" }
+                        $pyInner = @(Get-ChildItem -LiteralPath $pyStage -Directory)
+                        if ($pyInner.Count -ne 1) { throw "归档顶层目录数量异常（$($pyInner.Count)）" }
+                        if (-not (Test-Path -LiteralPath (Join-Path $pyInner[0].FullName "python.exe"))) { throw "归档里没有 python.exe" }
+                        New-Item -ItemType Directory -Force -Path $pyRoot | Out-Null
+                        if (Test-Path -LiteralPath $pyDir) { Remove-Item -LiteralPath $pyDir -Recurse -Force -ErrorAction SilentlyContinue }
+                        Move-Item -LiteralPath $pyInner[0].FullName -Destination $pyDir -ErrorAction Stop
+                        Log "已解压随包 CPython $PyPinVersion → $pyDir"
+                    } catch {
+                        Warn "随包 CPython 解压失败：$($_.Exception.Message)（引导阶段改为联网下载）"
+                    } finally {
+                        Remove-Item -LiteralPath $pyStage -Recurse -Force -ErrorAction SilentlyContinue
+                    }
+                }
+            } else {
+                Warn "随包目录里没有 CPython（$PyPinSha）：引导阶段需要联网下载 Python。"
+            }
+        }
+        $pyReady = $false
+        if (Test-Path -LiteralPath $pyExe) {
+            try {
+                $pyVer = (& $pyExe -c "import sys;print('%d.%d.%d'%sys.version_info[:3])" 2>$null) -join ""
+                if ($LASTEXITCODE -eq 0 -and "$pyVer".Trim() -eq $PyPinVersion) { $pyReady = $true }
+                else { Warn "随包 CPython 版本不符：期望 $PyPinVersion，实际 $pyVer" }
+            } catch { Warn "随包 CPython 跑不起来：$($_.Exception.Message)" }
+        }
+        if ($pyReady) {
+            # uv 按 UV_PYTHON_INSTALL_DIR 找受管解释器；固定在数据目录内，不写用户主目录。
+            $env:UV_PYTHON_INSTALL_DIR = $pyRoot
+            # 上游 Get-BootstrapPython 优先用这个（vendored 补丁），连 uv 都不用问。
+            $env:HERMEMORY_BOOTSTRAP_PYTHON = $pyExe
+            Ok "引导 Python 就绪（$PyPinVersion，随包，零下载）"
+        }
+    }
+
 
     $up = Join-Path $SRC "scripts\upstream-install.ps1"
     if (-not (Test-Path $up)) { Die "缺 vendored 上游安装器：$up（发行包不完整，请重新获取 HerMemory）" }
@@ -592,7 +742,21 @@ if ($workingCli -and $haveVer -eq $WantHermesVersion) {
 
     if ($upExit -ne 0) {
         $tailText = (($upTail | Select-Object -Last 12) -join [Environment]::NewLine)
-        Die ("上游内核安装失败（退出码 $upExit）。" + [Environment]::NewLine + $tailText +
+        # 常见失败给可执行的下一步，别让用户对着 uv 的英文栈猜。
+        $allTail = ($upTail -join "`n")
+        $hint = ""
+        if ($allTail -match "bootstrap Python|python_install_failed|cpython-\d") {
+            $hint += [Environment]::NewLine + "提示：卡在「引导 Python」。本发行版随包带了 CPython，正常情况下这里不联网；" +
+                     [Environment]::NewLine + "出现这句说明随包素材没用上（或本机是 ARM64）。可依次尝试：" +
+                     [Environment]::NewLine + "  ① 退出 Clash / v2ray / sing-box 等代理软件后重装；" +
+                     [Environment]::NewLine + "  ② 重新下载 Setup.exe（安装包可能不完整）；" +
+                     [Environment]::NewLine + "  ③ 换一个网络环境重试。"
+        }
+        if ($allTail -match "tunnel error|10061|\bproxy\b|Proxy") {
+            $hint += [Environment]::NewLine + "提示：日志里出现代理或「连接被拒」。多为代理软件已退出但系统里还留着代理设置；" +
+                     [Environment]::NewLine + "关闭代理软件（或让它开机运行）后重装即可。"
+        }
+        Die ("上游内核安装失败（退出码 $upExit）。" + [Environment]::NewLine + $tailText + $hint +
              [Environment]::NewLine + "已完成步骤会自动跳过；排除问题后点「重新安装」继续。")
     }
 

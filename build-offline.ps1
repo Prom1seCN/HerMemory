@@ -13,6 +13,9 @@
     uv.version                   uv 版本（install.ps1 用它算 PM store 槽位名）
     artifacts\<sha256>           运行时大件（git / python / node），按哈希命名；
                                  install.ps1 会把它们预置进 PM 下载缓存，安装时免下载
+    python.json                  随包 CPython 的元数据（版本 / sha256 / uv 受管目录名）：
+                                 install.ps1 靠它把 Python 解压成「已安装」布局，
+                                 引导阶段因此不需要联网（2026-10-26 死代理事故的修复）
 
   为什么是「快照仓库」而不是上游真仓库：
     上游 v0.22 的 Stage-Repository 只认真正的 git 仓库（clone --filter=blob:none --branch main，
@@ -33,7 +36,10 @@ param(
     [string]$OutDir = "build\minimal",
     [string]$RepoUrl = "https://github.com/NousResearch/hermes-agent.git",
     [string]$WorkDir = "build\offline",
-    [switch]$Force
+    [switch]$Force,
+    # 缺运行时大件时默认**直接失败**：少一件就意味着安装时退回联网下载，
+    # 而这正是国内首装失败的头号原因。开发机确实没有网络时才用它降级为警告。
+    [switch]$AllowMissingArtifacts
 )
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
@@ -231,9 +237,14 @@ if (-not (Test-Path $UvLock)) {
             try {
                 Invoke-WebRequest -Uri $w.Url -OutFile $tmp -UseBasicParsing
             } catch {
-                Warn "$($w.Name) 下载失败（$($_.Exception.Message)）；安装时将联网下载。"
                 Remove-Item $tmp -Force -ErrorAction SilentlyContinue
-                continue
+                if ($AllowMissingArtifacts) {
+                    Warn "$($w.Name) 下载失败（$($_.Exception.Message)）；安装时将联网下载。"
+                    continue
+                }
+                Fail ("$($w.Name) 下载失败（$($_.Exception.Message)）。" +
+                      [Environment]::NewLine + "随包缺这一件，安装时就退回联网下载——国内首装失败基本都是这一步。" +
+                      [Environment]::NewLine + "确认网络/代理后重跑；确实要出「联网版」安装器才加 -AllowMissingArtifacts。")
             }
             $actual = (Get-FileHash $tmp -Algorithm SHA256).Hash.ToLower()
             if ($actual -ne $w.Sha) {
@@ -242,6 +253,38 @@ if (-not (Test-Path $UvLock)) {
             }
             Move-Item -LiteralPath $tmp -Destination $dst -Force
             Write-Host ("  -> {0}（{1:N1} MB）" -f $w.Name, ((Get-Item $dst).Length / 1MB)) -ForegroundColor Green
+        }
+
+        # python.json：install.ps1 据此把随包 CPython 解压成 uv 的「已安装」布局
+        # （<UV_PYTHON_INSTALL_DIR>\cpython-<ver>-windows-x86_64-none\python.exe），
+        # 引导阶段因此零下载——这是 2026-10-26「死代理导致首装失败」事故的修复。
+        # 顺手做归档自检：半截文件、被替换成 HTML 错误页的下载都能在这里被拦住。
+        $pyPin = $lock.packages.python
+        $pyEntry = $want | Where-Object { $_.Name -eq 'python' } | Select-Object -First 1
+        if ($pyPin -and $pyEntry) {
+            $pyDst = Join-Path $ArtDir $pyEntry.Sha
+            if (-not (Test-Path -LiteralPath $pyDst)) { Fail "缺随包 CPython：$pyDst（引导阶段会退化为联网下载）" }
+            $pyHave = (Get-FileHash -LiteralPath $pyDst -Algorithm SHA256).Hash.ToLower()
+            if ($pyHave -ne $pyEntry.Sha) { Fail "随包 CPython 哈希不符：期望 $($pyEntry.Sha)，实际 $pyHave" }
+            $pyBase = ("$($pyPin.version)" -split '\+')[0]
+            if ($pyBase -notmatch '^\d+\.\d+\.\d+$') { Fail "pm\lock.json 的 python 版本号看不懂：$($pyPin.version)" }
+            if (-not (Get-Command tar.exe -ErrorAction SilentlyContinue)) { Fail "本机没有 tar.exe，无法自检 CPython 归档（Windows 10 1803+ 自带）" }
+            $pyList = @(& tar.exe -tzf $pyDst 2>$null)
+            if (-not ($pyList -match '^python[/\\]python\.exe$')) {
+                Fail "随包 CPython 归档里没有 python/python.exe（文件可能损坏或被替换）"
+            }
+            $pyMeta = [ordered]@{
+                version = $pyBase
+                sha256  = $pyEntry.Sha
+                dir     = "cpython-$pyBase-windows-x86_64-none"
+                source  = "$($pyPin.version)"
+                url     = "$($pyEntry.Url)"
+            }
+            $pyJsonPath = Join-Path $Out "python.json"
+            [IO.File]::WriteAllText($pyJsonPath, ($pyMeta | ConvertTo-Json), (New-Object System.Text.UTF8Encoding($false)))
+            Ok "python.json 已写出（CPython $pyBase，uv 目录名 cpython-$pyBase-windows-x86_64-none）"
+        } else {
+            Warn "pm/lock.json 里没有 python 制品，无法生成 python.json（引导阶段会联网下载）。"
         }
     }
 }

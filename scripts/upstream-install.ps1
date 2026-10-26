@@ -1137,6 +1137,21 @@ function Get-BootstrapPython {
     # The full ladder runs every stage in one process and four of them need
     # this interpreter; resolve uv and Python once per process.
     if ($script:BootstrapPython) { return $script:BootstrapPython }
+    # HerMemory patch: the distribution ships the pinned CPython. install.ps1
+    # extracts it into UV_PYTHON_INSTALL_DIR and exports the interpreter here so
+    # the bootstrap never touches the network: uv honours HTTP(S)_PROXY, and a
+    # stale proxy (client exited, variable left behind) makes every download
+    # fail with ECONNREFUSED 10061 -- the whole install died there.
+    $shippedPy = $env:HERMEMORY_BOOTSTRAP_PYTHON
+    if ($shippedPy -and (Test-Path -LiteralPath $shippedPy)) {
+        $shippedVer = (Invoke-Native -Utf8Output { & $shippedPy -c "import sys;print('%d.%d.%d'%sys.version_info[:3])" 2>$null }) -join ""
+        if (-not $LASTEXITCODE -and $shippedVer) {
+            Write-Ok "bootstrap Python $($shippedVer.Trim()) (shipped with HerMemory)"
+            $script:BootstrapPython = $shippedPy
+            return $shippedPy
+        }
+        Write-Warn "shipped bootstrap Python is unusable ($shippedPy); falling back to uv"
+    }
     $uv = Get-Uv
     $lock = Get-Content (Join-Path $InstallDir "pm\lock.json") -Raw | ConvertFrom-Json
     $pyPin = $lock.packages.python
@@ -1147,6 +1162,13 @@ function Get-BootstrapPython {
     $bootPy = (Invoke-Native -Utf8Output { & $uv python find --managed-python --no-project $pyRequest 2>$null }) -join "`n"
     if ($LASTEXITCODE -or -not $bootPy) {
         Invoke-Logged "Downloading Python $pyVersion" { & $uv python install --no-bin --no-registry $pyRequest }
+        if ($LASTEXITCODE) {
+            # Mirror first (China), then the official python-build-standalone
+            # release page: uv's mirror layout is <base>/<release>/<file>, which
+            # is exactly GitHub's /releases/download/<release>/<file>.
+            Write-Warn "python mirror unreachable; retrying from github.com"
+            Invoke-Logged "Downloading Python $pyVersion (github)" { & $uv python install --no-bin --no-registry --mirror "https://github.com/astral-sh/python-build-standalone/releases/download" $pyRequest }
+        }
         if ($LASTEXITCODE) { Fail "bootstrap Python installation failed" python_install_failed }
         $bootPy = (Invoke-Native -Utf8Output { & $uv python find --managed-python --no-project $pyRequest }) -join "`n"
     }
