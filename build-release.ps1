@@ -1,4 +1,4 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 <#
   HerMemory 发行构建 —— 拆包后的「双产物」。
 
