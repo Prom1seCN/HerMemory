@@ -3345,10 +3345,14 @@ namespace HerMemory
                         try { if (_answersPath != null) File.Delete(_answersPath); } catch { }
                         _answersPath = null;
                         string tailText;
+                        string diagText;
                         lock (_installTail)
-                            tailText = string.Join(Environment.NewLine,
-                                _installTail.Where(l => !string.IsNullOrWhiteSpace(l) && !l.StartsWith("##HM-PROGRESS##") && !l.StartsWith("##HM-MIRROR##"))
-                                            .Select(l => l.Trim()).TakeLast(16));
+                        {
+                            var tailLines = _installTail.Where(l => !string.IsNullOrWhiteSpace(l) && !l.StartsWith("##HM-PROGRESS##") && !l.StartsWith("##HM-MIRROR##"))
+                                            .Select(l => l.Trim()).TakeLast(16).ToList();
+                            tailText = string.Join(Environment.NewLine, tailLines);
+                            diagText = DiagnoseInstallFailure(string.Join("\n", tailLines));
+                        }
                         // 分阶段的文案必须整体跟着阶段走：标题/退出码说明/页脚引导三处都要一致，
                         // 否则会出现「按钮写重新配置、页脚写重新安装」这种自相矛盾（用户实拍命中过）。
                         var why = exit == -3 ? (stage == 1 ? "安装已中止。" : "配置已中止。")
@@ -3359,7 +3363,9 @@ namespace HerMemory
                         Dispatcher.Invoke(() =>
                         {
                             InstallTitle.Text = stage == 1 ? "安装未成功" : "配置未成功";
-                            InstallFail.Text = why
+                            InstallFail.Text = (exit != -3 && exit != -2 && diagText.Length > 0
+                                    ? diagText + Environment.NewLine + Environment.NewLine : "")
+                                + why
                                 + (_mirrorInfo != null && exit != -3 && exit != -2 ? Environment.NewLine + "[链路] " + _mirrorInfo : "")
                                 + Environment.NewLine + tailText
                                 + Environment.NewLine + Environment.NewLine
@@ -4250,6 +4256,44 @@ namespace HerMemory
                       + "关闭占用程序后可手动删除。" + (delVault ? "" : " vault 已保留。");
                 BtnUninsClose.Visibility = Visibility.Visible;
             });
+        }
+
+        /// <summary>把一屏红色英文压成一句人话：先告诉他“是什么错、怎么办”，原始输出仍原样附在下面。
+        /// 这些分类都来自真机踩过的坑（2026-10-26 同学机器连着三种）。</summary>
+        private static string DiagnoseInstallFailure(string tail)
+        {
+            string host = "";
+            try
+            {
+                var m = System.Text.RegularExpressions.Regex.Match(tail, @"https?://([A-Za-z0-9._-]+)");
+                if (m.Success) host = m.Groups[1].Value;
+            }
+            catch { }
+            if (System.Text.RegularExpressions.Regex.IsMatch(tail, @"dns error|11001|11002|Name or service not known|不知道这样的主机"))
+                return "【DNS 解析失败】" + (host.Length > 0 ? host : "PyPI 域名") + "\n"
+                    + "  → 这台机器查不到这个域名，跟安装包无关。把网卡 DNS 改成 223.5.5.5 / 119.29.29.29，" + "\n"
+                    + "    或改用手机热点，然后点「重新安装」（已完成步骤会自动跳过）。";
+            if (System.Text.RegularExpressions.Regex.IsMatch(tail, @"10061|tunnel error|proxy connect|ProxyError"))
+                return "【代理连不上】系统里留着代理设置，但代理软件没在运行\n"
+                    + "  → 退出 Clash / v2ray / sing-box，或让它们保持开启，然后点「重新安装」。";
+            if (System.Text.RegularExpressions.Regex.IsMatch(tail, @"10060|timed out|timeout|Request failed after"))
+                return "【下载超时】" + (host.Length > 0 ? host : "依赖源") + " 连不上或太慢\n"
+                    + "  → 换个网络（手机热点最快），或点「重新安装」重试；已下载的部分不会重下。";
+            if (System.Text.RegularExpressions.Regex.IsMatch(tail, @"lockfile needs to be updated|No solution found|failed to resolve"))
+                return "【依赖解析失败】锁文件与镜像源不匹配\n"
+                    + "  → 这是安装包的镜像配置问题，请把这一屏发给作者。";
+            if (System.Text.RegularExpressions.Regex.IsMatch(tail, @"No space left|ENOSPC|磁盘空间|There is not enough space"))
+                return "【磁盘空间不足】装完约需 3 GB 空闲\n"
+                    + "  → 清理磁盘或把「数据存储位置」换到空间更大的盘后重试。";
+            if (System.Text.RegularExpressions.Regex.IsMatch(tail, @"Access is denied|拒绝访问|Permission denied|UnauthorizedAccess"))
+                return "【权限不足】写文件被系统拒绝\n"
+                    + "  → 关闭杀毒软件拦截后重试，或确认安装器是以管理员身份运行的。";
+            if (System.Text.RegularExpressions.Regex.IsMatch(tail, @"发行包不完整|缺 vendored|缺内核包|not found"))
+                return "【安装包不完整】随包素材缺失\n"
+                    + "  → 重新下载 Setup.exe（下载可能被截断过）。";
+            if (System.Text.RegularExpressions.Regex.IsMatch(tail, @"dependency install failed"))
+                return "【依赖安装失败】具体原因见下面的原始输出";
+            return "";
         }
 
         /// <summary>删除程序自身所在目录。exe 正在运行、映像被占用，无法当场删除，

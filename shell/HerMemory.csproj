@@ -65,6 +65,10 @@
        app/HerMemory.exe —— 程序本体，由 build-release.ps1 先发布到 build\app\ 再内嵌；
        payload/ —— 随包内核与引导器，由 build-offline.ps1 产出到 build\minimal\。
        缺任何一项都由下面的 Target 直接报错——绝不产出「看起来能装、实际装不上」的包。 -->
+  <PropertyGroup Condition="'$(SetupMode)' == 'true'">
+    <!-- 线上版用 build\minimal；离线版用 build\minimal-offline（build-offline.ps1 -Offline 产出） -->
+    <HmPayloadDir Condition="'$(HmPayloadDir)' == ''">$(HmPayloadDir)</HmPayloadDir>
+  </PropertyGroup>
   <ItemGroup Condition="'$(SetupMode)' == 'true'">
     <SetupApp Include="..\build\app\HerMemory.exe" Condition="Exists('..\build\app\HerMemory.exe')" />
     <EmbeddedResource Include="@(SetupApp)" LogicalName="app/%(Filename)%(Extension)" />
@@ -77,24 +81,27 @@
          与国内索引取——不再有 assets-offline 那一套 1.5 GB 素材。
          两个 .version/.commit 戳必须随包，否则安装时读不到、pin 校验与 uv 槽位都会退化。
          产出方：build-offline.ps1。 -->
-    <BundledAsset Include="..\build\minimal\hermes-agent.bundle" Condition="Exists('..\build\minimal\hermes-agent.bundle')" />
-    <BundledAsset Include="..\build\minimal\hermes-agent.commit" Condition="Exists('..\build\minimal\hermes-agent.commit')" />
-    <BundledAsset Include="..\build\minimal\uv.exe" Condition="Exists('..\build\minimal\uv.exe')" />
-    <BundledAsset Include="..\build\minimal\uv.version" Condition="Exists('..\build\minimal\uv.version')" />
+    <BundledAsset Include="$(HmPayloadDir)\hermes-agent.bundle" Condition="Exists('$(HmPayloadDir)\hermes-agent.bundle')" />
+    <BundledAsset Include="$(HmPayloadDir)\hermes-agent.commit" Condition="Exists('$(HmPayloadDir)\hermes-agent.commit')" />
+    <BundledAsset Include="$(HmPayloadDir)\uv.exe" Condition="Exists('$(HmPayloadDir)\uv.exe')" />
+    <BundledAsset Include="$(HmPayloadDir)\uv.version" Condition="Exists('$(HmPayloadDir)\uv.version')" />
     <!-- python.json：随包 CPython 的版本/sha256/uv 受管目录名。install.ps1 靠它把 Python
          解压成「已安装」布局，引导阶段零下载（死代理事故的修复）。 -->
-    <BundledAsset Include="..\build\minimal\python.json" Condition="Exists('..\build\minimal\python.json')" />
+    <BundledAsset Include="$(HmPayloadDir)\python.json" Condition="Exists('$(HmPayloadDir)\python.json')" />
     <!-- runtime.json：运行时大件的 sha256 → 原始文件名。PM 只看后缀解包，改名前必须查它。 -->
-    <BundledAsset Include="..\build\minimal\runtime.json" Condition="Exists('..\build\minimal\runtime.json')" />
+    <BundledAsset Include="$(HmPayloadDir)\runtime.json" Condition="Exists('$(HmPayloadDir)\runtime.json')" />
     <EmbeddedResource Include="@(BundledAsset)" LogicalName="payload/%(Filename)%(Extension)" />
     <!-- 运行时大件（git / python / node）：文件名就是 pm/lock.json 里的 sha256。
          安装时 install.ps1 把它们预置进 PM 的下载缓存（%LOCALAPPDATA%\hermes\tools\fetch-<sha>），
          PM 校验哈希后直接使用，不再联网下载——国内 200 KB/s 的线路最慢的就是这三个。 -->
-    <RuntimeArtifact Include="..\build\minimal\artifacts\*" Condition="Exists('..\build\minimal\artifacts')" />
+    <RuntimeArtifact Include="$(HmPayloadDir)\artifacts\*" Condition="Exists('$(HmPayloadDir)\artifacts')" />
     <EmbeddedResource Include="@(RuntimeArtifact)" LogicalName="payload/artifacts/%(Filename)%(Extension)" />
     <!-- PM 自己运行时的 4 个 wheel（约 250 KB）：PM 引导固定走 PyPI 官方源且不吃镜像，
          国内 DNS 解析不了 files.pythonhosted.org 时安装会死在这里，随包离线装。 -->
-    <PmWheel Include="..\build\minimal\pm-wheelhouse\*" Condition="Exists('..\build\minimal\pm-wheelhouse')" />
+    <PmWheel Include="$(HmPayloadDir)\pm-wheelhouse\*" Condition="Exists('$(HmPayloadDir)\pm-wheelhouse')" />
+    <!-- 离线版：Python 依赖缓存（uv 的 cache 目录打包）。install.ps1 解到 <HERMES_HOME>\cache 并开 UV_OFFLINE。 -->
+    <OfflineUvCache Include="$(HmPayloadDir)\uv-cache.zip" Condition="Exists('$(HmPayloadDir)\uv-cache.zip')" />
+    <EmbeddedResource Include="@(OfflineUvCache)" LogicalName="payload/uv-cache.zip" />
     <EmbeddedResource Include="@(PmWheel)" LogicalName="payload/pm-wheelhouse/%(Filename)%(Extension)" />
   </ItemGroup>
 
@@ -103,13 +110,13 @@
   <Target Name="HmValidateSetupInputs" BeforeTargets="CoreCompile" Condition="'$(SetupMode)' == 'true'">
     <Error Condition="!Exists('$(MSBuildThisFileDirectory)..\build\app\HerMemory.exe')"
            Text="安装器缺少程序本体：build\app\HerMemory.exe 不存在。请用 build-release.ps1 构建（它会先发布程序本体）。" />
-    <Error Condition="!Exists('$(MSBuildThisFileDirectory)..\build\minimal\hermes-agent.bundle')"
+    <Error Condition="!Exists('$(MSBuildThisFileDirectory)$(HmPayloadDir)\hermes-agent.bundle')"
            Text="安装器缺少内核 bundle：build\minimal\hermes-agent.bundle 不存在。请先运行 build-offline.ps1 -Tag v0.22.2。" />
-    <Error Condition="!Exists('$(MSBuildThisFileDirectory)..\build\minimal\hermes-agent.commit')"
+    <Error Condition="!Exists('$(MSBuildThisFileDirectory)$(HmPayloadDir)\hermes-agent.commit')"
            Text="安装器缺少内核 commit 戳：build\minimal\hermes-agent.commit 不存在。请先运行 build-offline.ps1 -Tag v0.22.2。" />
-    <Error Condition="!Exists('$(MSBuildThisFileDirectory)..\build\minimal\uv.exe')"
+    <Error Condition="!Exists('$(MSBuildThisFileDirectory)$(HmPayloadDir)\uv.exe')"
            Text="安装器缺少 uv：build\minimal\uv.exe 不存在。请先运行 build-offline.ps1 -Tag v0.22.2。" />
-    <Error Condition="!Exists('$(MSBuildThisFileDirectory)..\build\minimal\uv.version')"
+    <Error Condition="!Exists('$(MSBuildThisFileDirectory)$(HmPayloadDir)\uv.version')"
            Text="安装器缺少 uv 版本戳：build\minimal\uv.version 不存在。请先运行 build-offline.ps1 -Tag v0.22.2。" />
     <!-- 运行时大件（git / python / node）按 sha256 命名，随包预置 PM 缓存。
          一个都没有就意味着 Setup 会退化成“全量联网下载”，国内用户会卡在 200 KB/s。 -->
@@ -118,9 +125,9 @@
     <Error Condition="'@(PmWheel)' == ''"
            Text="安装器缺少 PM runtime wheel：build\minimal\pm-wheelhouse\ 为空。请运行 build-offline.ps1 采集。" />
     <!-- 缺 python.json 时安装器会退化成「联网下载 CPython」——那正是 2026-10-26 首装失败的原因。 -->
-    <Error Condition="!Exists('$(MSBuildThisFileDirectory)..\build\minimal\python.json')"
+    <Error Condition="!Exists('$(MSBuildThisFileDirectory)$(HmPayloadDir)\python.json')"
            Text="安装器缺少 python.json：build\minimal\python.json 不存在。请运行 build-offline.ps1（它会从 pm/lock.json 生成）。" />
-    <Error Condition="!Exists('$(MSBuildThisFileDirectory)..\build\minimal\runtime.json')"
+    <Error Condition="!Exists('$(MSBuildThisFileDirectory)$(HmPayloadDir)\runtime.json')"
            Text="安装器缺少 runtime.json：build\minimal\runtime.json 不存在。请运行 build-offline.ps1（它会把 sha256 与原始文件名对上）。" />
   </Target>
 

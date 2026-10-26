@@ -678,6 +678,25 @@ if ($workingCli -and $haveVer -eq $WantHermesVersion) {
         Warn "未发现随包运行时产物目录（artifacts\），本次安装需要联网下载 git / python / node。"
     }
 
+    # ---------- 2.05 离线版：Python 依赖缓存 ----------
+    # 离线包把 uv 的 cache 目录整包带来（uv-cache.zip，约 150 MB），解开后 PM 的
+    # `uv sync --locked` 全部命中本地缓存，一个字节都不用下。线上版没有这个文件，跳过。
+    # 注意：不能靠 UV_CACHE_DIR/UV_OFFLINE 传——PM 会剥掉所有 UV_* 变量（白名单制），
+    # 只认它自己算出来的 <HERMES_HOME>\cache，所以直接把缓存铺到那儿。
+    $uvCacheZip = Get-ShippedAsset "uv-cache.zip"
+    if (Test-Path -LiteralPath $uvCacheZip) {
+        $uvCacheDir = Join-Path $HermesHome "cache"
+        if (-not (Test-Path -LiteralPath (Join-Path $uvCacheDir "archive-v0"))) {
+            Log "展开离线依赖缓存（uv-cache.zip）……"
+            New-Item -ItemType Directory -Force -Path $uvCacheDir | Out-Null
+            & tar.exe -xf $uvCacheZip -C $uvCacheDir 2>$null
+            if ($LASTEXITCODE -ne 0) { Warn "离线依赖缓存解压失败（退出码 $LASTEXITCODE），本次将联网下载依赖。" }
+        }
+        if (Test-Path -LiteralPath (Join-Path $uvCacheDir "archive-v0")) {
+            Ok "离线依赖缓存已就位（Python 依赖零下载）"
+        }
+    }
+
     # ---------- 2.055 PM 运行时 wheelhouse（离线装 pm 自己的 4 个依赖） ----------
     # PM 引导时会先给它自己建一个 runtime venv（packaging / ruamel.yaml / tomli-w / truststore）。
     # 上游这一步固定走 PyPI 官方源且 `--no-config`，**刻意不吃镜像**——实测把 UV_INDEX_URL 指向

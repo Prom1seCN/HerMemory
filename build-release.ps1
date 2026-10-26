@@ -120,6 +120,21 @@ try {
            "请关掉占用它的程序后重试，或先手动删除该文件。原始错误：{1}") -f $outExe, $_.Exception.Message
 }
 
+# ---- 3b. 离线版（Setup_offline.exe）：payload 换成 build\minimal-offline ----
+$offlinePayload = Join-Path $Root "build\minimal-offline"
+$offlineExe = Join-Path $Root "build\Setup_offline.exe"
+if (Test-Path $offlinePayload) {
+    Step "3b/3 发布离线安装器（含 Python 依赖缓存与全部运行时大件）"
+    $SetupOfflineDir = Join-Path $Root "build\setup-offline"
+    & $dotnet publish $Shell @common "-p:SetupMode=true" "-p:AssemblyName=HerMemorySetup" "-p:HmPayloadDir=..\build\minimal-offline" "-o" "$SetupOfflineDir"
+    if ($LASTEXITCODE -ne 0) { throw "离线安装器发布失败（exit $LASTEXITCODE）" }
+    $off = Join-Path $SetupOfflineDir "HerMemorySetup.exe"
+    Copy-Item $off $offlineExe -Force
+    Write-Host ("  离线安装器：{0}  ({1:N1} MB)" -f $offlineExe, ((Get-Item $offlineExe).Length / 1MB)) -ForegroundColor Green
+} else {
+    Warn "未发现 build\minimal-offline，跳过离线安装器（先跑 build-offline.ps1 -Offline）"
+}
+
 Write-Host ""
 Write-Host "构建完成。" -ForegroundColor Green
 Write-Host ("  程序本体：{0}  ({1:N1} MB)" -f (Join-Path $AppDir "HerMemory.exe"), ((Get-Item (Join-Path $AppDir "HerMemory.exe")).Length / 1MB))
