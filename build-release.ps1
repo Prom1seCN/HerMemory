@@ -130,6 +130,9 @@ if (Test-Path $offlinePayload) {
     # （实测两个 exe 都是 409.8 MB）。清掉 obj 强制重建。
     $shellObj = Join-Path $Root "shell\obj"
     if (Test-Path $shellObj) { Remove-Item $shellObj -Recurse -Force -ErrorAction SilentlyContinue }
+    # 删 obj 会带走 project.assets.json，必须先还原，否则 NETSDK1004
+    & $dotnet restore $Shell -r win-x64 | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "离线版 NuGet 还原失败（exit $LASTEXITCODE）" }
     & $dotnet publish $Shell @common "-p:SetupMode=true" "-p:AssemblyName=HerMemorySetup" "-p:HmPayloadDir=..\build\minimal-offline" "-o" "$SetupOfflineDir"
     if ($LASTEXITCODE -ne 0) { throw "离线安装器发布失败（exit $LASTEXITCODE）" }
     $off = Join-Path $SetupOfflineDir "HerMemorySetup.exe"
