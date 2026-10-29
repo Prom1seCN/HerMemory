@@ -139,7 +139,7 @@ if (Test-Path $offlinePayload) {
     Copy-Item $off $offlineExe -Force
     Write-Host ("  离线安装器：{0}  ({1:N1} MB)" -f $offlineExe, ((Get-Item $offlineExe).Length / 1MB)) -ForegroundColor Green
 } else {
-    Warn "未发现 build\minimal-offline，跳过离线安装器（先跑 build-offline.ps1 -Offline）"
+    Write-Warning "未发现 build\minimal-offline，跳过离线安装器（先跑 build-offline.ps1 -Offline）"
 }
 
 Write-Host ""
