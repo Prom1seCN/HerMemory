@@ -2308,9 +2308,29 @@ namespace HerMemory
                 }
                 catch { }
                 var asm = System.Reflection.Assembly.GetExecutingAssembly();
+                // 整包压缩（payload/payload.zip）：bundle / uv.exe / artifacts 打成一个 zip 内嵌，
+                // 体积按实际压缩比省下来（逐文件内嵌时这些大件一个字节都压不动）。
+                // 解开后目录结构与逐文件内嵌完全一致，安装流程无感。
+                using (var zs = asm.GetManifestResourceStream("payload/payload.zip"))
+                {
+                    if (zs != null)
+                    {
+                        using var za = new System.IO.Compression.ZipArchive(zs, System.IO.Compression.ZipArchiveMode.Read);
+                        foreach (var entry in za.Entries)
+                        {
+                            if (string.IsNullOrEmpty(entry.Name)) continue; // 目录项
+                            var zdst = Path.Combine(dir, entry.FullName.Replace('/', Path.DirectorySeparatorChar));
+                            Directory.CreateDirectory(Path.GetDirectoryName(zdst)!);
+                            using var es = entry.Open();
+                            using var zfs = File.Create(zdst);
+                            es.CopyTo(zfs);
+                        }
+                    }
+                }
                 foreach (var name in asm.GetManifestResourceNames())
                 {
                     if (!name.StartsWith("payload/", StringComparison.Ordinal)) continue;
+                    if (name == "payload/payload.zip") continue; // 上面已按条目解开
                     var dst = Path.Combine(dir, name["payload/".Length..].Replace('/', Path.DirectorySeparatorChar));
                     Directory.CreateDirectory(Path.GetDirectoryName(dst)!);
                     using var rs = asm.GetManifestResourceStream(name);

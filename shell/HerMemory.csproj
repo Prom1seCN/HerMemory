@@ -1,6 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <HmPayloadDir Condition="'$(HmPayloadDir)' == ''">..\build\minimal</HmPayloadDir>
+    <!-- 大件打包：build\payload.zip（build-release.ps1 生成）。存在时用单个压缩资源替换逐文件内嵌，
+         把 uv.exe / bundle / artifacts 的体积按实际压缩比省下来；不存在时退回逐文件内嵌。 -->
+    <HmPayloadZip Condition="'$(HmPayloadZip)' == ''">..\build\payload.zip</HmPayloadZip>
   </PropertyGroup>
 
   <PropertyGroup>
@@ -84,28 +87,31 @@
          与国内索引取——不再有 assets-offline 那一套 1.5 GB 素材。
          两个 .version/.commit 戳必须随包，否则安装时读不到、pin 校验与 uv 槽位都会退化。
          产出方：build-offline.ps1。 -->
-    <BundledAsset Include="$(HmPayloadDir)\hermes-agent.bundle" Condition="Exists('$(HmPayloadDir)\hermes-agent.bundle')" />
-    <BundledAsset Include="$(HmPayloadDir)\hermes-agent.commit" Condition="Exists('$(HmPayloadDir)\hermes-agent.commit')" />
-    <BundledAsset Include="$(HmPayloadDir)\uv.exe" Condition="Exists('$(HmPayloadDir)\uv.exe')" />
-    <BundledAsset Include="$(HmPayloadDir)\uv.version" Condition="Exists('$(HmPayloadDir)\uv.version')" />
+    <BundledAsset Include="$(HmPayloadDir)\hermes-agent.bundle" Condition="Exists('$(HmPayloadDir)\hermes-agent.bundle') and !Exists('$(HmPayloadZip)')" />
+    <BundledAsset Include="$(HmPayloadDir)\hermes-agent.commit" Condition="Exists('$(HmPayloadDir)\hermes-agent.commit') and !Exists('$(HmPayloadZip)')" />
+    <BundledAsset Include="$(HmPayloadDir)\uv.exe" Condition="Exists('$(HmPayloadDir)\uv.exe') and !Exists('$(HmPayloadZip)')" />
+    <BundledAsset Include="$(HmPayloadDir)\uv.version" Condition="Exists('$(HmPayloadDir)\uv.version') and !Exists('$(HmPayloadZip)')" />
     <!-- python.json：随包 CPython 的版本/sha256/uv 受管目录名。install.ps1 靠它把 Python
          解压成「已安装」布局，引导阶段零下载（死代理事故的修复）。 -->
-    <BundledAsset Include="$(HmPayloadDir)\python.json" Condition="Exists('$(HmPayloadDir)\python.json')" />
+    <BundledAsset Include="$(HmPayloadDir)\python.json" Condition="Exists('$(HmPayloadDir)\python.json') and !Exists('$(HmPayloadZip)')" />
     <!-- runtime.json：运行时大件的 sha256 → 原始文件名。PM 只看后缀解包，改名前必须查它。 -->
-    <BundledAsset Include="$(HmPayloadDir)\runtime.json" Condition="Exists('$(HmPayloadDir)\runtime.json')" />
+    <BundledAsset Include="$(HmPayloadDir)\runtime.json" Condition="Exists('$(HmPayloadDir)\runtime.json') and !Exists('$(HmPayloadZip)')" />
     <EmbeddedResource Include="@(BundledAsset)" LogicalName="payload/%(Filename)%(Extension)" />
     <!-- 运行时大件（git / python / node）：文件名就是 pm/lock.json 里的 sha256。
          安装时 install.ps1 把它们预置进 PM 的下载缓存（%LOCALAPPDATA%\hermes\tools\fetch-<sha>），
          PM 校验哈希后直接使用，不再联网下载——国内 200 KB/s 的线路最慢的就是这三个。 -->
-    <RuntimeArtifact Include="$(HmPayloadDir)\artifacts\*" Condition="Exists('$(HmPayloadDir)\artifacts') and '$(HmLean)' != 'true'" />
+    <RuntimeArtifact Include="$(HmPayloadDir)\artifacts\*" Condition="Exists('$(HmPayloadDir)\artifacts') and '$(HmLean)' != 'true' and !Exists('$(HmPayloadZip)')" />
     <EmbeddedResource Include="@(RuntimeArtifact)" LogicalName="payload/artifacts/%(Filename)%(Extension)" />
     <!-- PM 自己运行时的 4 个 wheel（约 250 KB）：PM 引导固定走 PyPI 官方源且不吃镜像，
          国内 DNS 解析不了 files.pythonhosted.org 时安装会死在这里，随包离线装。 -->
-    <PmWheel Include="$(HmPayloadDir)\pm-wheelhouse\*" Condition="Exists('$(HmPayloadDir)\pm-wheelhouse')" />
+    <PmWheel Include="$(HmPayloadDir)\pm-wheelhouse\*" Condition="Exists('$(HmPayloadDir)\pm-wheelhouse') and !Exists('$(HmPayloadZip)')" />
     <!-- 离线版：Python 依赖缓存（uv 的 cache 目录打包）。install.ps1 解到 <HERMES_HOME>\cache 并开 UV_OFFLINE。 -->
-    <OfflineUvCache Include="$(HmPayloadDir)\uv-cache.zip" Condition="Exists('$(HmPayloadDir)\uv-cache.zip')" />
+    <OfflineUvCache Include="$(HmPayloadDir)\uv-cache.zip" Condition="Exists('$(HmPayloadDir)\uv-cache.zip') and !Exists('$(HmPayloadZip)')" />
     <EmbeddedResource Include="@(OfflineUvCache)" LogicalName="payload/uv-cache.zip" />
     <EmbeddedResource Include="@(PmWheel)" LogicalName="payload/pm-wheelhouse/%(Filename)%(Extension)" />
+    <!-- 整包压缩资源：payload/payload.zip 解开后就是 build\minimal\ 的完整内容 -->
+    <PayloadZip Include="$(HmPayloadZip)" Condition="Exists('$(HmPayloadZip)')" />
+    <EmbeddedResource Include="@(PayloadZip)" LogicalName="payload/payload.zip" />
   </ItemGroup>
 
   <!-- 安装器的前置产物断言：条件 Exists 只会「静默不嵌」，那会得到一个空有外壳的安装器。

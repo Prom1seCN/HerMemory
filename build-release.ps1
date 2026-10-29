@@ -86,6 +86,18 @@ if ($needRestore) {
     Write-Host "依赖已就绪（含 win-x64 目标），跳过还原。"
 }
 
+function New-PayloadZip([string]$PayloadDir, [string]$ZipPath) {
+    # 把随包大件打成一个 zip 内嵌（csproj 的 payload/payload.zip）。
+    # 攒下的体积＝uv.exe 与实际可压部分；ffmpeg 那个 zip 和 git bundle 本来就压过，几乎不变。
+    if (Test-Path $ZipPath) { Remove-Item $ZipPath -Force -ErrorAction SilentlyContinue }
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    [System.IO.Compression.ZipFile]::CreateFromDirectory(
+        $PayloadDir, $ZipPath, [System.IO.Compression.CompressionLevel]::SmallestSize, $false)
+    $raw = ((Get-ChildItem $PayloadDir -Recurse -File | Measure-Object Length -Sum).Sum / 1MB)
+    $zip = ((Get-Item $ZipPath).Length / 1MB)
+    Write-Host ("  -> {0}  ({1:N1} MB，原始 {2:N1} MB)" -f $ZipPath, $zip, $raw) -ForegroundColor Green
+}
+
 # ---- 1. 程序本体 ----
 if (-not $SkipApp) {
     Step "2/3 发布程序本体（不含离线素材）"
@@ -104,6 +116,10 @@ Step "3/3 发布安装器（内嵌程序本体 + 最小素材）"
 # 其余重依赖由 PM 在安装时从官方 sha256 镜像与国内索引取，见 install.ps1 的镜像链。
 $kernelBundle = Join-Path $Root "build\minimal\hermes-agent.bundle"
 if (-not (Test-Path $kernelBundle)) { throw "缺少内核 bundle：$kernelBundle。请先运行 build-offline.ps1 -Tag v0.22.2。" }
+
+# 2b. 随包大件压成一个 zip：Setup 内嵌单个 payload/payload.zip，体积按实际压缩比省下来。
+$payloadZip = Join-Path $Root "build\payload.zip"
+New-PayloadZip (Join-Path $Root "build\minimal") $payloadZip
 
 & $dotnet publish $Shell @common "-p:SetupMode=true" "-p:AssemblyName=HerMemorySetup" "-o" "$SetupDir"
 if ($LASTEXITCODE -ne 0) { throw "安装器发布失败（exit $LASTEXITCODE）" }
@@ -133,7 +149,9 @@ if (Test-Path $offlinePayload) {
     # 删 obj 会带走 project.assets.json，必须先还原，否则 NETSDK1004
     & $dotnet restore $Shell -r win-x64 | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "离线版 NuGet 还原失败（exit $LASTEXITCODE）" }
-    & $dotnet publish $Shell @common "-p:SetupMode=true" "-p:AssemblyName=HerMemorySetup" "-p:HmPayloadDir=..\build\minimal-offline" "-o" "$SetupOfflineDir"
+    $offlineZip = Join-Path $Root "build\payload-offline.zip"
+    New-PayloadZip $offlinePayload $offlineZip
+    & $dotnet publish $Shell @common "-p:SetupMode=true" "-p:AssemblyName=HerMemorySetup" "-p:HmPayloadDir=..\build\minimal-offline" "-p:HmPayloadZip=..\build\payload-offline.zip" "-o" "$SetupOfflineDir"
     if ($LASTEXITCODE -ne 0) { throw "离线安装器发布失败（exit $LASTEXITCODE）" }
     $off = Join-Path $SetupOfflineDir "HerMemorySetup.exe"
     Copy-Item $off $offlineExe -Force
