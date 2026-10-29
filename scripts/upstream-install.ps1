@@ -1199,18 +1199,63 @@ function Get-BootstrapPython {
 
 
 function Enable-MirrorFirst {
-    # HerMemory patch: make PM try the hermes-assets mirror first, GitHub as fallback.
-    # Order only; sha256 verification is unchanged. Idempotent; failures are ignored.
+    # HerMemory patch: order only, sha256 verification is unchanged.
+    # A Chinese line reaches the domestic mirror at 12 MB/s but the hermes-assets
+    # origin at 103 KB/s, so the rewritten domestic URL goes first and
+    # hermes-assets stays as the fallback. The rewrite itself is _domestic() in
+    # Enable-NpmBinaryMirror. Idempotent; failures are ignored.
     try {
         $f = Join-Path $InstallDir "pm\artifact_mirror.py"
         if (-not (Test-Path -LiteralPath $f)) { return }
         $src = Get-Content -LiteralPath $f -Raw
-        if ($src -match "MIRROR_FIRST") { return }
+        if ($src -match "DOMESTIC_FIRST") { return }
+        $oldMirrorFirst = "return Source(archive, dest, sha256, fallbacks=(url,))  # MIRROR_FIRST"
+        $newDomesticFirst = "return Source(url, dest, sha256, fallbacks=(archive,))  # DOMESTIC_FIRST"
+        if ($src.Contains($oldMirrorFirst)) {
+            $src = $src.Replace($oldMirrorFirst, $newDomesticFirst)
+            Set-Content -LiteralPath $f -Value $src -Encoding UTF8 -NoNewline
+            return
+        }
         $pat = 'return Source\(url, dest, sha256, fallbacks=\(\) if url == archive else \(archive,\)\)'
         if ($src -notmatch $pat) { return }
-        $repl = "if url == archive:`r`n        return Source(url, dest, sha256, fallbacks=())`r`n    return Source(archive, dest, sha256, fallbacks=(url,))  # MIRROR_FIRST"
+        $repl = "if url == archive:`r`n        return Source(url, dest, sha256, fallbacks=())`r`n    return Source(url, dest, sha256, fallbacks=(archive,))  # DOMESTIC_FIRST"
         $out = [regex]::Replace($src, $pat, $repl)
         Set-Content -LiteralPath $f -Value $out -Encoding UTF8 -NoNewline
+    } catch { }
+}
+
+function Enable-Ipv4First {
+    # HerMemory patch: python resolves the AAAA record first, and a Chinese line
+    # blackholes IPv6 to overseas CDNs, so each urllib request to hermes-assets
+    # sat in a 25 s TLS handshake (measured on the target PC: IPv4 0.98 s, IPv6
+    # 25 s timeout). Sorting the resolver answer IPv4-first keeps the same URLs
+    # and the same sha256 checks. Idempotent; failures are ignored.
+    if ($env:HERMEMORY_NO_IPV4_FIRST) { return }
+    try {
+        $f = Join-Path $InstallDir "pm\downloader.py"
+        if (-not (Test-Path -LiteralPath $f)) { return }
+        $src = Get-Content -LiteralPath $f -Raw
+        if ($src -match "IPV4_FIRST") { return }
+        $anchor = "from pm.network import edge_block, is_transient, retry_network"
+        if (-not $src.Contains($anchor)) { return }
+        $shim = @'
+from pm.network import edge_block, is_transient, retry_network
+
+# IPV4_FIRST (HerMemory): prefer A records; IPv6 to overseas CDNs hangs.
+_hermes_getaddrinfo = socket.getaddrinfo
+
+
+def _ipv4_first_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+    answers = _hermes_getaddrinfo(host, port, family, type, proto, flags)
+    answers.sort(key=lambda answer: 0 if answer[0] == socket.AF_INET else 1)
+    return answers
+
+
+socket.getaddrinfo = _ipv4_first_getaddrinfo
+'@
+        $src = $src.Replace($anchor, $shim)
+        Set-Content -LiteralPath $f -Value $src -Encoding UTF8 -NoNewline
+        Write-Ok "network: IPv4 first (IPv6 to overseas hosts is blackholed)"
     } catch { }
 }
 
@@ -1324,6 +1369,7 @@ function Invoke-BootstrapPm {
         Enable-PmWheelhouse
         Enable-LockMirror
         Enable-NpmBinaryMirror
+        Enable-Ipv4First
         $pmArgs = @('install')
         if ($SkipBrowser) { $pmArgs += @('--without', 'agent-browser') }
         if ($SkipComputerUse) { $pmArgs += @('--without', 'cua-driver') }
