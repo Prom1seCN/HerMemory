@@ -123,6 +123,37 @@ PC 上 `shell/obj/project.assets.json` 已含 win-x64，构建跳过 NuGet 还�
 （Ryzen 7 8845H；程序本体 69.2 MB + Setup 409.6 MB）。别拿 NAS 跑 `.ps1` 的耗时当时钟——
 NAS 连不上 api.nuget.org，每条重试要等一两分钟，会误判成"构建要 20 分钟"。
 
+## 国内网络安装（无梯子）
+
+目标：国内能上网、但没有梯子的电脑也要装得完。分层如下，`hermes-assets` 只作兜底：
+
+| 下载物 | 来源 | 实测 |
+|---|---|---|
+| git / CPython / node 压缩包 | npmmirror 二进制 CDN `/-/binary/{git-for-windows,python-build-standalone,node}/<tag>/<file>` | 12.4 MB/s |
+| ffmpeg(161.4 MB) / ripgrep(1.7 MB) | **随包**（见下） | — |
+| Python 依赖（uv.lock） | 清华 PyPI（安装时改写 lock 里的 pythonhosted 主机） | 快 |
+| npm | `install.ps1` 设 `npm_config_registry=https://registry.npmmirror.com` | — |
+
+**IPv6 是隐藏的坑**：`hermes-assets.nousresearch.com` 有 AAAA，Windows 上 python 先走 IPv6 →
+TLS 握手 25 秒超时（PC 实测 IPv4 0.98 s / IPv6 25 s 超时），每个大件都要空转 4 次重试。
+`Enable-Ipv4First` 给 `pm/downloader.py` 打 `IPV4_FIRST` 补丁（getaddrinfo 结果里 A 记录排前面），
+`Enable-MirrorFirst` 把 `pinned_source` 改成 **国内优先、hermes-assets 兜底**（`# DOMESTIC_FIRST`）。
+这两处不修，日志里就是一连串 `_ssl.c:1064 handshake timed out`。
+
+**ffmpeg 没有国内镜像**（2026-10-29 结论，别再找）：
+- npmmirror 只有官方 `ffmpeg-builds/v8.1.3/*.tar.xz`，版本与布局都和 pin 的 BtbN `n9.0.1-11` 不一样，
+  改 pin 等于改上游锁定版本；
+- GitHub 反代 `gh-proxy.com` ≈ 23 KB/s、`ghproxy.net` ≈ 13 KB/s，`ghfast.top`/`mirror.ghproxy.com` 直接不通；
+- 所以 ffmpeg + ripgrep 进 `build\minimal\artifacts`，靠 `runtime.json` 原名落位、PM 缓存命中，不联网。
+
+**随包体量**：bundle 82.9 + uv 45.8 + artifacts 163.1 + pm-wheelhouse ≈ **payload 292 MB**，
+Setup.exe **430.8 MB**（含自包含 .NET 运行时与 69.2 MB 程序本体）。`build\minimal` 现在只放
+ffmpeg+ripgrep，**不再放 git/python/node**——那三件改由 npmmirror 现取（约 15 秒）。
+
+**黑洞验收**（Hosts 把 github.com / objects.githubusercontent.com / pypi.org / files.pythonhosted.org /
+nodejs.org 全指 127.0.0.1）：**13 分钟装完**，`[OK] Hermes Agent install complete`。
+日志里仍会出现 `network request failed (10061)`——那是兜底源被黑洞挡住，正常，不影响结果。
+
 ## 托盘状态轮询（2026-10-25 事故）
 
 **症状**：托盘图标每隔几秒闪一下；`agent.log` 每 10 秒一条 "Plugin discovery complete"；
