@@ -164,6 +164,26 @@ PS 5.1 里 `ZipFile.CreateFromDirectory` 的四参数重载报「找不到重载
 nodejs.org 全指 127.0.0.1）：**13 分钟装完**，`[OK] Hermes Agent install complete`。
 日志里仍会出现 `network request failed (10061)`——那是兜底源被黑洞挡住，正常，不影响结果。
 
+## 沙盒安装测试（唯一的真机验收）
+
+PC 上 `D:\Projects\HerMemory\.sandbox-out\` 是整套沙盒夹具：
+`HerMemoryNet.wsb`（映射仓库只读 + 本目录可写）+ `net-boot.ps1`（开任务计划提权，绕 UAC）+
+`net-drive.ps1`（UIA 点向导、截图、收日志）。驱动脚本一律**UTF-8 BOM**，否则 PS5.1 按 GBK 读中文 → 解析失败。
+
+- 按钮 AutomationId：`BtnStart`（欢迎页「开始安装」）→ `BtnLocStart`（位置页「继续安装」）；
+  成功页的标志是 `BtnGuide`，失败页出现「重新安装」按钮。别按按钮文字点（同名按钮有两页）。
+- **PC 开着代理（Clash 等）＝ 沙盒没有网络**：宿主把 WinINET 代理设置带进沙盒，而沙盒里 127.0.0.1:7897
+  没有进程，于是 uv 报 `tunnel error ... 10061`、DNS 也只剩一半。**测之前先关代理**（关掉后沙盒直连正常）。
+- 实测成功三次（2026-10-30）：403 MB 的 Setup.exe，沙盒内全流程 **5.5～14 分钟**装完到「安装完成」页；
+  其中一次还额外钉死了 github.com 并给了个死掉的 python 镜像，仍然装完（CPython 走 npmmirror）。
+
+**中文乱码（生僻字）根因与修法**：上游安装器把 uv 的 stderr（UTF-8）按 GBK 解码，再拼进失败信息，
+显示成「整菱跫議鍙ｆ湇鍔…」。修法两层：
+1. `install.ps1` 与 `scripts/upstream-install.ps1` 在 `[Console]::IsOutputRedirected` 时把
+   `[Console]::OutputEncoding` / `$OutputEncoding` 设为 UTF-8（控制台直跑仍 GBK，install.bat 行为不变）；
+2. `Invoke-Logged` 的两处 `Invoke-Native` 加 `-Utf8Output`。
+注意：编码头**必须写在 `param()` 之后**——放脚本开头会让整个脚本解析失败（`param` 必须是第一条语句）。
+
 ## 托盘状态轮询（2026-10-25 事故）
 
 **症状**：托盘图标每隔几秒闪一下；`agent.log` 每 10 秒一条 "Plugin discovery complete"；
