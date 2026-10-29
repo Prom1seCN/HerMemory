@@ -91,8 +91,8 @@ function New-PayloadZip([string]$PayloadDir, [string]$ZipPath) {
     # 攒下的体积＝uv.exe 与实际可压部分；ffmpeg 那个 zip 和 git bundle 本来就压过，几乎不变。
     if (Test-Path $ZipPath) { Remove-Item $ZipPath -Force -ErrorAction SilentlyContinue }
     Add-Type -AssemblyName System.IO.Compression.FileSystem
-    [System.IO.Compression.ZipFile]::CreateFromDirectory(
-        $PayloadDir, $ZipPath, [System.IO.Compression.CompressionLevel]::SmallestSize, $false)
+    # 两参数重载：PS 5.1 里 CompressionLevel 枚举会解析到另一个程序集，四参数重载找不到匹配。
+    [System.IO.Compression.ZipFile]::CreateFromDirectory($PayloadDir, $ZipPath)
     $raw = ((Get-ChildItem $PayloadDir -Recurse -File | Measure-Object Length -Sum).Sum / 1MB)
     $zip = ((Get-Item $ZipPath).Length / 1MB)
     Write-Host ("  -> {0}  ({1:N1} MB，原始 {2:N1} MB)" -f $ZipPath, $zip, $raw) -ForegroundColor Green

@@ -129,9 +129,9 @@
            Text="安装器缺少 uv 版本戳：build\minimal\uv.version 不存在。请先运行 build-offline.ps1 -Tag v0.22.2。" />
     <!-- 运行时大件（git / python / node）按 sha256 命名，随包预置 PM 缓存。
          一个都没有就意味着 Setup 会退化成“全量联网下载”，国内用户会卡在 200 KB/s。 -->
-    <Error Condition="'@(RuntimeArtifact)' == '' and '$(HmLean)' != 'true'"
+    <Error Condition="'@(RuntimeArtifact)' == '' and '$(HmLean)' != 'true' and !Exists('$(HmPayloadZip)')"
            Text="安装器缺少运行时大件：build\minimal\artifacts\ 为空。请先运行 build-offline.ps1 采集 git/python/node。" />
-    <Error Condition="'@(PmWheel)' == ''"
+    <Error Condition="'@(PmWheel)' == '' and !Exists('$(HmPayloadZip)')"
            Text="安装器缺少 PM runtime wheel：build\minimal\pm-wheelhouse\ 为空。请运行 build-offline.ps1 采集。" />
     <!-- 缺 python.json 时安装器会退化成「联网下载 CPython」——那正是 2026-10-26 首装失败的原因。 -->
     <Error Condition="!Exists('$(MSBuildThisFileDirectory)$(HmPayloadDir)\python.json')"
