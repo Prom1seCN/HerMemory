@@ -147,8 +147,18 @@ TLS 握手 25 秒超时（PC 实测 IPv4 0.98 s / IPv6 25 s 超时），每个�
 - 所以 ffmpeg + ripgrep 进 `build\minimal\artifacts`，靠 `runtime.json` 原名落位、PM 缓存命中，不联网。
 
 **随包体量**：bundle 82.9 + uv 45.8 + artifacts 163.1 + pm-wheelhouse ≈ **payload 292 MB**，
-Setup.exe **430.8 MB**（含自包含 .NET 运行时与 69.2 MB 程序本体）。`build\minimal` 现在只放
-ffmpeg+ripgrep，**不再放 git/python/node**——那三件改由 npmmirror 现取（约 15 秒）。
+打成 `build\payload.zip` 后 **264.2 MB**，Setup.exe **403 MB**（含自包含 .NET 运行时与 69.2 MB 程序本体）。
+`build\minimal` 现在只放 ffmpeg+ripgrep，**不再放 git/python/node**——那三件改由 npmmirror 现取（约 15 秒）。
+
+**再压也压不动**：ffmpeg 的 zip(161.4 MB，三个 exe 435 MB 压出来的)、git bundle(82.9 MB, packfile)、
+程序本体(69.2→63 MB) 本来就压过，zip 内嵌只能省 uv 那 27 MB + 零头。想再小只有把 ffmpeg 移出包（需国内镜像），
+用户 2026-10-30 明确否掉：开源项目不替使用者出带宽。
+
+**zip 内嵌实现**：`build-release.ps1` 的 `New-PayloadZip` 产出 `build\payload.zip`，csproj 用
+`HmPayloadZip`（默认 `..\build\payload.zip`）判断——存在就只嵌这一个资源（`payload/payload.zip`），
+逐文件内嵌的 BundledAsset/RuntimeArtifact/PmWheel 全部让路；`MainWindow.ExtractPayload` 先按条目解 zip，
+再走原来的逐文件循环。两个坑：大件断言（RuntimeArtifact/PmWheel 为空）要加 `!Exists(HmPayloadZip)` 才放行；
+PS 5.1 里 `ZipFile.CreateFromDirectory` 的四参数重载报「找不到重载」，用两参数版。
 
 **黑洞验收**（Hosts 把 github.com / objects.githubusercontent.com / pypi.org / files.pythonhosted.org /
 nodejs.org 全指 127.0.0.1）：**13 分钟装完**，`[OK] Hermes Agent install complete`。
