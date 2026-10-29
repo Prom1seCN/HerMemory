@@ -388,6 +388,25 @@ function Get-WindowsArch {
 }
 
 # Mirror bytes must match the same pin; corruption is never a cache miss.
+function Convert-ToDomesticUrl {
+    # HerMemory patch: rewrite a few upstream release URLs to the npmmirror
+    # binary CDN. Measured from a Chinese line: 12.4 MB/s vs 103 KB/s from
+    # hermes-assets (and GitHub is often unreachable). sha256 still verifies.
+    param([string]$Url)
+    if ($env:HERMEMORY_NO_BINARY_MIRROR) { return $Url }
+    $base = "https://registry.npmmirror.com/-/binary/"
+    if ($Url -match "^https://github\.com/git-for-windows/git/releases/download/([^/]+)/(.+)$") {
+        return $base + "git-for-windows/" + $Matches[1] + "/" + $Matches[2]
+    }
+    if ($Url -match "^https://github\.com/astral-sh/python-build-standalone/releases/download/([^/]+)/(.+)$") {
+        return $base + "python-build-standalone/" + $Matches[1] + "/" + $Matches[2]
+    }
+    if ($Url -match "^https://nodejs\.org/dist/([^/]+)/(.+)$") {
+        return $base + "node/" + $Matches[1] + "/" + $Matches[2]
+    }
+    return $Url
+}
+
 function Invoke-VerifiedDownload {
     param(
         [Parameter(Mandatory = $true)][string]$Url,
@@ -395,6 +414,7 @@ function Invoke-VerifiedDownload {
         [Parameter(Mandatory = $true)][string]$OutFile,
         [string]$MirrorUrl = ""
     )
+    $Url = Convert-ToDomesticUrl $Url
     $urls = @($Url)
     if ($MirrorUrl -and $MirrorUrl -ne $Url) { $urls += $MirrorUrl }
     $httpFailure = ""
