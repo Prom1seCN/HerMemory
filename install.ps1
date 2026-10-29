@@ -507,6 +507,24 @@ function Test-IndexUrl([string]$Url) {
         return ($code -match '^[23]')
     } catch { return $false }
 }
+# PyPI「文件 CDN」镜像：uv 是按 uv.lock 里写死的 https://files.pythonhosted.org/... 下 wheel 的，
+# 设 UV_INDEX_URL 根本管不到（--locked 会拒绝）。国内两家镜像保留了同样的 /packages/... 路径，
+# 所以把域名整体换掉即可，哈希校验不变。这里选定镜像，交给 vendored 的 Enable-LockMirror 去改写。
+# 实测：把 files.pythonhosted.org 黑洞掉 + 空缓存，`uv sync --locked` 仍能 7 秒装完 153 个包。
+$env:HERMEMORY_PYPI_FILE_MIRROR = ""
+foreach ($fm in @("https://pypi.tuna.tsinghua.edu.cn", "https://mirrors.aliyun.com/pypi")) {
+    $probeUrl = $fm.TrimEnd('/') + "/similar-nowhere/hermemory-probe/"
+    try {
+        $code = [string](& curl.exe -s -o NUL --noproxy "*" -m 8 -w "%{http_code}" $probeUrl)
+        if ($code -match '^[234]') { $env:HERMEMORY_PYPI_FILE_MIRROR = $fm; break }
+    } catch { }
+}
+if ($env:HERMEMORY_PYPI_FILE_MIRROR) {
+    Log "PyPI 文件镜像：$($env:HERMEMORY_PYPI_FILE_MIRROR)（uv.lock 的下载地址会指向它，哈希不变）"
+} else {
+    Warn "国内 PyPI 文件镜像都探不通，依赖将直连 files.pythonhosted.org（可能很慢或失败）"
+}
+
 if ($env:UV_DEFAULT_INDEX -eq "https://pypi.tuna.tsinghua.edu.cn/simple") {
     if (-not (Test-IndexUrl $env:UV_DEFAULT_INDEX)) {
         $picked = ""
