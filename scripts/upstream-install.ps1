@@ -1220,6 +1220,79 @@ function Enable-PmWheelhouse {
     } catch { }
 }
 
+function Enable-LockMirror {
+    # HerMemory patch: uv downloads every wheel from the URLs recorded in
+    # uv.lock (https://files.pythonhosted.org/...). When that host does not
+    # resolve, the whole install dies with os error 11001/11002 -- and a mirror
+    # index cannot substitute, because `uv sync --locked` refuses a lockfile
+    # resolved against a different index. The domestic mirrors keep the same
+    # /packages/<xx>/<yy>/<hash>/<file> layout, so swapping the host keeps all
+    # sha256 checks intact. Verified locally: with files.pythonhosted.org
+    # blackholed and a cold uv cache, `uv sync --locked` installed 153
+    # packages from the mirror in 7 s.
+    $mirror = $env:HERMEMORY_PYPI_FILE_MIRROR
+    if (-not $mirror) { return }
+    try {
+        $f = Join-Path $InstallDir "uv.lock"
+        if (-not (Test-Path -LiteralPath $f)) { return }
+        $bak = "$f.hm-orig"
+        if (-not (Test-Path -LiteralPath $bak)) { Copy-Item $f $bak -Force }
+        $src = [IO.File]::ReadAllText($bak)
+        $host = $mirror.TrimEnd('/')
+        $out = $src.Replace("https://files.pythonhosted.org", $host)
+        if ($out -eq $src) { return }
+        [IO.File]::WriteAllText($f, $out, (New-Object System.Text.UTF8Encoding($false)))
+        Write-Ok "uv.lock -> $host"
+    } catch { }
+}
+
+function Restore-LockMirror {
+    try {
+        $f = Join-Path $InstallDir "uv.lock"
+        $bak = "$f.hm-orig"
+        if (Test-Path -LiteralPath $bak) { Copy-Item $bak $f -Force }
+    } catch { }
+}
+
+function Enable-NpmBinaryMirror {
+    # HerMemory patch: PM downloads git / node / CPython from GitHub or nodejs.org.
+    # In China those run at a few KB/s (or not at all). npmmirror keeps a
+    # content-identical binary CDN at /-/binary/<name>/<tag>/<file>; sha256 in
+    # the lock still verifies every byte, and the hermes-assets mirror stays as
+    # the fallback. Measured from a Chinese line: 12.4 MB/s vs 103 KB/s.
+    if ($env:HERMEMORY_NO_BINARY_MIRROR) { return }
+    try {
+        $f = Join-Path $InstallDir "pm\artifact_mirror.py"
+        if (-not (Test-Path -LiteralPath $f)) { return }
+        $src = Get-Content -LiteralPath $f -Raw
+        if ($src -match "_domestic") { return }
+        $fn = @'
+_NPMMIRROR = "https://registry.npmmirror.com/-/binary/"
+
+
+def _domestic(url: str) -> str:
+    """Rewrite upstream release URLs to the npmmirror binary CDN (China)."""
+    import re as _re
+    patterns = (
+        (r"https://github\.com/git-for-windows/git/releases/download/([^/]+)/(.+)$", "git-for-windows/"),
+        (r"https://github\.com/astral-sh/python-build-standalone/releases/download/([^/]+)/(.+)$", "python-build-standalone/"),
+        (r"https://nodejs\.org/dist/([^/]+)/(.+)$", "node/"),
+    )
+    for pattern, prefix in patterns:
+        m = _re.match(pattern, url)
+        if m:
+            return _NPMMIRROR + prefix + m.group(1) + "/" + m.group(2)
+    return url
+
+
+'@
+        $src = $src.Replace("def pinned_source(", $fn + "def pinned_source(")
+        $src = $src.Replace("    url = npm_registry_url(url, os.environ)", "    url = _domestic(npm_registry_url(url, os.environ))")
+        [IO.File]::WriteAllText($f, $src, (New-Object System.Text.UTF8Encoding($false)))
+        Write-Ok "artifact downloads: npmmirror binary CDN first"
+    } catch { }
+}
+
 function Invoke-BootstrapPm {
     $bootPy = Get-BootstrapPython
     Push-Location $InstallDir
@@ -1229,10 +1302,19 @@ function Invoke-BootstrapPm {
         # param() binding is not in $script: scope (see Initialize-ResolvedPaths).
         Enable-MirrorFirst
         Enable-PmWheelhouse
+        Enable-LockMirror
+        Enable-NpmBinaryMirror
         $pmArgs = @('install')
         if ($SkipBrowser) { $pmArgs += @('--without', 'agent-browser') }
         if ($SkipComputerUse) { $pmArgs += @('--without', 'cua-driver') }
         Invoke-Logged "Installing dependencies (hash-verified via uv.lock)" { & $bootPy -m pm.cli @pmArgs }
+        if ($LASTEXITCODE) {
+            # Mirror lockfile failed: restore the official URLs and retry once
+            # (the mirror may lack a version, or the official index may work).
+            Restore-LockMirror
+            Write-Warn "install failed with the mirror lockfile; retrying against the official index"
+            Invoke-Logged "Installing dependencies (official index)" { & $bootPy -m pm.cli @pmArgs }
+        }
         if ($LASTEXITCODE) { Fail "dependency install failed" deps_install_failed }
     } finally {
         Pop-Location
