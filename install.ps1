@@ -644,7 +644,11 @@ if ($workingCli -and $haveVer -eq $WantHermesVersion) {
         Warn "检测到内核痕迹，但 hermes CLI 无法运行（PM 环境可能已失效）→ 将重建内核与环境。"
     }
 
-    if (-not $IsOfflinePayload -and -not ((Test-NetUrl "https://github.com") -or (Test-NetUrl "https://hermes-assets.nousresearch.com"))) {
+    # 联网预检：GitHub 或 hermes-assets 任一可达即可；再加国内镜像（npmmirror/清华），
+    # 否则「能上网但 GitHub 不通」的机器会被误判成没网（2026-10-29 实测踩中）。
+    $netOk = (Test-NetUrl "https://github.com") -or (Test-NetUrl "https://hermes-assets.nousresearch.com") -or
+             (Test-NetUrl "https://registry.npmmirror.com") -or (Test-NetUrl "https://pypi.tuna.tsinghua.edu.cn")
+    if (-not $IsOfflinePayload -and -not $netOk) {
         Die ("无法联网：安装需要下载 Python / Node / 依赖（GitHub，或镜像 hermes-assets.nousresearch.com）。" +
              [Environment]::NewLine + "请检查网络或代理后重试。" +
              [Environment]::NewLine + "Windows 沙盒请在 .wsb 配置里启用 <Networking>Enable</Networking>。" +
