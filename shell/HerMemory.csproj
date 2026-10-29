@@ -97,7 +97,7 @@
     <!-- 运行时大件（git / python / node）：文件名就是 pm/lock.json 里的 sha256。
          安装时 install.ps1 把它们预置进 PM 的下载缓存（%LOCALAPPDATA%\hermes\tools\fetch-<sha>），
          PM 校验哈希后直接使用，不再联网下载——国内 200 KB/s 的线路最慢的就是这三个。 -->
-    <RuntimeArtifact Include="$(HmPayloadDir)\artifacts\*" Condition="Exists('$(HmPayloadDir)\artifacts')" />
+    <RuntimeArtifact Include="$(HmPayloadDir)\artifacts\*" Condition="Exists('$(HmPayloadDir)\artifacts') and '$(HmLean)' != 'true'" />
     <EmbeddedResource Include="@(RuntimeArtifact)" LogicalName="payload/artifacts/%(Filename)%(Extension)" />
     <!-- PM 自己运行时的 4 个 wheel（约 250 KB）：PM 引导固定走 PyPI 官方源且不吃镜像，
          国内 DNS 解析不了 files.pythonhosted.org 时安装会死在这里，随包离线装。 -->
@@ -123,7 +123,7 @@
            Text="安装器缺少 uv 版本戳：build\minimal\uv.version 不存在。请先运行 build-offline.ps1 -Tag v0.22.2。" />
     <!-- 运行时大件（git / python / node）按 sha256 命名，随包预置 PM 缓存。
          一个都没有就意味着 Setup 会退化成“全量联网下载”，国内用户会卡在 200 KB/s。 -->
-    <Error Condition="'@(RuntimeArtifact)' == ''"
+    <Error Condition="'@(RuntimeArtifact)' == '' and '$(HmLean)' != 'true'"
            Text="安装器缺少运行时大件：build\minimal\artifacts\ 为空。请先运行 build-offline.ps1 采集 git/python/node。" />
     <Error Condition="'@(PmWheel)' == ''"
            Text="安装器缺少 PM runtime wheel：build\minimal\pm-wheelhouse\ 为空。请运行 build-offline.ps1 采集。" />
