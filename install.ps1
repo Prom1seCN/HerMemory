@@ -27,6 +27,15 @@ param(
 # 控制台代码页自愈：系统全局 UTF-8（CP65001）下 PS5.1 会双写中文——无论从 bat 还是直接跑本脚本，先归位 GBK
 try { & chcp.com 936 2>$null | Out-Null } catch {}
 
+# 输出编码：安装向导把本进程的输出按行解码（UTF-8 优先、GBK 兜底），而上游安装器里
+# uv / git 输出的中文是 UTF-8。若这里仍按 GBK 写，中间那一跳会把它们解成乱码
+#（实拍：`os error 10061` 那一行整句变成「整菱跫議鍙ｆ湇鍔″櫒…」）。只在被重定向时统一 UTF-8，
+# 控制台直跑（install.bat）保持 GBK，行为不变。
+if ([Console]::IsOutputRedirected) {
+    try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false) } catch { }
+    try { $OutputEncoding = New-Object System.Text.UTF8Encoding($false) } catch { }
+}
+
 # ANSI 自愈（真解）：VT 控制台模式按句柄生效、子进程不继承，hermes 的彩色码在老 conhost 上必裸奔。
 # hermes 原生支持 no-color.org 标准——直接关掉它的颜色输出，任何控制台都干净（仅本安装进程内生效，不影响装好的系统）。
 $env:NO_COLOR = "1"

@@ -1,3 +1,8 @@
+# Encoding: uv and git write UTF-8. When our stdout is redirected (the GUI installer
+# captures it line by line and decodes UTF-8 first), keep the whole stream UTF-8 so their
+# Chinese text is not decoded as ANSI and re-emitted as mojibake.
+if ([Console]::IsOutputRedirected) { try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false) } catch { } }
+
 # Hermes Agent bootstrap: git checkout + venv + hermes command on PATH.
 # Heavy dependencies (tool binaries, browsers, node) are pm's job after
 # this: `hermes pm install`. Stage protocol kept for Hermes-Setup:
@@ -733,7 +738,7 @@ function Invoke-Logged {
         # failure reason can name the cause.
         # Named -TypeName: a positional New-Object binds to callers' New-Object shims.
         $outputLines = New-Object -TypeName 'System.Collections.Generic.Queue[string]'
-        Invoke-Native { & $NativeBlock 2>&1 } | ForEach-Object {
+        Invoke-Native -Utf8Output { & $NativeBlock 2>&1 } | ForEach-Object {
             $outputLines.Enqueue("$_")
             if ($outputLines.Count -gt 20) { [void]$outputLines.Dequeue() }
             if ($_ -is [System.Management.Automation.ErrorRecord]) { [Console]::Error.WriteLine("$_") }
@@ -750,7 +755,7 @@ function Invoke-Logged {
     try {
         $logWriter.WriteLine("==> $StatusLabel ($((Get-Date).ToUniversalTime().ToString('s'))Z)")
         Write-StatusLine $StatusLabel $columns
-        Invoke-Native { & $NativeBlock 2>&1 } | ForEach-Object {
+        Invoke-Native -Utf8Output { & $NativeBlock 2>&1 } | ForEach-Object {
             $outputLine = "$_".TrimEnd("`r")
             $logWriter.WriteLine($outputLine)
             $recentLines.Enqueue($outputLine)
