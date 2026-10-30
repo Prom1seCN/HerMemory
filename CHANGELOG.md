@@ -24,10 +24,18 @@
 - 「API 设置」新增「什么是 API Key？」入口，应用内直接阅读 `docs/GET-API-KEY.md`。
 - 三处位置分开选：程序安装位置、数据存储位置、**AI记忆位置**（装完固定）。
 - 内核 bundle 内置，运行环境（Python / Node / 依赖）联网从国内镜像取。
+- **国内免梯子**：git / CPython / Node 走 npmmirror 的二进制 CDN（实测 12.4 MB/s），PyPI 走清华、npm 走 npmmirror；
+  hermes-assets 只作兜底，并修掉了「优先解析 IPv6 导致每个大件空转 25 秒握手超时」的问题。
+- **ffmpeg（161 MB）与 ripgrep 随包内置**：ffmpeg 没有可用的国内镜像，随包才保证国内装得完。
+- **随包大件打成一个 zip 内嵌**（`payload/payload.zip`）：`Setup.exe` 从 430.8 MB 降到 403 MB。
+- **修正失败页的中文乱码**：uv / git 的 UTF-8 输出此前被按 GBK 解码，`os error 10061` 会显示成「整菱跫議鍙ｆ湇鍔…」。
+- Windows 沙盒实测：国内网络（GitHub / 官方 PyPI 都不通）下全新安装 5.5–14 分钟装完。
 - 开机自启默认开启；「浏览器与电脑操作能力」可选（约 500 MB，可稍后补装）。
 - 支持 0.1.0 → 0.2.0 的内核升级：停旧网关 → 备份配置与 `.env` → 旧内核改名保留 → 干净重装 → 重建网关任务 → 预填原有 API Key。
 - Linux / NAS：`bash install.sh` 交互安装；`HERMEMORY_HEADLESS=1 bash install.sh` 无交互装完再自己配；
   运维命令见 `docs/LINUX.md`，微信/终端命令见 `docs/COMMANDS.md`。
+- Linux 侧同步落地国内镜像（node / CPython → npmmirror，IPv4 优先），并用 `hermes-agent.upstream-commit`
+  把内核钉在上游 **v0.22.2**（不钉会装成 main 上的最新版）；Ubuntu 24.04 容器里全流程实测通过。
 
 ### 界面（v0.3）
 
