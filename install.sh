@@ -227,6 +227,13 @@ else
     if [ -z "$PINNED_HERMES_COMMIT" ] && [ -f "$SRC/hermes-agent.commit" ]; then
         PINNED_HERMES_COMMIT="$(tr -d '[:space:]' < "$SRC/hermes-agent.commit" 2>/dev/null || true)"
     fi
+    # 没有随包 bundle 时，快照提交（hermes-agent.commit）在 GitHub 上根本不存在——只存在于
+    # bundle 里。这时改钉「真实上游提交」，Linux 装出来的才是锁定的 v0.22.2，而不是上游 main
+    # 的最新版（2026-10-30 容器实测：没这一步装成了 v0.22.5）。
+    if [ -z "$KERNEL_BUNDLE" ] && [ -f "$SRC/hermes-agent.upstream-commit" ]; then
+        PINNED_HERMES_COMMIT="$(tr -d '[:space:]' < "$SRC/hermes-agent.upstream-commit" 2>/dev/null || true)"
+        log "内核来源为 GitHub：钉住上游提交 ${PINNED_HERMES_COMMIT:0:12}（$PINNED_HERMES_TAG）"
+    fi
 
     # 浏览器与电脑操作：默认装。设 HERMEMORY_SKIP_BROWSER=1 / HERMEMORY_SKIP_COMPUTER_USE=1 可跳过
     # （上游会把选择记进 declined-packages.json，之后 hermes update 也不会加回来）。
@@ -689,8 +696,10 @@ _cfg_has() {
     esac
 }
 if [ -f "$HERMES_HOME/.env" ]; then
-    _olb="$(grep -E '^(export )?OPENAI_BASE_URL=' "$HERMES_HOME/.env" | head -1 | sed -E 's/^(export )?OPENAI_BASE_URL=//' | tr -d '\r' | tr -d '"')"
-    _okey="$(grep -E '^(export )?OPENAI_API_KEY=' "$HERMES_HOME/.env" | head -1 | sed -E 's/^(export )?OPENAI_API_KEY=//' | tr -d '\r' | tr -d '"')"
+    # 尾部 `|| true`：set -o pipefail 下 grep 没匹配到就是非零，会让整个脚本静默退出
+    # （2026-10-30 容器实测：没有 OPENAI_BASE_URL 时安装到微信那步后无声 EXIT=1）。
+    _olb="$(grep -E '^(export )?OPENAI_BASE_URL=' "$HERMES_HOME/.env" | head -1 | sed -E 's/^(export )?OPENAI_BASE_URL=//' | tr -d '\r' | tr -d '"' || true)"
+    _okey="$(grep -E '^(export )?OPENAI_API_KEY=' "$HERMES_HOME/.env" | head -1 | sed -E 's/^(export )?OPENAI_API_KEY=//' | tr -d '\r' | tr -d '"' || true)"
     if [ -n "$_olb" ] && [ -n "$_okey" ] && [ "${_olb#*api.openai.com}" = "$_olb" ]; then
         _cfg_complete=0
         if _cfg_has model.base_url && _cfg_has model.api_key && _cfg_has model.default; then
