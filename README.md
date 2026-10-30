@@ -134,29 +134,31 @@ Hermes 内核的全部能力，加上为日常对话与写作做的取舍。
 
 ### 💻 方式 A：Windows PC（推荐）
 
-1. 下载最新的 **`Setup.exe`**。
-2. 双击启动图形向导：
-   - **环境预检**：自动检测基础依赖。
-   - **安装位置**：分别选择程序、运行数据与记忆库放在哪（仅首次安装可选）；同页还有「开机自动启动」与「浏览器与电脑操作」（约 500 MB，默认装，日后可补装）两个勾选项。
-   - **安装**：内核从随包 bundle 落位，运行环境（Python / Node / 依赖）现场从国内镜像下载。
-   - **记忆与 API**：选记忆档位，填入兼容 OpenAI 协议的模型 API Key。
-   - **微信扫码**：自动唤起浏览器展示二维码，微信扫码绑定。
-3. AI启动，程序收至系统托盘，去微信打第一声招呼。
-4. AI 自我介绍，带你认识记忆文件，并请你亲手改一次规则。
+**要求**：Windows 10 2004+ / Windows 11（x64）；安装过程需要联网；磁盘约 2–4.5 GB（取决于是否勾选「浏览器与电脑操作」）。
+
+1. 下载最新的 **`Setup.exe`**（约 403 MB，内核、uv、ffmpeg、ripgrep 已内嵌，不需要另装任何环境）。
+2. 双击运行（安装包无代码签名，SmartScreen 弹「Windows 已保护你的电脑」时点「更多信息 → 仍要运行」）：
+   - **环境预检** → **安装位置**：程序 / 运行数据 / 记忆库三处分开，仅首次安装可选；同页可勾「开机自动启动」与「浏览器与电脑操作」（约 500 MB，默认勾，日后可补装）。
+   - **安装**：内核与 ffmpeg/ripgrep 从随包落位；git、CPython、Node 走 npmmirror，Python 依赖走清华，npm 走 npmmirror——**国内不用梯子**。
+   - 装完启动程序，再在应用里完成「连接 AI → 绑定微信 → 发第一句话」。
+3. 实测：国内网络（GitHub / PyPI 官方源都不通）下，Windows 沙盒全新安装 **5.5–14 分钟**装完。
+
+> **沙盒里测试安装**：`.wsb` 必须写 `<Networking>Enable</Networking>`；并且**宿主机开着 Clash / v2ray 等代理时沙盒会断网**——代理设置会被带进沙盒，但沙盒里没有代理进程，表现是 `tunnel error ... 10061`。测之前先关掉宿主代理。
 
 ### 🐧 方式 B：Linux 服务器 / NAS
 
-具备 `git` 与 `curl` 环境即可一键拉起：
+**要求**：Ubuntu 22.04 / 24.04、Debian 12+ 或主流 NAS；**普通用户**（安装器拒绝 root）；已装 `git` 与 `curl`（`sudo apt install git curl`）；约 3 GB 磁盘。
 
 ```bash
 git clone https://github.com/Prom1seCN/HerMemory.git
 cd HerMemory
-bash install.sh
+bash install.sh                        # 交互式：记忆档位 → API Key → 微信扫码
+HERMEMORY_HEADLESS=1 bash install.sh   # 无交互（装完自己跑 hermes model / hermes gateway setup）
 ```
 
-按交互提示选择记忆容量档位、录入 API Key，脚本跑通后即刻上线。
-不想走问答可无交互安装：`HERMEMORY_HEADLESS=1 bash install.sh`。
-装完后的运维命令（网关、日志、备份、卸载）见 [docs/LINUX.md](docs/LINUX.md)，微信里能发的命令见 [docs/COMMANDS.md](docs/COMMANDS.md)。
+- **内核来源**：仓库里不带 `hermes-agent.bundle`，默认从 GitHub clone；把 bundle 放到仓库根目录即可免 clone。
+- **国内镜像**：PyPI 走清华、npm 与 CPython 走 npmmirror；但 git / Node / ffmpeg 这些制品仍从 GitHub 与 hermes-assets 取，**国内无梯子会很慢（实测约 100 KB/s）**，建议有代理的环境安装。
+- 装完没有桌面程序，日常在微信里用；网关常驻、日志、备份与卸载见 [docs/LINUX.md](docs/LINUX.md)。
 
 <div align="center">
 

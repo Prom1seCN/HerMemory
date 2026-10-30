@@ -11,9 +11,9 @@ HerMemory. Your memory.
 - Windows 10 / 11
 - 只需要安装包 `Setup.exe` 一个文件，无需预装 git、Python、Node 等任何工具（内核源码与 uv 已内嵌）
 - 首次运行 Windows 可能弹「Windows 已保护你的电脑」：点「更多信息」→「仍要运行」。安装包没有代码签名，这是 SmartScreen 的常规提示；个别杀软会把自解压的单文件 exe 误报，恢复并加入信任即可
-- **默认走国内镜像**：PM 的下载顺序被改成「先 hermes-assets 镜像、GitHub 后备」（哈希校验不变）；PyPI 走清华、npm 与 CPython 走 npmmirror。git / python / node 三个大件（149 MB）已内置在 `Setup.exe` 里，安装时直接校验使用，不联网下载。
-- **安装过程中需要联网**：Python 3.14、Node、Chromium（可选）与 Python 依赖由安装器现场下载，走官方 sha256 镜像与国内源（清华 PyPI / npmmirror）。GitHub 不通时会自动回退 `hermes-assets.nousresearch.com` 镜像；两个都连不上时安装器会在开始前直接报「无法联网」，不会装到一半才失败
-- **Windows 沙盒里测试**：`.wsb` 配置需要 `<Networking>Enable</Networking>`，否则沙盒内没有任何 TCP 出口，下载必然失败（这与 HerMemory 无关）。宿主机走代理时，沙盒不会自动继承，运行安装包前先在沙盒里设置：`set HTTPS_PROXY=http://<宿主机IP>:<端口>`（cmd）或 `$env:HTTPS_PROXY=...`（PowerShell），`HTTP_PROXY` 同理
+- **默认走国内镜像**：PM 的下载顺序改成「国内镜像优先、hermes-assets 兜底」（sha256 校验不变）；git / CPython / Node 从 npmmirror 的二进制 CDN 取（实测 12.4 MB/s），PyPI 走清华、npm 走 npmmirror。**ffmpeg（161 MB）与 ripgrep 已内置在 `Setup.exe` 里**，安装时直接校验使用，不联网下载——ffmpeg 没有可用的国内镜像（npmmirror 只有版本不符的官方构建）。
+- **安装过程中需要联网**：CPython 3.14 与 Node 从 npmmirror 的二进制 CDN 取，Python 依赖走清华 PyPI，Chromium（可选）走 npm/官方源；只有在国内源不可用时才回退 `hermes-assets.nousresearch.com`（约 100 KB/s）。连不上时会先做联网预检并直接报「无法联网」，不会装到一半才失败
+- **Windows 沙盒里测试**：`.wsb` 必须写 `<Networking>Enable</Networking>`，否则沙盒无 TCP 出口。**宿主机开着 Clash / v2ray 等代理时沙盒会断网**：宿主把 `127.0.0.1:7897` 这类代理设置带进沙盒，但沙盒里没有代理进程，uv 会报 `tunnel error ... 10061`。测之前先关宿主代理（关掉后沙盒直连正常，实测可装完）
 - 需要同意一次管理员授权（向导预检阶段弹出，用于创建符号链接与写入程序目录）。已开启开发者模式（设置 → 更新与安全 → 开发者选项）时不会因符号链接而请求提权
 - 默认装到 `C:\Program Files\HerMemory`（几十 MB，程序本体），运行时与数据放在 `%LOCALAPPDATA%\hermes`，记忆库在 `%USERPROFILE%\vault`。三个位置都能在向导的「安装位置」页改，**仅首次安装可选**
 - 磁盘占用随「浏览器与电脑操作」勾选变化：勾选约 3.5–4.5 GB，不勾约 2–2.5 GB。建议预留 6 GB。数据位置所在磁盘剩余不足 3 GB、或程序位置所在磁盘不足 1 GB 时，该位置会被拒绝并说明原因
@@ -23,7 +23,7 @@ HerMemory. Your memory.
 - Ubuntu 22 / 24 或主流 NAS
 - 普通用户账号（安装器拒绝以 root 运行）
 - 已装 git 与 curl：`sudo apt install git curl`
-- 需要可访问 GitHub 与 PyPI（内核与依赖由上游安装器现场取；把 `hermes-agent.bundle` 放在仓库根可免 clone）
+- 需要能访问 GitHub（内核 clone 与 git / Node / ffmpeg 等制品；把 `hermes-agent.bundle` 放在仓库根可免 clone）；PyPI 与 npm 已走国内镜像，但 GitHub 慢时整体仍会很慢（实测约 100 KB/s，建议用代理）
 - 安装过程中需要输入一次 sudo 密码
 
 Base URL 与 Key 不必提前准备，安装流程会引导填写。HerMemory 不指定服务商：任何 OpenAI 兼容接口均可。
