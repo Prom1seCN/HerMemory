@@ -12,8 +12,8 @@
 ## 二、下载与校验
 
 - 文件：`Setup.exe`，约 **403 MB**
-- SHA256：`01C5120D0B07A5A2BE93913F42AA9EE3EE1CAFFBBEA38A55A264A3410CBA2E1C`
-- 校验方法（PowerShell）：`Get-FileHash .\Setup.exe -Algorithm SHA256`
+- SHA256：以发行页上公布的那一串为准（每个构建都不同，别用别处抄来的）
+- 校验方法（PowerShell）：`Get-FileHash .\Setup.exe -Algorithm SHA256`，与发行页逐字符对比
 
 ## 三、安装
 
