@@ -156,8 +156,9 @@ bash install.sh                        # 交互式：记忆档位 → API Key �
 HERMEMORY_HEADLESS=1 bash install.sh   # 无交互（装完自己跑 hermes model / hermes gateway setup）
 ```
 
-- **内核来源**：仓库里不带 `hermes-agent.bundle`，默认从 GitHub clone；把 bundle 放到仓库根目录即可免 clone。
-- **国内镜像**：PyPI 走清华、npm 与 CPython 走 npmmirror；但 git / Node / ffmpeg 这些制品仍从 GitHub 与 hermes-assets 取，**国内无梯子会很慢（实测约 100 KB/s）**，建议有代理的环境安装。
+- **内核来源**：仓库里不带 `hermes-agent.bundle`，默认从 GitHub clone，并用随仓库的 `hermes-agent.upstream-commit` 钉住上游 **v0.22.2**（不会装成 main 上的最新版）；把 bundle 放到仓库根目录即可免 clone。
+- **国内镜像**：PyPI 走清华、npm 与 **Node / CPython 走 npmmirror**（已改写到 PM 的下载层，sha256 校验不变）；**uv 与 ffmpeg 仍从 GitHub 取**，这两个大件在国内无梯子时会慢（约 100 KB/s）。
+- **实测**：Ubuntu 24.04 容器里跑完整流程通过，`hermes --version` 为 v0.22.2，`hermes pm doctor` 除可选项外全绿。
 - 装完没有桌面程序，日常在微信里用；网关常驻、日志、备份与卸载见 [docs/LINUX.md](docs/LINUX.md)。
 
 <div align="center">

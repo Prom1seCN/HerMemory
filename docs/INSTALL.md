@@ -23,7 +23,10 @@ HerMemory. Your memory.
 - Ubuntu 22 / 24 或主流 NAS
 - 普通用户账号（安装器拒绝以 root 运行）
 - 已装 git 与 curl：`sudo apt install git curl`
-- 需要能访问 GitHub（内核 clone 与 git / Node / ffmpeg 等制品；把 `hermes-agent.bundle` 放在仓库根可免 clone）；PyPI 与 npm 已走国内镜像，但 GitHub 慢时整体仍会很慢（实测约 100 KB/s，建议用代理）
+- 需要能访问 GitHub（内核 clone，以及 uv / ffmpeg 两个制品；把 `hermes-agent.bundle` 放在仓库根可免 clone）。内核默认钉上游 v0.22.2（随仓库的 `hermes-agent.upstream-commit`）；PyPI、npm、Node、CPython 都走国内镜像，sha256 校验不变
+- 图形库：默认会装「浏览器与电脑操作」里的 `cua-driver`，它依赖 X11/GL 一组库；headless 服务器要么先装依赖，要么跳过：
+  `sudo apt install -y libxi6 libxtst6 libxkbcommon0 libxkbcommon-x11-0 libgl1 libegl1 libgbm1 libdrm2`
+  或 `HERMEMORY_SKIP_COMPUTER_USE=1 bash install.sh`（之后可 `hermes pm install cua-driver` 补装）
 - 安装过程中需要输入一次 sudo 密码
 
 Base URL 与 Key 不必提前准备，安装流程会引导填写。HerMemory 不指定服务商：任何 OpenAI 兼容接口均可。

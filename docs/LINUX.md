@@ -5,11 +5,23 @@ Linux 上没有桌面程序：装完就在终端和微信里用。这份文档�
 
 ## 一、安装、升级、重装
 
+**系统依赖**（Ubuntu / Debian 系一行装齐）：
+
+```bash
+sudo apt install -y git curl ca-certificates \
+  libxi6 libxtst6 libxkbcommon0 libxkbcommon-x11-0 libgl1 libegl1 libgbm1 libdrm2
+```
+
+后面那串图形库只有「电脑操作」（cua-driver）用得到；纯 server 也可以跳过它：
+`HERMEMORY_SKIP_COMPUTER_USE=1 bash install.sh`（日后 `hermes pm install cua-driver` 补装）。
+
 ```bash
 git clone https://github.com/Prom1seCN/HerMemory.git
 cd HerMemory
 bash install.sh          # 需要交互式终端；中途 Ctrl+C 可退出，重跑会从断点继续
 ```
+
+内核默认钉上游 **v0.22.2**（用仓库里的 `hermes-agent.upstream-commit`），不会装成 main 最新版。
 
 **升级**：进到同一个仓库目录，`git pull` 后重跑 `bash install.sh`。
 已完成步骤自动跳过；内核版本不一致时会走升级分支，记忆与配置保留。
