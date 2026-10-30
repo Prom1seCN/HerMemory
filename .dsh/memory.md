@@ -185,6 +185,28 @@ PC 上 `D:\Projects\HerMemory\.sandbox-out\` 是整套沙盒夹具：
 2. `Invoke-Logged` 的两处 `Invoke-Native` 加 `-Utf8Output`。
 注意：编码头**必须写在 `param()` 之后**——放脚本开头会让整个脚本解析失败（`param` 必须是第一条语句）。
 
+## Linux 安装（容器实测）
+
+没有桌面程序，也没有单文件安装包：`git clone` 仓库 → `bash install.sh`（交互）或
+`HERMEMORY_HEADLESS=1 bash install.sh`（无交互）。整条链在 Ubuntu 24.04 容器里跑通：
+`hermes --version` = v0.22.2、`hermes pm doctor` 除可选项外全绿、gateway 服务装好。
+
+**内核钉法**：Windows 随包 bundle 的 `hermes-agent.commit` 是**快照提交**，GitHub 上不存在；
+Linux 走 clone 时必须改用仓库根目录的 `hermes-agent.upstream-commit`（真实上游 v0.22.2 提交
+d923a5eb）。没有这一步会装成上游 main 的最新版（实测装成了 v0.22.5）。
+
+**国内镜像**：`scripts/patch_pm_mirror.py` 在 pm install 前改写 `pm/artifact_mirror.py`
+（`_domestic()` + `# DOMESTIC_FIRST`）与 `pm/downloader.py`（`IPV4_FIRST`），与 Windows 同一套逻辑。
+node / CPython（含 musl 变体）改写到 npmmirror；**uv 与 ffmpeg 仍从 GitHub 取**——npmmirror 只有
+版本不符的 ffmpeg-builds，这条无解。
+
+**图形库**：默认工具 `cua-driver` 依赖 X11/GL：
+`libxi6 libxtst6 libxkbcommon0 libxkbcommon-x11-0 libgl1 libegl1 libgbm1 libdrm2`。
+headless 服务器要么先装，要么 `HERMEMORY_SKIP_COMPUTER_USE=1`（事后 `hermes pm install cua-driver` 补）。
+
+**坑**：`set -euo pipefail` 下 `x="$(grep ... | head -1 | ...)"` 在 grep 无匹配时会让整个脚本
+**静默退出**（实测：没有 OPENAI_BASE_URL 时，装到微信那一步后无声 EXIT=1）。这类赋值要带 `|| true`。
+
 ## 托盘状态轮询（2026-10-25 事故）
 
 **症状**：托盘图标每隔几秒闪一下；`agent.log` 每 10 秒一条 "Plugin discovery complete"；
