@@ -176,7 +176,9 @@ PC 上 `D:\Projects\HerMemory\.sandbox-out\` 是整套沙盒夹具：
   没有进程，于是 uv 报 `tunnel error ... 10061`、DNS 也只剩一半。**测之前先关代理**（关掉后沙盒直连正常）。
 - 实测成功三次：403 MB 的 Setup.exe，沙盒内全流程 **5.5～14 分钟**装完到「安装完成」页；
   其中一次还额外钉死了 github.com 并给了个死掉的 python 镜像，仍然装完（CPython 走 npmmirror）。
-  **验收通过的产物＝`build\Setup.exe`（403.0 MB，sha256 `01C5120D…2E1C`，构建于 2026-10-30 01:24，含编码修复）。**
+  **验收通过的产物＝`build\Setup.exe`（403.0 MB）。发行版的最终产物在 tag `v0.2.0`（`b723c4a`）上重新构建：
+sha256 `8713D644E7AF0BE7967D10E58E6BB8EA9FB27A1B909F0F9CA3D9585BBB53DD86`，2026-10-30 23:15 构建，
+打包核对：42 个资源、payload.zip 264.19 MB / 13 entries / 292 MB。**
 
 **中文乱码（生僻字）根因与修法**：上游安装器把 uv 的 stderr（UTF-8）按 GBK 解码，再拼进失败信息，
 显示成「整菱跫議鍙ｆ湇鍔…」。修法两层：
