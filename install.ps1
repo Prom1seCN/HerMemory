@@ -1198,6 +1198,10 @@ if ($_r.Code -eq 0) { Ok "时间注入已开启：每条用户消息头部自动
 else { Die ("gateway.message_timestamps.enabled 写入失败。" + (Show-Tail $_r.Out)) }
 $_r = Run-QOut $HermesCli config set display.language zh
 if ($_r.Code -eq 0) { Ok "界面语言：中文" } else { Warn ("display.language 写入失败（非致命）" + (Show-Tail $_r.Out)) }
+# 进程级兜底：配置写在用户目录，网关/子进程若在写入前启动会缓存英文；环境变量优先级更高，
+# 让之后启动的一切都以中文解析文案（含硬编码活动描述的中文化补丁）。
+try { [Environment]::SetEnvironmentVariable("HERMES_LANGUAGE", "zh", "User") } catch { }
+$env:HERMES_LANGUAGE = "zh"
 $_r = Run-QOut $HermesCli config set display.timestamps true
 if ($_r.Code -eq 0) { Ok "对话时间标签 [HH:MM]：已开启" } else { Warn ("display.timestamps 写入失败（非致命）" + (Show-Tail $_r.Out)) }
 

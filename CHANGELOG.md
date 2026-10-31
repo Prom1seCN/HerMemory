@@ -24,6 +24,9 @@
 - 「API 设置」新增「什么是 API Key？」入口，应用内直接阅读 `docs/GET-API-KEY.md`。
 - 三处位置分开选：程序安装位置、数据存储位置、**AI记忆位置**（装完固定）。
 - 内核 bundle 内置，运行环境（Python / Node / 依赖）联网从国内镜像取。
+- **中文界面补全覆盖**：Hermes 的静态文案本来就有完整中文目录（3000+ 条），但运行时状态描述是硬编码英文
+  （`receiving stream response`、`tool completed: ...`）会漏进微信状态行；现在安装时打一层本地化补丁，
+  并持久化 `HERMES_LANGUAGE=zh`，重定向提示与心跳都变成「↪ 已重定向当前运行 （已用时 2 分钟，第 2/150 轮迭代，正在运行：terminal）」。
 - **国内免梯子**：git / CPython / Node 走 npmmirror 的二进制 CDN（实测 12.4 MB/s），PyPI 走清华、npm 走 npmmirror；
   hermes-assets 只作兜底，并修掉了「优先解析 IPv6 导致每个大件空转 25 秒握手超时」的问题。
 - **ffmpeg（161 MB）与 ripgrep 随包内置**：ffmpeg 没有可用的国内镜像，随包才保证国内装得完。

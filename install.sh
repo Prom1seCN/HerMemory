@@ -423,6 +423,12 @@ hermes config set gateway.message_timestamps.enabled true >/dev/null 2>&1 \
 hermes config set display.language zh >/dev/null 2>&1 \
     && ok "界面语言：中文" \
     || warn "display.language 写入失败（非致命）"
+# 进程级兜底：配置写在 HERMES_HOME，网关若在写入前启动会缓存英文；环境变量优先级更高，
+# 顺带让硬编码活动描述的中文化补丁生效。
+if ! grep -q 'HERMES_LANGUAGE' "$HOME/.bashrc" 2>/dev/null; then
+    printf '\nexport HERMES_LANGUAGE=zh\n' >> "$HOME/.bashrc" 2>/dev/null || true
+fi
+export HERMES_LANGUAGE=zh
 hermes config set display.timestamps true >/dev/null 2>&1 \
     && ok "对话时间标签 [HH:MM]：已开启" \
     || warn "display.timestamps 写入失败（非致命）"
@@ -782,6 +788,9 @@ if $GW_TIMEOUT hermes gateway install --start-now --start-on-login < /dev/null >
     # unit 文件在用户自己的 ~/.config 下——直接改写即可，用 sudo 反而会在无免密环境静默失败
     for unit in "$HOME/.config/systemd/user/"*hermes*.service; do
         [ -f "$unit" ] || continue
+        if ! grep -q "^Environment=HERMES_LANGUAGE=" "$unit"; then
+            echo "Environment=HERMES_LANGUAGE=zh" >> "$unit" 2>/dev/null || true
+        fi
         if grep -q "^WorkingDirectory=" "$unit"; then
             sed -i "s|^WorkingDirectory=.*|WorkingDirectory=$HOME|" "$unit" \
                 && ok "服务 WorkingDirectory 固定为 \$HOME（AGENTS.md 目录链单点）：$unit" \

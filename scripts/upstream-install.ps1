@@ -1229,6 +1229,21 @@ function Enable-MirrorFirst {
     } catch { }
 }
 
+function Enable-ZhActivity {
+    # HerMemory patch: the "what is the agent doing" descriptions are hardcoded English
+    # (receiving stream response / tool completed: ...), so they leak into the WeChat and
+    # terminal status lines even with display.language=zh. One hook at
+    # bound_activity_description() translates them; non-zh languages are untouched.
+    try {
+        $script = Join-Path $PSScriptRoot "patch_i18n_zh.py"
+        if (-not (Test-Path -LiteralPath $script)) { return }
+        $py = Get-BootstrapPython
+        if (-not $py) { return }
+        & $py $script $InstallDir 2>&1 | Out-Null
+        if ($LASTEXITCODE -eq 0) { Write-Ok "界面文案：活动描述中文化" }
+    } catch { }
+}
+
 function Enable-Ipv4First {
     # HerMemory patch: python resolves the AAAA record first, and a Chinese line
     # blackholes IPv6 to overseas CDNs, so each urllib request to hermes-assets
@@ -1375,6 +1390,7 @@ function Invoke-BootstrapPm {
         Enable-LockMirror
         Enable-NpmBinaryMirror
         Enable-Ipv4First
+        Enable-ZhActivity
         $pmArgs = @('install')
         if ($SkipBrowser) { $pmArgs += @('--without', 'agent-browser') }
         if ($SkipComputerUse) { $pmArgs += @('--without', 'cua-driver') }

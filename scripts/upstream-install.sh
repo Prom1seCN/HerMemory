@@ -872,6 +872,9 @@ bootstrap_pm() {
         if ! "$boot_py" "$_hm_patch" "$INSTALL_DIR"; then
             log_warn "HerMemory China mirror patch failed; using upstream download order"
         fi
+        # 活动描述中文化（status 行里的 receiving stream response 等硬编码英文）
+        _hm_i18n="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/patch_i18n_zh.py"
+        [ -f "$_hm_i18n" ] && "$boot_py" "$_hm_i18n" "$INSTALL_DIR" >/dev/null 2>&1 || true
         run_logged "Installing dependencies (hash-verified via uv.lock)" \
             "$boot_py" -m pm.cli "${pm_args[@]}"
     ) || fail "pm install failed" deps_install_failed
