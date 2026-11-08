@@ -1,4 +1,4 @@
-# HerMemory edition: vendored from Hermes Agent v0.23.0
+﻿# HerMemory edition: vendored from Hermes Agent v0.23.0
 # (commit 2bd378ed1b8d6bf2192cb26e0a55ff3091e6bd19), plus the HerMemory patch set.
 #
 # Hermes Agent bootstrap: git checkout + venv + hermes command on PATH.
@@ -1543,11 +1543,13 @@ function Enable-LockMirror {
         $bak = "$f.hm-orig"
         if (-not (Test-Path -LiteralPath $bak)) { Copy-Item $f $bak -Force }
         $src = [IO.File]::ReadAllText($bak)
-        $host = $mirror.TrimEnd('/')
-        $out = $src.Replace("https://files.pythonhosted.org", $host)
+        # $host is PowerShell's read-only automatic variable; assigning to it
+        # throws and the catch below silently leaves uv.lock on pythonhosted.
+        $mirrorHost = $mirror.TrimEnd('/')
+        $out = $src.Replace("https://files.pythonhosted.org", $mirrorHost)
         if ($out -eq $src) { return }
         [IO.File]::WriteAllText($f, $out, (New-Object System.Text.UTF8Encoding($false)))
-        Write-Ok "uv.lock -> $host"
+        Write-Ok "uv.lock -> $mirrorHost"
     } catch { }
 }
 
