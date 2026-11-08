@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 
@@ -63,6 +63,7 @@ namespace HerMemory
             var miMain = new System.Windows.Forms.ToolStripMenuItem("打开主界面", null, (_, _) => OpenMain?.Invoke());
             var miEditor = new System.Windows.Forms.ToolStripMenuItem("编辑记忆…", null, (_, _) => OpenEditor?.Invoke());
             var miWeixin = new System.Windows.Forms.ToolStripMenuItem("微信绑定…", null, (_, _) => OpenWeixin?.Invoke());
+            var miWeb = new System.Windows.Forms.ToolStripMenuItem("打开 Web 面板", null, (_, _) => WebPanel.Open());
             var miUnins = new System.Windows.Forms.ToolStripMenuItem("卸载…", null, (_, _) => OpenUninstall?.Invoke());
             var miAuto = new System.Windows.Forms.ToolStripMenuItem("开机自启", null, (_, _) => ToggleAutostart())
             {
@@ -98,6 +99,7 @@ namespace HerMemory
             _menu.Items.Add(miMain);
             _menu.Items.Add(miEditor);
             _menu.Items.Add(miWeixin);
+            _menu.Items.Add(miWeb);
             _menu.Items.Add(miUnins);
             _menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
             _menu.Items.Add(miAuto);

@@ -26,7 +26,8 @@ param(
     [string]$Configuration = "Release",
     [switch]$SkipApp,         # 跳过程序本体发布。仅在「程序本体未改动」时可用；改过 C# 就一定要重发。
     [switch]$SkipPrivacyGate  # 仅当闸门误报、且你已确认那是误报时才用。别拿它当常规开关。
-    ,[switch]$ClassicApp      # 用旧的 WPF 主程序（自绘界面）。默认用 shell-lite 托盘薄壳 + Web 面板。
+    ,[switch]$TrayApp         # 用 shell-lite 托盘薄壳（界面全交给 Web 面板）。默认是 WPF 控制界面。
+    ,[switch]$ClassicApp      # 兼容旧参数：ClassicApp 就是默认行为（WPF 控制界面），保留不报错。
 )
 $ErrorActionPreference = "Stop"
 
@@ -109,7 +110,7 @@ function New-PayloadZip([string]$PayloadDir, [string]$ZipPath) {
 
 # ---- 1. 程序本体 ----
 $TrayProject = Join-Path $Root "shell-lite\HerMemoryTray.csproj"
-$UseTray = (-not $ClassicApp) -and (Test-Path $TrayProject)
+$UseTray = $TrayApp.IsPresent -and (Test-Path $TrayProject)
 if (-not $SkipApp) {
     if ($UseTray) {
         Step "2/3 发布程序本体（托盘薄壳 shell-lite，界面交给 Web 面板）"
