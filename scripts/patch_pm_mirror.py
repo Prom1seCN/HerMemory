@@ -27,6 +27,8 @@ def _domestic(url: str) -> str:
     """Rewrite upstream release URLs to the npmmirror binary CDN (China)."""
     import re as _re
     patterns = (
+        # Windows 的 PM 也会把 git 当工具下载（PortableGit）；npmmirror 有同路径镜像。
+        (r"https://github\\.com/git-for-windows/git/releases/download/([^/]+)/(.+)$", "git-for-windows/"),
         (r"https://github\\.com/astral-sh/python-build-standalone/releases/download/([^/]+)/(.+)$", "python-build-standalone/"),
         (r"https://nodejs\\.org/dist/([^/]+)/(.+)$", "node/"),
         (r"https://unofficial-builds\\.nodejs\\.org/download/release/([^/]+)/(.+)$", "node/"),

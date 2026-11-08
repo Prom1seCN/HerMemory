@@ -883,12 +883,24 @@ if ($workingCli -and $haveVer -eq $WantHermesVersion) {
     $ErrorActionPreference = "Continue"   # 原生命令的 stderr 在 Stop 下会变成终止性错误
     $upExit = -1
     try {
+        # 落一份完整日志：GUI 模式下上游不分流到文件，用户/我们排障时无据可查。
+    $hmLogDir = Join-Path $HermesHome "logs"
+    try { New-Item -ItemType Directory -Force -Path $hmLogDir | Out-Null } catch { }
+    $hmLogPath = Join-Path $hmLogDir "install.log"
+    $hmLog = $null
+    try { $hmLog = New-Object System.IO.StreamWriter($hmLogPath, $true, (New-Object System.Text.UTF8Encoding($false))) } catch { }
+    if ($hmLog) { $hmLog.WriteLine("=== HerMemory install $(Get-Date -Format o) ===") }
+    try {
         & powershell.exe @upArgs 2>&1 | ForEach-Object {
             $ln = "$_"
             [void]$upTail.Add($ln)
             if ($upTail.Count -gt 300) { $upTail.RemoveAt(0) }
+            if ($hmLog) { try { $hmLog.WriteLine($ln) } catch { } }
             Write-Host $ln
         }
+    } finally {
+        if ($hmLog) { try { $hmLog.Dispose() } catch { } }
+    }
         $upExit = $LASTEXITCODE
     } finally { $ErrorActionPreference = $prevEap }
 
