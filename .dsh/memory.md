@@ -173,6 +173,17 @@ nodejs.org 全指 127.0.0.1）：**13 分钟装完**，`[OK] Hermes Agent instal
 - dashboard 语言包：`web/src/i18n/*.ts` 是**构建期打包**，上游 zh.ts 缺 114 键（en 772 / zh 658）。`scripts/patch_dashboard_zh.py` + `dashboard-zh-extra.json` 在构建前补齐，并把 `context.tsx` 默认语言从 en 改成 zh；补丁后 zh 772 键、构建产物里能看到新增中文。
 - 容器实测（Ubuntu 24.04）：`bash install.sh` 全流程 EXIT=0，`hermes --version` = v0.23.0，pm doctor 全绿（ffmpeg 9.0.1 / node 26.12.1 / python 3.14.9 / uv 0.13.5），`hermes dashboard` 200，`webapp.enabled=true`。
 
+### 「中国有网、无代理」实测（2026-11-09 容器）
+
+容器内把 github.com / codeload / objects.githubusercontent / files.pythonhosted.org / pypi.org 全部指到
+127.0.0.1、去掉一切代理变量，跑 `bash install.sh`：**EXIT=0**，`hermes --version` = v0.23.0，
+pm doctor 全绿（chromium/ffmpeg/node/python/uv）。关键三处：
+
+1. **PM 自建运行时**（4 个 wheel）默认从 pythonhosted 取 → 随包 `pm-wheelhouse` + 给
+   `pm/runtime_stage.py` 注入 `HERMEMORY_PM_WHEELHOUSE`（Linux 端本轮才补上，Windows 早就有）。
+2. **uv.lock** 里写死 pythonhosted → 安装时把域名换成清华同路径（备份 `uv.lock.hm-orig`，失败自动恢复）。
+3. ffmpeg / chromium 走 hermes-assets 约 300 KB/s，Linux 不随包所以慢（ffmpeg 120 MB + chromium 167 MB）。
+
 ### 0.23 在 Windows 沙盒里的四个坑（2026-11-08 实测）
 
 1. **长路径**：PM 把插件目录整棵拷进 workspace，`plugins/config_backends/remote/vendor/conformance/...`
