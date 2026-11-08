@@ -543,11 +543,13 @@ foreach ($fm in @("https://pypi.tuna.tsinghua.edu.cn", "https://mirrors.aliyun.c
         if ($code -match '^[234]') { $env:HERMEMORY_PYPI_FILE_MIRROR = $fm; break }
     } catch { }
 }
-if ($env:HERMEMORY_PYPI_FILE_MIRROR) {
-    Log "PyPI 文件镜像：$($env:HERMEMORY_PYPI_FILE_MIRROR)（uv.lock 的下载地址会指向它，哈希不变）"
-} else {
-    Warn "国内 PyPI 文件镜像都探不通，依赖将直连 files.pythonhosted.org（可能很慢或失败）"
+if (-not $env:HERMEMORY_PYPI_FILE_MIRROR) {
+    # 探针失败也照样用清华：真连不上时 vendored 安装器会恢复 lock 并重试官方索引一次，
+    # 比直接在 files.pythonhosted.org 上卡十几分钟强（2026-11-08 沙盒复现）。
+    $env:HERMEMORY_PYPI_FILE_MIRROR = "https://pypi.tuna.tsinghua.edu.cn"
+    Warn "文件镜像探针未通过，仍按清华改写 uv.lock（失败会自动回退官方索引）"
 }
+Log "PyPI 文件镜像：$($env:HERMEMORY_PYPI_FILE_MIRROR)（uv.lock 的下载地址会指向它，哈希不变）"
 
 if ($env:UV_DEFAULT_INDEX -eq "https://pypi.tuna.tsinghua.edu.cn/simple") {
     if (-not (Test-IndexUrl $env:UV_DEFAULT_INDEX)) {
@@ -889,7 +891,7 @@ if ($workingCli -and $haveVer -eq $WantHermesVersion) {
     $hmLogPath = Join-Path $hmLogDir "install.log"
     $hmLog = $null
     try { $hmLog = New-Object System.IO.StreamWriter($hmLogPath, $true, (New-Object System.Text.UTF8Encoding($false))) } catch { }
-    if ($hmLog) { $hmLog.WriteLine("=== HerMemory install $(Get-Date -Format o) ===") }
+    if ($hmLog) { $hmLog.AutoFlush = $true; $hmLog.WriteLine("=== HerMemory install $(Get-Date -Format o) ===") }
     try {
         & powershell.exe @upArgs 2>&1 | ForEach-Object {
             $ln = "$_"
