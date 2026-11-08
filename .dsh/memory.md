@@ -222,15 +222,30 @@ pm doctor 全绿（chromium/ffmpeg/node/python/uv）。关键三处：
   PM wheelhouse 本地装（`pm/runtime_stage.py` 注入 `HERMEMORY_PM_WHEELHOUSE`）+ uv.lock 域名换清华
   （备份 `uv.lock.hm-orig`，失败恢复）+ artifact 镜像/IPv4。
 
-**未完成（唯一卡点）**
-- **Windows 沙盒安装卡在 “Installing Python dependencies…”**（10–16 分钟无进展，VM 空闲、无报错）。
-  工具下载都正常（ffmpeg/node/npm/python/ripgrep 全 ✓），卡的是 PM 的 venv 同步/PM 运行时阶段。
-  Linux 同类问题已定位为 pythonhosted，Windows 侧已打包 wheelhouse + lock mirror 但现象不变，**需拿 PM 详细日志**：
-  建议在沙盒里设 `HERMES_INSTALL_VERBOSE=1` 或直接跑 `pm.cli install` 抓 stderr；`<HERMES_HOME>\logs\install.log`
-  已有（AutoFlush），驱动每 60 秒拷到 `.sandbox-out\vm-install.log`。
+**Windows 验收：通过（2026-11-09）**
+- 卡点根因 = `scripts/upstream-install.ps1` 的 `Enable-LockMirror` 里 `$host = $mirror.TrimEnd('/')`。
+  `$Host` 是 PowerShell **只读自动变量**，赋值抛错后被外层 `catch {}` 吞掉 → `uv.lock` 一处没改（3605 条仍指
+  `files.pythonhosted.org`），uv 直连 pythonhosted，表现为界面停在 “Installing Python dependencies…”。
+  改成 `$mirrorHost` 后 `[OK] uv.lock -> https://pypi.tuna.tsinghua.edu.cn`，依赖 2 分钟装完。
+- **沙盒 GUI**（Setup.exe 走向导）：5 分 32 秒到完成页 `SUCCESS page (BtnGuide)`。
+- **沙盒 direct**（直接跑 install.ps1）：`EXIT=0 elapsed=473s`。
+- **真机升级**（0.22.2 → 0.3.0）：`EXIT=0 elapsed=795s`；`hermes --version` = v0.23.0 / upstream 5d59ccbb；
+  网关任务重建并运行、四件记忆文件在、model 配置未动、`hermes plugins list` 里 hermemory=enabled、dashboard 200。
+- 装完要手动把 `build\app\HerMemory.exe`（0.3.0.0）覆盖到 `C:\Program Files\HerMemory\`，并改
+  `HKLM\...\Uninstall\HerMemory` 的 DisplayVersion——`install.ps1` 只装内核与文件，不铺程序本体（那是 Setup 的活）。
+
+**包体（未优化，待办）**
+- `Setup.exe` 422.5 MiB = `payload.zip` 284.4（ffmpeg 161.4 + bundle 92.6 + uv.exe 30.4 + uv zip 14.6 + ripgrep 1.7）
+  + 两份 .NET 自包含运行时约 138（安装器本体 + 程序本体各 ~69）。
+- 面板占 0 字节；旧 WPF 面板从来不是体积大头。压缩路线：bundle 换 tarball（−70）→ uv 去重（−15）→
+  两个运行时合一/壳改 Go（−138~−69）→ ffmpeg 改按需下载（−161，但要国内对象存储）。前两步不影响安装。
 
 **沙盒夹具要点**（`.sandbox-out/`，PC 上）
 - `.wsb` 内存 **6 GB**（12 GB 会把 24 GB 的宿主拖垮，VM 直接消失）；`:\hm\out` 可写映射。
+- **`HERMES_HOME` 必须放 VM 本地盘（`C:\hmhome`），绝不能放 `C:\hm\out` 这类宿主映射目录**：
+  映射走 RDP/Plan9 通道，venv 几万个小文件写入慢一到两个数量级，表现和"卡死"一样（同样的安装在本地盘 473 秒完成）。
+- UIA 驱动在 WPF 安装线程忙时，`FindAll(Descendants)` 会长时间阻塞，日志看起来像"驱动挂了"（实际安装还在跑）；
+  要判断进度就读 VM 内的 `install.log`，别只信 UIA 轮询。
 - 驱动 `net-drive.ps1`（UTF-8 BOM）：点 `BtnStart` → 取消 `ChkHeavyTools`（默认勾着会拉 167 MB chromium）→ 点 `BtnLocStart`；
   成功判据 `BtnGuide`；每 60 秒拷 VM 的 install.log。
 - 启动器会把沙盒窗口挪到**非主屏**（用户右侧便携屏），主屏/笔记本屏留给用户。

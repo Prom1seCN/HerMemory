@@ -7,10 +7,12 @@
 - **界面改为 Web 面板**：程序本体变成托盘薄壳（约 68 MB），双击打开 `hermes dashboard`（默认 `127.0.0.1:9119`）。
   面板是机器级的：配置、API Key、会话、记忆、日志、统计、定时任务、技能、插件都在里面，还带一个 Chat 页。
 - **Dashboard 简体中文补全**：上游 zh 语言包缺 114 条（profiles/kanban/plugins 等页），安装时自动补齐并把默认语言设为中文。
-- **HerMemory 扩展页**：面板里多一个「HerMemory」标签——记忆库（列文件、编辑、保存自动备份）、体检（目录/核心文件/可写/磁盘/网关/内核版本）、导出（记忆库+配置打成 zip，自动剔除密钥）。
+- **HerMemory 扩展页**：面板里多一个「记忆库」标签——列文件、编辑（保存自动备份、原子替换）、体检（目录/核心文件/可写/磁盘/网关/内核版本）、导出（记忆库+配置打成 zip，自动剔除密钥）。
 - **内核 0.23 适配**：安装器按上游 v0.23 原文重基；微信平台搬到 `plugins/platforms/weixin/adapter.py` 已兼容；
   国内镜像（npmmirror/清华）与 IPv4 优先、状态文案中文化三个补丁全部重打并验证。
-- 实测：Ubuntu 24.04 容器全流程 EXIT=0，pm doctor 全绿（ffmpeg 9.0.1 / node 26.12.1 / python 3.14.9 / uv 0.13.5），面板 200。
+- **修复 Windows 安装卡在「Installing Python dependencies…」**：`Enable-LockMirror` 里用了 `$host`，而 `$Host` 是 PowerShell 只读自动变量，赋值抛错被外层 `catch {}` 吞掉，`uv.lock` 一处都没换到国内镜像，直连 PyPI 不通的机器上表现为长时间无输出。改用 `$mirrorHost` 后锁文件正常改写。
+- 实测：Ubuntu 24.04 容器全流程 EXIT=0，pm doctor 全绿（ffmpeg 9.0.1 / node 26.12.1 / python 3.14.9 / uv 0.13.5），面板 200；
+  Windows 沙盒 GUI 全流程 5 分 32 秒到完成页，真机 0.22.2 → 0.3.0 升级 13 分 15 秒 EXIT=0。
 
 ## v0.2.0 — 首个发行版
 
