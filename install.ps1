@@ -326,6 +326,21 @@ try {
 # ---------- 断点续装（状态文件记录已完成步骤；删除它 = 全部重来） ----------
 $StateFile = Join-Path $HermesHome "hermemory-install.state"
 
+# ---------- 0.0 Windows 长路径（v0.23 必需） ----------
+# v0.23 的 PM 会把 plugins/config_backends/remote/vendor/conformance/config-resolution/... 这类
+# 超长路径整棵拷进 workspace。Windows 默认 260 字符上限下，Python 的 shutil 直接报
+# [WinError 3] 系统找不到指定的路径，安装中止（2026-11-08 沙盒实测命中）。
+try {
+    $fsKey = 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem'
+    $cur = (Get-ItemProperty $fsKey -Name LongPathsEnabled -ErrorAction SilentlyContinue).LongPathsEnabled
+    if ($cur -ne 1) {
+        Set-ItemProperty -Path $fsKey -Name LongPathsEnabled -Value 1 -Type DWord -ErrorAction Stop
+        Ok "已开启 Windows 长路径支持（LongPathsEnabled=1）"
+    }
+} catch {
+    Warn ("未能开启长路径支持（需要管理员）：" + $_.Exception.Message)
+}
+
 # ---------- 0. 随包内核与运行期约定（Hermes v0.22 架构） ----------
 # 上游 v0.22 把重依赖整体交给 PM（pm/lock.json 逐件 sha256 钉死），仓库只承担
 # 「checkout + Python 环境 + 构建 hermes 命令与 TUI/web」。因此发行版随包只剩两件：
