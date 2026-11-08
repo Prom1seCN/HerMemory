@@ -29,6 +29,14 @@ param(
     ,[switch]$ClassicApp      # 用旧的 WPF 主程序（自绘界面）。默认用 shell-lite 托盘薄壳 + Web 面板。
 )
 $ErrorActionPreference = "Stop"
+
+# HERMEMORY_BUILD_UTF8: dotnet / msbuild 的中文输出是 UTF-8，PS 5.1 默认按 ANSI 解码，
+# 重定向到日志时就会变成「姝ｅ湪纭畾…」。构建脚本自身被重定向时统一 UTF-8，
+# 控制台直跑保持不变。控制台里 `chcp 65001` 之后再跑也能看到正常中文。
+if ([Console]::IsOutputRedirected) {
+    try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false) } catch { }
+    try { $OutputEncoding = New-Object System.Text.UTF8Encoding($false) } catch { }
+}
 $ProgressPreference = "SilentlyContinue"
 
 $Root = $PSScriptRoot
