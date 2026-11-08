@@ -421,6 +421,39 @@ NAV_LABELS = {
 }
 
 
+SESSIONS_TEXT = {
+    '<span className="text-xs text-muted-foreground">Total</span>':
+        '<span className="text-xs text-muted-foreground">总数</span>',
+    '<span className="text-xs text-muted-foreground">Active in store</span>':
+        '<span className="text-xs text-muted-foreground">存储中活跃</span>',
+    '<span className="text-xs text-muted-foreground">Archived</span>':
+        '<span className="text-xs text-muted-foreground">已归档</span>',
+    '<span className="text-xs text-muted-foreground">Messages</span>':
+        '<span className="text-xs text-muted-foreground">消息</span>',
+    '<span className="text-xs text-muted-foreground">Sources</span>':
+        '<span className="text-xs text-muted-foreground">来源</span>',
+    'return "Any chat source";': 'return "全部来源";',
+    "Prune old sessions": "清理旧会话",
+    "Import sessions": "导入会话",
+}
+
+
+def patch_sessions_page(checkout: pathlib.Path) -> None:
+    """会话页的统计/按钮是硬编码 JSX 文本，不在 zh.ts 里；按字面量替换，天然幂等。"""
+    page = checkout / "web" / "src" / "pages" / "SessionsPage.tsx"
+    if not page.is_file():
+        return
+    text = page.read_text(encoding="utf-8")
+    hits = 0
+    for old, new in SESSIONS_TEXT.items():
+        if old in text:
+            text = text.replace(old, new)
+            hits += 1
+    if hits:
+        page.write_text(text, encoding="utf-8")
+        print(f"patched: SessionsPage.tsx strings x{hits}")
+
+
 def patch_shell_texts(checkout: pathlib.Path) -> None:
     """侧栏硬编码英文标签 + 默认语言（都不在 zh.ts 里，改源码常量，天然幂等）。"""
     app = checkout / "web" / "src" / "App.tsx"
@@ -434,6 +467,7 @@ def patch_shell_texts(checkout: pathlib.Path) -> None:
         if hits:
             app.write_text(text, encoding="utf-8")
             print(f"patched: App.tsx nav labels x{hits}")
+    patch_sessions_page(checkout)
     ctx = checkout / "web" / "src" / "i18n" / "context.tsx"
     if ctx.is_file():
         text = ctx.read_text(encoding="utf-8")
