@@ -413,11 +413,43 @@ def patch_locale(source: str, extra: dict[str, str]) -> tuple[str, str]:
     return patched, "patched"
 
 
+NAV_LABELS = {
+    'label: "Files"': 'label: "文件"',
+    'label: "Channels"': 'label: "渠道"',
+    'label: "Webhooks"': 'label: "回调"',
+    'label: "Pairing"': 'label: "配对"',
+}
+
+
+def patch_shell_texts(checkout: pathlib.Path) -> None:
+    """侧栏硬编码英文标签 + 默认语言（都不在 zh.ts 里，改源码常量，天然幂等）。"""
+    app = checkout / "web" / "src" / "App.tsx"
+    if app.is_file():
+        text = app.read_text(encoding="utf-8")
+        hits = 0
+        for old, new in NAV_LABELS.items():
+            if old in text:
+                text = text.replace(old, new)
+                hits += 1
+        if hits:
+            app.write_text(text, encoding="utf-8")
+            print(f"patched: App.tsx nav labels x{hits}")
+    ctx = checkout / "web" / "src" / "i18n" / "context.tsx"
+    if ctx.is_file():
+        text = ctx.read_text(encoding="utf-8")
+        if "HERMEMORY_ZH_DEFAULT" not in text:
+            old = '  return "en";\n}'
+            if old in text:
+                ctx.write_text(text.replace(old, '  return "zh"; // HERMEMORY_ZH_DEFAULT\n}', 1), encoding="utf-8")
+                print("patched: context.tsx default locale -> zh")
+
+
 def main() -> int:
     if len(sys.argv) != 2:
         print("usage: patch_dashboard_zh.py <checkout-dir>", file=sys.stderr)
         return 2
     checkout = pathlib.Path(sys.argv[1]).resolve()
+    patch_shell_texts(checkout)
     locale = checkout / "web" / "src" / "i18n" / "zh.ts"
     if not locale.is_file():
         print(f"skip: no {locale}")
@@ -441,21 +473,9 @@ def main() -> int:
     except ParseError as exc:
         print(f"skip: {exc} (zh.ts left untouched)")
         return 1
-    except Exception as exc:  # never leave a half-written locale behind
+    except Exception as exc:
         print(f"skip: unexpected error: {exc} (zh.ts left untouched)")
         return 1
-    # 默认语言：上游 getInitialLocale() 最终回落 "en"，中文发行版应默认 zh。
-    ctx = checkout / "web" / "src" / "i18n" / "context.tsx"
-    if ctx.is_file():
-        text = ctx.read_text(encoding="utf-8")
-        if "HERMEMORY_ZH_DEFAULT" not in text:
-            old = '  return "en";\n}'
-            if old in text:
-                text = text.replace(old, '  return "zh"; // HERMEMORY_ZH_DEFAULT\n}', 1)
-                ctx.write_text(text, encoding="utf-8")
-                print("patched: context.tsx default locale -> zh")
-            else:
-                print("skip: context.tsx default-locale anchor not found")
     if status == "patched":
         tmp = locale.with_name(locale.name + ".hm-zh-extra.tmp")
         tmp.write_text(patched, encoding="utf-8")
