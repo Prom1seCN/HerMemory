@@ -1115,9 +1115,47 @@ bootstrap_pm() {
         # HerMemory patch: localize the hardcoded English activity descriptions.
         _hm_i18n="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)/patch_i18n_zh.py"
         [ -f "$_hm_i18n" ] && "$boot_py" "$_hm_i18n" "$INSTALL_DIR" >/dev/null 2>&1 || true
+        # HerMemory patch (China, no proxy): PM 自建运行时的 4 个 wheel 写死从
+        # files.pythonhosted.org 取；随包 wheelhouse 可用时改走本地（与 Windows 同手法）。
+        if [ -n "${HERMEMORY_PM_WHEELHOUSE:-}" ] && [ -d "${HERMEMORY_PM_WHEELHOUSE:-}" ]; then
+            "$boot_py" - "$INSTALL_DIR" <<'PYEOF' || log_warn "PM wheelhouse patch skipped"
+import pathlib, sys
+root = pathlib.Path(sys.argv[1])
+f = root / "pm" / "runtime_stage.py"
+if f.is_file():
+    src = f.read_text(encoding="utf-8")
+    if "HERMEMORY_PM_WHEELHOUSE" not in src:
+        needle = "    env = runtime_environment()\n"
+        inject = needle + (
+            "    import os as _hm_os\n"
+            '    _hm_wh = _hm_os.environ.get("HERMEMORY_PM_WHEELHOUSE")\n'
+            "    if _hm_wh and Path(_hm_wh).is_dir():\n"
+            "        wheelhouse = Path(_hm_wh)\n"
+        )
+        if needle in src:
+            f.write_text(src.replace(needle, inject, 1), encoding="utf-8")
+PYEOF
+        fi
+        # uv.lock 里写死 files.pythonhosted.org；换成国内同路径镜像，sha256 不变。
+        "$boot_py" - "$INSTALL_DIR" "${HERMEMORY_PYPI_FILE_MIRROR:-https://pypi.tuna.tsinghua.edu.cn}" <<'PYEOF' || log_warn "uv.lock mirror skipped"
+import pathlib, sys
+root = pathlib.Path(sys.argv[1]); mirror = sys.argv[2].rstrip("/")
+lock = root / "uv.lock"
+if lock.is_file():
+    src = lock.read_text(encoding="utf-8")
+    orig = lock.with_name("uv.lock.hm-orig")
+    if not orig.exists():
+        orig.write_text(src, encoding="utf-8")
+    if "files.pythonhosted.org" in src:
+        lock.write_text(src.replace("https://files.pythonhosted.org", mirror), encoding="utf-8")
+        print("uv.lock -> " + mirror)
+PYEOF
         run_logged "Installing dependencies (hash-verified via uv.lock)" \
             "$boot_py" -m pm.cli "${pm_args[@]}"
-    ) || fail "pm install failed" deps_install_failed
+    ) || {
+        [ -f "$INSTALL_DIR/uv.lock.hm-orig" ] && mv -f "$INSTALL_DIR/uv.lock.hm-orig" "$INSTALL_DIR/uv.lock" 2>/dev/null
+        fail "pm install failed" deps_install_failed
+    }
     log_success "dependencies installed"
 }
 

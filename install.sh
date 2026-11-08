@@ -163,6 +163,13 @@ else
     # 引导阶段的 CPython 由 uv 直连 GitHub 下载；npmmirror 有同源镜像。
     [ -n "${UV_PYTHON_INSTALL_MIRROR:-}" ] || export UV_PYTHON_INSTALL_MIRROR="https://registry.npmmirror.com/-/binary/python-build-standalone"
     log "在线镜像：PyPI 走清华 / npm 走 npmmirror / CPython 走 npmmirror（用户已自设则沿用）"
+    # PM 自建运行时（4 个 wheel）与 uv.lock 的下载地址都写死 pythonhosted；
+    # 随包 wheelhouse 存在就交给安装器本地装，并把 lock 域名换成国内同路径镜像。
+    if [ -z "${HERMEMORY_PM_WHEELHOUSE:-}" ] && [ -d "$SRC/pm-wheelhouse" ]; then
+        export HERMEMORY_PM_WHEELHOUSE="$SRC/pm-wheelhouse"
+        log "PM wheelhouse：$HERMEMORY_PM_WHEELHOUSE"
+    fi
+    [ -n "${HERMEMORY_PYPI_FILE_MIRROR:-}" ] || export HERMEMORY_PYPI_FILE_MIRROR="https://pypi.tuna.tsinghua.edu.cn"
 
     # ---- 代理自愈（2026-10-26）----
     # 装过 clash / v2ray 的机器常留着 HTTP(S)_PROXY 指向已经退出的本地端口：uv / pip / curl
