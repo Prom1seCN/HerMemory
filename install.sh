@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-# HerMemory installer — v0.2.0
+# HerMemory installer — v0.3.0
 # 基于 Hermes Agent v0.23.0 (commit 2bd378e)，MIT。
 # 上游仓库：https://github.com/NousResearch/hermes-agent.git
 #

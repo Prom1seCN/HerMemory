@@ -1,5 +1,5 @@
 ﻿# ============================================================
-# HerMemory installer (Windows native) — v0.2.0
+# HerMemory installer (Windows native) — v0.3.0
 # 基于 Hermes Agent v0.23.0 (commit 2bd378e)，MIT。
 # 上游官方 PowerShell 安装器负责内核（git bundle → checkout → PM 装 Python/Node/依赖 →
 # 构建 hermes 命令与 TUI/web），本脚本只做发行版的铺设：vault + 五文件 + 软链 + 皮肤 +
@@ -1640,7 +1640,7 @@ if (-not $HasAiConfig) {
 
 # ---------- 13. 完成提示 ----------
 Write-Host ""
-Log "HerMemory v0.2.0 安装完成。使用说明见 $VaultDir\HerMemory\docs\GUIDE.md。"
+Log "HerMemory v0.3.0 安装完成。使用说明见 $VaultDir\HerMemory\docs\GUIDE.md。"
 Write-Host ""
 Write-Host "  注意事项"
 Write-Host "  1. AGENTS.md 可自由编辑。上游 Hermes 对其执行威胁扫描，含触发词的内容会被整体拦截。"
