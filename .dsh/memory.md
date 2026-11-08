@@ -164,6 +164,15 @@ PS 5.1 里 `ZipFile.CreateFromDirectory` 的四参数重载报「找不到重载
 nodejs.org 全指 127.0.0.1）：**13 分钟装完**，`[OK] Hermes Agent install complete`。
 日志里仍会出现 `network request failed (10061)`——那是兜底源被黑洞挡住，正常，不影响结果。
 
+## 内核 v0.23.0（2026-11-08 起）
+
+- 上游 tag `v0.23.0` → commit **2bd378ed1b8d6bf2192cb26e0a55ff3091e6bd19**（The Hearth Release）。仓库根 `hermes-agent.upstream-commit` 钉这个；`install.sh` 的 `HERMES_WANT_VERSION`/`PINNED_HERMES_TAG`、`install.ps1` 的 `$PinTag`/`$WantHermesVersion` 同步为 0.23.0。
+- **vendored 安装器已重基到 v0.23.0 原文**（`scripts/upstream-install.sh` 1424 行 / `.ps1` 2056 行），我们的补丁按新结构落位；移植记录在 `/home/hcn/porter-notes.md`。
+- v0.23 的坑：微信平台从 `gateway/platforms/weixin.py` 搬到 **`plugins/platforms/weixin/adapter.py`**（wrapper 已双路径兜底）；`stage_repository` 对官方 repo 默认装最新 stable，**必须继续传 `--commit` + `HERMES_REPO_URL`**，否则装成最新版。
+- **Web 管理面板是上游自带**：`hermes dashboard`（默认 `127.0.0.1:9119`，机器级、多 profile、含 Chat 页）；公网绑定强制认证。`webapp.enabled=true` 开浏览器版工作区。dashboard 的扩展机制是**运行期 drop-in**：主题 YAML 放 `~/.hermes/dashboard-themes/`，UI 插件 `manifest.json` + JS bundle（可加 tab / 替换页面 / 注入 slot），后端插件 `plugin_api.py` 挂 `/api/plugins/<name>/`，**不用改源码、不用 npm build**。
+- dashboard 语言包：`web/src/i18n/*.ts` 是**构建期打包**，上游 zh.ts 缺 114 键（en 772 / zh 658）。`scripts/patch_dashboard_zh.py` + `dashboard-zh-extra.json` 在构建前补齐，并把 `context.tsx` 默认语言从 en 改成 zh；补丁后 zh 772 键、构建产物里能看到新增中文。
+- 容器实测（Ubuntu 24.04）：`bash install.sh` 全流程 EXIT=0，`hermes --version` = v0.23.0，pm doctor 全绿（ffmpeg 9.0.1 / node 26.12.1 / python 3.14.9 / uv 0.13.5），`hermes dashboard` 200，`webapp.enabled=true`。
+
 ## 沙盒安装测试（唯一的真机验收）
 
 PC 上 `D:\Projects\HerMemory\.sandbox-out\` 是整套沙盒夹具：
