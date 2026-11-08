@@ -1,6 +1,6 @@
 ﻿# ============================================================
 # HerMemory installer (Windows native) — v0.2.0
-# 基于 Hermes Agent v0.22.2 (commit d923a5e)，MIT。
+# 基于 Hermes Agent v0.23.0 (commit 2bd378e)，MIT。
 # 上游官方 PowerShell 安装器负责内核（git bundle → checkout → PM 装 Python/Node/依赖 →
 # 构建 hermes 命令与 TUI/web），本脚本只做发行版的铺设：vault + 五文件 + 软链 + 皮肤 +
 # 配置键 + docs。对应 Linux 侧的 install.sh；上游怎么装，Windows 就怎么装。
@@ -238,7 +238,7 @@ function Get-WorkingHermesCli {
     return $null
 }
 
-# 已装内核的版本号（`Hermes Agent v0.22.2 ...` 里那个 0.22.2）。取不到返回空串。
+# 已装内核的版本号（`Hermes Agent v0.23.0 ...` 里那个 0.23.0）。取不到返回空串。
 # 用途只有一个：区分「装的是本发行版锁定的内核」与「装的是更早的 0.1.0 内核」。
 function Get-HermesVersion([string]$exe) {
     if (-not $exe) { return "" }
@@ -337,7 +337,7 @@ $StateFile = Join-Path $HermesHome "hermemory-install.state"
 # 随包内核是「快照仓库」：pin 的工作树重做成单提交仓库（树字节与 pin 一致、带 pin tag，
 # 见 build-offline.ps1 的说明），所以这里的 commit 指的是**那个快照提交**，由构建时写进
 # hermes-agent.commit。真实上游 commit 另存 hermes-agent.upstream-commit（仅审计）。
-$PinTag = "v0.22.2"
+$PinTag = "v0.23.0"
 $PinCommit = ""
 # 随包素材有两种布局，必须都能找到：
 #   ① 内嵌 payload 解压目录（用户机器上的常态）：<src>\hermes-agent.bundle
@@ -587,7 +587,7 @@ if ($dnsBad.Count -gt 0) {
 # 「已装」判据沿用 2026-09-16 的结论：CLI 真的跑得起来才算装上，文件在场不算。
 # 但**跑得起来还不够**：0.1.0 装的是 Hermes v0.21.0，它的 CLI 也跑得起来；只判可用
 # 会把 0.1.0 用户的升级悄悄跳过，装完显示 0.2.0、跑的还是旧内核。所以按版本号判定。
-$WantHermesVersion = "0.22.2"
+$WantHermesVersion = "0.23.0"
 $workingCli = Get-WorkingHermesCli
 $haveVer = if ($workingCli) { Get-HermesVersion $workingCli } else { "" }
 if ($workingCli -and $haveVer -eq $WantHermesVersion) {
@@ -983,7 +983,9 @@ if ($SkipBrowser -or $SkipComputerUse) {
 }
 
 # ---------- 2.5 内核 UX 补丁（发行版自有，幂等）：微信二维码改为链接+浏览器提示 ----------
-$wxPy = Join-Path $HermesHome "hermes-agent\gateway\platforms\weixin.py"
+# v0.23 把微信平台搬到了 plugins/platforms/weixin/adapter.py；旧路径保留兜底。
+$wxPy = Join-Path $HermesHome "hermes-agent\plugins\platforms\weixin\adapter.py"
+if (-not (Test-Path $wxPy)) { $wxPy = Join-Path $HermesHome "hermes-agent\gateway\platforms\weixin.py" }
 $wxPatch = Join-Path $SrcRoot "scripts\patch_weixin_qr.py"
 $wxPython = Get-HermesPython
 if ((Test-Path $wxPy) -and (Test-Path $wxPatch) -and $wxPython) {
@@ -1202,6 +1204,9 @@ if ($_r.Code -eq 0) { Ok "界面语言：中文" } else { Warn ("display.languag
 # 让之后启动的一切都以中文解析文案（含硬编码活动描述的中文化补丁）。
 try { [Environment]::SetEnvironmentVariable("HERMES_LANGUAGE", "zh", "User") } catch { }
 $env:HERMES_LANGUAGE = "zh"
+# 管理面板：v0.23 的 Web Dashboard（hermes dashboard），默认开
+$_r = Run-QOut $HermesCli config set webapp.enabled true
+if ($_r.Code -eq 0) { Ok "Web 面板：已启用（hermes dashboard）" } else { Warn ("webapp.enabled 写入失败（非致命）" + (Show-Tail $_r.Out)) }
 $_r = Run-QOut $HermesCli config set display.timestamps true
 if ($_r.Code -eq 0) { Ok "对话时间标签 [HH:MM]：已开启" } else { Warn ("display.timestamps 写入失败（非致命）" + (Show-Tail $_r.Out)) }
 

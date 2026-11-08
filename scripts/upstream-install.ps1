@@ -1,3 +1,6 @@
+# HerMemory edition: vendored from Hermes Agent v0.23.0
+# (commit 2bd378ed1b8d6bf2192cb26e0a55ff3091e6bd19), plus the HerMemory patch set.
+#
 # Hermes Agent bootstrap: git checkout + venv + hermes command on PATH.
 # Heavy dependencies (tool binaries, browsers, node) are pm's job after
 # this: `hermes pm install`. Stage protocol kept for Hermes-Setup:
@@ -7,19 +10,24 @@
 #   -SkipSetup            deprecated alias for -NonInteractive
 #   -IncludeDesktop       add the desktop build stage
 #   -ProtocolVersion      print the stage protocol version
-#   -SkipBrowser          do not install the browser tools (agent-browser +
-#                         Chromium); remembered by later
-#                         installs and `hermes update`, undone by
-#                         `hermes pm install agent-browser`
+#   -SkipBrowser          do not install the browser (Chromium); remembered by
+#                         later installs and `hermes update`, undone by
+#                         `hermes pm install chromium`
 #   -SkipComputerUse      do not install the computer-use driver (cua-driver);
 #                         remembered the same way, undone by
 #                         `hermes pm install cua-driver`
 #   -Verbose              stream every child command's output (the default
 #                         with redirected output and in CI)
+#   -Channel stable|main  stable (default): the latest published release, then
+#                         release to release; main: every commit. Also
+#                         $env:HERMES_INSTALL_CHANNEL (the only way under
+#                         `irm | iex`); an explicit choice is saved like
+#                         `hermes update --set-channel`
 [CmdletBinding(PositionalBinding=$false)]
 param(
     [string]$Branch = "main",
     [string]$Commit = "",
+    [string]$Channel = $(if ($env:HERMES_INSTALL_CHANNEL) { $env:HERMES_INSTALL_CHANNEL } else { "" }),
     [string]$HermesHome = $(if ($env:HERMES_HOME) { $env:HERMES_HOME } else { "$env:LOCALAPPDATA\hermes" }),
     [string]$InstallDir = $(if ($env:HERMES_HOME) { "$env:HERMES_HOME\hermes-agent" } else { "$env:LOCALAPPDATA\hermes\hermes-agent" }),
     [switch]$Manifest,
@@ -32,8 +40,8 @@ param(
     [switch]$Json,
     [switch]$IncludeDesktop,
     # Same opt-out as install.sh --skip-browser: PM records it, so later
-    # installs and `hermes update` keep the browser tools off until
-    # `hermes pm install agent-browser` opts back in.
+    # installs and `hermes update` keep the browser off until
+    # `hermes pm install chromium` opts back in.
     [switch]$SkipBrowser,
     [switch]$SkipComputerUse,
     # Print the paths this install would use, as JSON on stdout, and exit
@@ -50,6 +58,27 @@ param(
 if ([Console]::IsOutputRedirected) { try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false) } catch { } }
 
 $ErrorActionPreference = "Stop"
+
+# HerMemory patch: default the package mirrors to domestic endpoints; a value
+# already present wins. Keep the mirror hosts out of any user proxy.
+if (-not $env:UV_DEFAULT_INDEX)    { $env:UV_DEFAULT_INDEX = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+if (-not $env:PIP_INDEX_URL)       { $env:PIP_INDEX_URL = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+if (-not $env:npm_config_registry) { $env:npm_config_registry = "https://registry.npmmirror.com" }
+if (-not $env:UV_PYTHON_INSTALL_MIRROR) { $env:UV_PYTHON_INSTALL_MIRROR = "https://registry.npmmirror.com/-/binary/python-build-standalone" }
+foreach ($hmNpName in @('NO_PROXY', 'no_proxy')) {
+    $hmNpList = @()
+    $hmNpCur = [Environment]::GetEnvironmentVariable($hmNpName)
+    if ($hmNpCur) { $hmNpList += ($hmNpCur -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
+    foreach ($hmNp in @('registry.npmmirror.com', 'pypi.tuna.tsinghua.edu.cn', 'mirrors.aliyun.com', 'mirrors.ustc.edu.cn', 'localhost', '127.0.0.1')) {
+        if ($hmNpList -notcontains $hmNp) { $hmNpList += $hmNp }
+    }
+    Set-Item -Path ("Env:" + $hmNpName) -Value ($hmNpList -join ",") -ErrorAction SilentlyContinue
+}
+
+# HerMemory patch: the wizard's environment spellings map onto the upstream
+# switches, so a packaged install can skip browser / computer-use.
+if ($env:HERMEMORY_SKIP_BROWSER -eq '1') { $SkipBrowser = $true }
+if ($env:HERMEMORY_SKIP_COMPUTER_USE -eq '1') { $SkipComputerUse = $true }
 
 # -SkipSetup is the pre-rework spelling of -NonInteractive.
 if ($SkipSetup) { $NonInteractive = $true }
@@ -77,21 +106,36 @@ $script:BoundParams = $PSBoundParameters
 # each run without the previous run's answer (see Set-LauncherUserPath).
 $script:BinDirOnCallerPath = $null
 $RepoUrl = if ($env:HERMES_REPO_URL) { $env:HERMES_REPO_URL } else { "https://github.com/NousResearch/hermes-agent.git" }
+# HerMemory patch: a packaged install carries hermes-agent.bundle next to the
+# installer; an explicit HERMES_REPO_URL wins, GitHub stays the fallback.
+if (-not $env:HERMES_REPO_URL) {
+    $hmBundleDirs = @()
+    if ($PSScriptRoot) { $hmBundleDirs += $PSScriptRoot }
+    $hmBundleDirs += (Get-Location).Path
+    foreach ($hmBundleDir in $hmBundleDirs) {
+        $hmBundle = Join-Path $hmBundleDir 'hermes-agent.bundle'
+        if (Test-Path -LiteralPath $hmBundle) { $RepoUrl = $hmBundle; break }
+    }
+}
+if (-not $Commit -and $RepoUrl -notmatch '^(https?://|git@|ssh://)') {
+    $hmStamp = Join-Path (Split-Path -Parent $RepoUrl) 'hermes-agent.commit'
+    if (Test-Path -LiteralPath $hmStamp) { $Commit = (Get-Content -LiteralPath $hmStamp -Raw).Trim() }
+}
 
 # --- BEGIN GENERATED: bootstrap pins (scripts/gen-bootstrap-pins.py) ---
 # Derived from pm/lock.json. DO NOT EDIT BY HAND:
 # run scripts/gen-bootstrap-pins.py after a pin bump.
-$script:UvPinVersion = "0.12.3"
+$script:UvPinVersion = "0.13.5"
 $script:UvPinFiles = @{
     "win32-x64" = @{
-        Url    = "https://github.com/astral-sh/uv/releases/download/0.12.3/uv-x86_64-pc-windows-msvc.zip"
-        MirrorUrl = "https://hermes-assets.nousresearch.com/upstream/sha256/b23350c79e8ad0192b8124af13a0f17e8d4e4549524785e1aef389ae5a06990e"
-        Sha256 = "b23350c79e8ad0192b8124af13a0f17e8d4e4549524785e1aef389ae5a06990e"
+        Url    = "https://github.com/astral-sh/uv/releases/download/0.13.5/uv-x86_64-pc-windows-msvc.zip"
+        MirrorUrl = "https://hermes-assets.nousresearch.com/upstream/sha256/a38b8d1902b7cfbc76b423ba1bb456f623f42064cdc72628b6075b89afd1019a"
+        Sha256 = "a38b8d1902b7cfbc76b423ba1bb456f623f42064cdc72628b6075b89afd1019a"
     }
     "win32-arm64" = @{
-        Url    = "https://github.com/astral-sh/uv/releases/download/0.12.3/uv-aarch64-pc-windows-msvc.zip"
-        MirrorUrl = "https://hermes-assets.nousresearch.com/upstream/sha256/4343217d668727b8a8eb5cad92389a1d2eeead93c89940d1b955ba1bb15462eb"
-        Sha256 = "4343217d668727b8a8eb5cad92389a1d2eeead93c89940d1b955ba1bb15462eb"
+        Url    = "https://github.com/astral-sh/uv/releases/download/0.13.5/uv-aarch64-pc-windows-msvc.zip"
+        MirrorUrl = "https://hermes-assets.nousresearch.com/upstream/sha256/09f47edf90726084a70f9426f6e3ca4f46e9bf7cbf23b1716ec64d60b055fae3"
+        Sha256 = "09f47edf90726084a70f9426f6e3ca4f46e9bf7cbf23b1716ec64d60b055fae3"
     }
 }
 
@@ -574,6 +618,54 @@ function Get-Uv {
     return $uvExe
 }
 
+# git.exe can be present while git-remote-https is not: an older installer
+# moved the tree with Move-Item, which left half of it behind on a sharing
+# violation (see Invoke-WhileHeld). --exec-path is where git looks up
+# remote helpers, so a tree that fails this is not an install.
+function Test-PinnedGitHttpsReady([string]$GitExe) {
+    if (-not (Test-Path -LiteralPath $GitExe)) { return $false }
+    $global:LASTEXITCODE = 0
+    try {
+        $exec = Invoke-Native { & $GitExe --exec-path 2>$null }
+    } catch {
+        return $false
+    }
+    if ($LASTEXITCODE -or -not $exec) { return $false }
+    # No .exe suffix when pwsh drives a POSIX git (the Linux installer tests).
+    $core = "$exec".Trim()
+    return ((Test-Path -LiteralPath (Join-Path $core 'git-remote-https.exe')) -or
+            (Test-Path -LiteralPath (Join-Path $core 'git-remote-https')))
+}
+
+# A file held without delete sharing (Defender scanning fresh files, a
+# lingering post-install child) refuses a directory rename or delete for a
+# few seconds. Windows PowerShell's Move-Item then copies file by file and
+# stops at the held one, leaving cmd\git.exe without git-remote-https at the
+# destination; [IO.Directory]::Move on one volume is a single rename that
+# moves all or nothing. Retry like pm's Store.publish so a passing hold
+# does not fail the install.
+function Invoke-WhileHeld([scriptblock]$Action) {
+    $delay = 1
+    for ($attempt = 1; ; $attempt++) {
+        try { & $Action; return } catch {
+            $e = $_.Exception
+            if ($e -is [System.Management.Automation.MethodInvocationException]) { $e = $e.InnerException }
+            $held = ($e -is [IO.IOException]) -or ($e -is [UnauthorizedAccessException])
+            if (-not $held -or $attempt -ge 6) { throw }
+            Start-Sleep -Seconds $delay
+            $delay *= 2
+        }
+    }
+}
+
+# PortableGit ships etc\hosts read-only. Remove-Item -Force leaves that bit
+# set, and then the broken tree cannot be replaced.
+function Remove-PinnedGitTree([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path)) { return }
+    Invoke-Native { attrib.exe -R "$Path\*" /S /D } | Out-Null
+    Invoke-WhileHeld { Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop }
+}
+
 # Provision git for this host from the pinned pm/lock.json artifact, into
 # the same store slot (<store>\git-<version>-<target>\) pm uses. Returns the
 # git.exe path, or $null when no pinned artifact exists for this target.
@@ -583,14 +675,23 @@ function Get-PinnedGit {
     if (-not $pin) { return $null }
     $entry = Join-Path (Get-PmStoreRoot) "git-$($script:GitPinVersion)-$target"
     $gitExe = Join-Path $entry "cmd\git.exe"
-    if (Test-Path $gitExe) { return $gitExe }
+    if ((Test-Path -LiteralPath $gitExe) -and (Test-PinnedGitHttpsReady $gitExe)) { return $gitExe }
+    if (Test-Path -LiteralPath $entry) {
+        Log "pinned git is incomplete; reinstalling"
+        try { Remove-PinnedGitTree $entry } catch {
+            Fail "cannot replace the incomplete git at ${entry}: $($_.Exception.Message) Close programs using files there, then retry." git_extract_failed
+        }
+    }
     Log "installing git $($script:GitPinVersion) ($target)"
     $tmpDir = Join-Path ([IO.Path]::GetTempPath()) "hermes-git-bootstrap-$PID"
+    # Extract beside the entry, not in %TEMP%: the final step must be a
+    # rename on one volume. Created only after the download verifies, so
+    # rejected bytes never touch the store.
+    $extractDir = Join-Path (Split-Path -Parent $entry) ".staging-git-bootstrap-$PID"
     try {
         New-Item -ItemType Directory -Force -Path $tmpDir | Out-Null
         $sfxPath = Join-Path $tmpDir "portable-git.7z.exe"
         Invoke-VerifiedDownload -Url $pin.Url -MirrorUrl $pin.MirrorUrl -Sha256 $pin.Sha256 -OutFile $sfxPath
-        $extractDir = Join-Path $tmpDir "unpacked"
         New-Item -ItemType Directory -Force -Path $extractDir | Out-Null
         # PortableGit's self-extracting 7z carries its own extractor: stock
         # Windows 10 tar.exe has no bzip2 ("unable to run program bzip2 -d").
@@ -609,13 +710,15 @@ function Get-PinnedGit {
             Fail "pinned git self-extractor exited $($sfx.ExitCode) (it reports nothing under -y; usual causes: disk full, path-length limit, antivirus lock)" git_extract_failed
         }
         if (-not (Test-Path (Join-Path $extractDir "cmd\git.exe"))) { Fail "git.exe not found in the downloaded archive" git_extract_failed }
-        if (Test-Path $entry) { Remove-Item -Recurse -Force $entry }
-        # Prerequisites run first, so on a fresh host the store root does not
-        # exist yet; Move-Item never creates the destination's parent.
-        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $entry) | Out-Null
-        Move-Item $extractDir $entry
+        if (Test-Path -LiteralPath $entry) { Remove-PinnedGitTree $entry }
+        Invoke-WhileHeld { [IO.Directory]::Move($extractDir, $entry) }
+        if (-not (Test-PinnedGitHttpsReady $gitExe)) {
+            Remove-PinnedGitTree $entry
+            Fail "pinned git extracted without git-remote-https" git_extract_failed
+        }
     } finally {
         Remove-Item -Path $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $extractDir -Recurse -Force -ErrorAction SilentlyContinue
     }
     return $gitExe
 }
@@ -738,7 +841,7 @@ function Invoke-Logged {
         # failure reason can name the cause.
         # Named -TypeName: a positional New-Object binds to callers' New-Object shims.
         $outputLines = New-Object -TypeName 'System.Collections.Generic.Queue[string]'
-        Invoke-Native -Utf8Output { & $NativeBlock 2>&1 } | ForEach-Object {
+        Invoke-Native { & $NativeBlock 2>&1 } | ForEach-Object {
             $outputLines.Enqueue("$_")
             if ($outputLines.Count -gt 20) { [void]$outputLines.Dequeue() }
             if ($_ -is [System.Management.Automation.ErrorRecord]) { [Console]::Error.WriteLine("$_") }
@@ -755,7 +858,7 @@ function Invoke-Logged {
     try {
         $logWriter.WriteLine("==> $StatusLabel ($((Get-Date).ToUniversalTime().ToString('s'))Z)")
         Write-StatusLine $StatusLabel $columns
-        Invoke-Native -Utf8Output { & $NativeBlock 2>&1 } | ForEach-Object {
+        Invoke-Native { & $NativeBlock 2>&1 } | ForEach-Object {
             $outputLine = "$_".TrimEnd("`r")
             $logWriter.WriteLine($outputLine)
             $recentLines.Enqueue($outputLine)
@@ -915,9 +1018,77 @@ function Get-ChosenChannel {
     return ''
 }
 
+# The latest published stable release (vX.Y.Z), the release `hermes update` resolves for the
+# stable channel. github.com's /releases/latest redirect answers when the API quota is spent, and
+# origin's highest vX.Y.Z tag (final tags are pushed by the publication run) when github.com's web
+# endpoints are unreachable but git is not. Returns '' when none answers.
+function Get-LatestStableRelease([string]$Origin) {
+    $pattern = '^v(0|[1-9]\d{0,2})\.(0|[1-9]\d*)\.(0|[1-9]\d*)$'  # update_channel.STABLE_TAG_RE
+    $tag = ''
+    try {
+        $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/NousResearch/hermes-agent/releases/latest' `
+            -Headers @{ Accept = 'application/vnd.github+json'; 'User-Agent' = 'hermes-installer' } -TimeoutSec 20
+        $tag = "$($release.tag_name)"
+    } catch { }
+    if ($tag -cnotmatch $pattern) {
+        try {
+            $request = [Net.HttpWebRequest]::Create('https://github.com/NousResearch/hermes-agent/releases/latest')
+            $request.Method = 'HEAD'
+            $request.AllowAutoRedirect = $false
+            $request.Timeout = 20000
+            $request.UserAgent = 'hermes-installer'
+            $response = $request.GetResponse()
+            try { if ("$($response.Headers['Location'])" -match '/releases/tag/([^/]+)$') { $tag = $Matches[1] } }
+            finally { $response.Close() }
+        } catch { }
+    }
+    if ($tag -cnotmatch $pattern) {
+        $tags = @(Invoke-Native { git ls-remote --tags --refs $Origin 'refs/tags/v*' 2>$null } |
+            ForEach-Object { "$_" -replace '^.*refs/tags/', '' } | Where-Object { $_ -cmatch $pattern })
+        if ($tags) { $tag = $tags | Sort-Object { [version]$_.Substring(1) } | Select-Object -Last 1 }
+    }
+    if ($tag -cmatch $pattern) { return $tag }
+    return ''
+}
+
+# The stable release this run installs, '' to follow the branch, or '-' when stable applies but no
+# release could be looked up: an explicit -Channel, else stable for the official repository's main line (forks and mirrors publish no official
+# releases; hermes_cli.update_channel.default_channel decides the same way).
+function Get-StableTarget([string]$Origin) {
+    if ($Commit -or $Channel -ceq 'main') { return '' }
+    if ($Channel -cne 'stable') {
+        if ($Branch -cne 'main') { return '' }
+        if ($Origin -notmatch '^(https://github\.com/|git@github\.com:|ssh://git@github\.com/)NousResearch/hermes-agent(\.git)?/?$') { return '' }
+    }
+    $release = Get-LatestStableRelease $Origin
+    if ($release) { return $release }
+    return '-'
+}
+
+# Fetch tag $Release into checkout $Dir (releases can be cut off main, on release/* branches).
+function Receive-StableRelease([string]$Dir, [string]$Release) {
+    Invoke-Logged -MayFail "Fetching $Release" { git -C $Dir fetch origin "+refs/tags/${Release}:refs/tags/${Release}" }
+    return (-not $LASTEXITCODE)
+}
+
+# Stable applies but cannot be reached. A fresh install stops (installing main instead would be a
+# channel nobody chose); a rerun keeps its checkout for `hermes update`, unless stable was asked
+# for by name. $What says what failed.
+function Confirm-StableUnreachable([string]$What) {
+    if ((Test-Path (Join-Path $InstallDir '.git')) -and $Channel -cne 'stable') {
+        Write-Warn "$What; keeping the checkout where it is"
+        return
+    }
+    Fail "$What$(Get-NativeDetail). Rerun the installer to retry, or pass -Channel main to install main's tip" git_fetch_failed
+}
+
 function Stage-Repository {
     $pinned = $false
-    $channel = ''
+    # Not $channel: variables are case-insensitive, and the helpers below read the -Channel
+    # parameter through this scope.
+    $chosen = ''
+    $release = ''
+    if ($Channel -and $Channel -cnotin @('stable', 'main')) { Fail "-Channel must be stable or main, not $Channel" other }
     # Refuse an occupied non-checkout before provisioning Git. This check
     # needs no tool download and must not overwrite a user's existing files.
     if (-not (Test-Path (Join-Path $InstallDir ".git")) -and (Test-Path -LiteralPath $InstallDir)) {
@@ -930,13 +1101,15 @@ function Stage-Repository {
     if (-not (Ensure-Git)) { Fail "no pinned Git artifact for this Windows architecture" unsupported_platform }
     # An interrupted clone from an older installer can leave a .git with no
     # initial commit, where stash/checkout abort ("You do not have the initial
-    # commit yet", #40998). Move it aside -- never delete it, it may hold
-    # something the user wants -- and clone fresh below.
+    # commit yet", #40998); a killed update or a sync tool can leave one git
+    # rejects outright (empty HEAD, a gitdir: file pointing nowhere), where
+    # `hermes update` cannot fetch. Move it aside -- never delete it, it may
+    # hold something the user wants -- and clone fresh below.
     if (Test-Path (Join-Path $InstallDir ".git")) {
         Invoke-Native { git -C $InstallDir rev-parse --verify HEAD 2>$null } | Out-Null
         if ($LASTEXITCODE) {
             $broken = "$InstallDir.broken-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
-            Write-Warn "$InstallDir has no commits (interrupted clone); moving it aside to $broken"
+            Write-Warn "$InstallDir is not a usable git checkout (interrupted clone or damaged .git); moving it aside to $broken"
             Move-Item -LiteralPath $InstallDir -Destination $broken
         }
     }
@@ -945,9 +1118,8 @@ function Stage-Repository {
         # moves it. Switching it to the installer's branch would leave it on main while its
         # channel still says otherwise, and the next check would offer the release as an update.
         # Only an explicit -Commit pin outranks the choice.
-        if (-not $Commit) { $channel = Get-ChosenChannel }
-        if ($channel -ceq 'main') { $channel = '' }
-        if ($channel) { Log "Repairing $InstallDir on the $channel update channel it chose" } else { Log "Updating $InstallDir ($Branch)" }
+        # An explicit -Channel is a new choice and replaces the recorded one.
+        if (-not $Commit -and -not $Channel) { $chosen = Get-ChosenChannel }
         # A checkout cloned before longpaths was set: a deep path past MAX_PATH fails checkout.
         Invoke-Native { git -C $InstallDir config core.longpaths true } | Out-Null
         # An explicit HERMES_REPO_URL names the source for reruns too, not
@@ -956,6 +1128,21 @@ function Stage-Repository {
             Invoke-Native { git -C $InstallDir remote set-url origin $RepoUrl }
             if ($LASTEXITCODE) { Fail "cannot point origin at $RepoUrl" git_fetch_failed }
         }
+        # No recorded choice: an official checkout tracks stable, as `hermes update` does.
+        if (-not $chosen) {
+            # The configured URL, as hermes_cli.update_channel reads it (`remote get-url`
+            # applies insteadOf rewrites).
+            $origin = "$(Invoke-Native { git -C $InstallDir config --get remote.origin.url 2>$null })".Trim()
+            $release = Get-StableTarget $origin
+        }
+        if ($chosen -ceq 'main') { $chosen = '' }
+        if ($release -ceq '-') {
+            Confirm-StableUnreachable "could not look up the latest stable release"
+            $chosen = 'stable'
+            $release = ''
+        } elseif ($chosen) { Log "Repairing $InstallDir on the $chosen update channel it chose" }
+        elseif ($release) { Log "Updating $InstallDir to the latest stable release ($release)" }
+        else { Log "Updating $InstallDir ($Branch)" }
         # Explicit refspec: a tag-pinned --single-branch checkout from an older installer maps only
         # the tag, so a by-name fetch never writes the origin/$Branch used below (#125112).
         # git 2.53+ aborts fetches into a partial clone whose packs lack a .promisor marker
@@ -986,12 +1173,33 @@ function Stage-Repository {
                 }
             }
         }
-        if ($channel) {
+        if ($chosen) {
             Log "Keeping its checkout: ``hermes update`` moves it (``hermes update --set-channel main`` follows main)"
             return
         }
-        Invoke-Logged "Fetching origin/$Branch" { git -C $InstallDir fetch origin "+refs/heads/${Branch}:refs/remotes/origin/${Branch}" }
-        if ($LASTEXITCODE) { Fail "git fetch failed$(Get-NativeDetail)" git_fetch_failed }
+        if ($release -and -not (Receive-StableRelease $InstallDir $release)) {
+            Confirm-StableUnreachable "could not fetch $release"
+            return
+        }
+        if ($release) {
+            # A rerun only moves a checkout forward onto the release. Any other move (a main
+            # checkout diverged from a release cut on release/*, one already past it, a shallow
+            # one that cannot tell) is `hermes update`'s: it refuses a release that predates the
+            # session stores this checkout wrote (update_downgrade_guard).
+            Invoke-Native { git -C $InstallDir merge-base --is-ancestor $release HEAD 2>$null } | Out-Null
+            if (-not $LASTEXITCODE) {
+                Log "Keeping its checkout: it already has $release (``hermes update`` moves it to the next release)"
+                return
+            }
+            Invoke-Native { git -C $InstallDir merge-base --is-ancestor HEAD $release 2>$null } | Out-Null
+            if ($LASTEXITCODE) {
+                Log "Keeping its checkout: $release does not descend from it (``hermes update`` decides that move)"
+                return
+            }
+        } else {
+            Invoke-Logged "Fetching origin/$Branch" { git -C $InstallDir fetch origin "+refs/heads/${Branch}:refs/remotes/origin/${Branch}" }
+            if ($LASTEXITCODE) { Fail "git fetch failed$(Get-NativeDetail)" git_fetch_failed }
+        }
         $stamp = (Get-Date -Format 'yyyyMMdd-HHmmss')
         # Park local work BEFORE switching branches: checkout refuses a dirty
         # tree that conflicts, and the reset below would discard it. Work that
@@ -1009,6 +1217,13 @@ function Stage-Repository {
             Invoke-Logged "Stashing local changes" { git -C $InstallDir stash push --include-untracked -m "hermes-install-autostash-$stamp" }
             if ($LASTEXITCODE) { Fail "could not stash local changes in $InstallDir; commit or move them aside, then rerun" local_changes_blocked }
             Write-Warn "local changes stashed as hermes-install-autostash-$stamp"
+        }
+        if ($release) {
+            # Detached at the release commit, the way `hermes update` places a stable checkout;
+            # branches (and any commits on them) stay where they are.
+            Invoke-Logged "Checking out $release" { git -C $InstallDir checkout --detach $release }
+            if ($LASTEXITCODE) { Fail "git checkout failed$(Get-NativeDetail)" git_checkout_failed }
+            return
         }
         # checkout's branch guess only sees remote refs the refspec maps, so a narrow checkout
         # (detached at its tag, no local branch) gets the branch created at the fetched tip.
@@ -1071,8 +1286,11 @@ function Stage-Repository {
         if (Test-QuietOutput) { $progress = @('--progress') }
         # A pinned install materializes only the pin (below): checking out the
         # branch tip first fetches and rewrites every file the two differ in.
+        $release = Get-StableTarget $RepoUrl
+        if ($release -ceq '-') { Confirm-StableUnreachable "could not look up the latest stable release" }
+        if ($release) { Log "Installing the latest stable release ($release); -Channel main follows every commit" }
         $checkout = @()
-        if ($Commit) { $checkout = @('--no-checkout') }
+        if ($Commit -or $release) { $checkout = @('--no-checkout') }
         # Staging dir + deepest tracked path (~160) pass MAX_PATH (260) once LOCALAPPDATA
         # is longer than ~55 characters (a ~33-character user name), and checkout dies with
         # "Filename too long". --config lands before checkout and stays for `hermes update`.
@@ -1107,14 +1325,17 @@ function Stage-Repository {
                 Invoke-Native { git -C $tree merge-base --is-ancestor $Commit "origin/$Branch" 2>$null }
                 if ($LASTEXITCODE) { Fail "commit $Commit is not on branch $Branch" commit_not_on_branch }
             }
-            if ($Commit -or $deferred) {
+            # A failure here leaves only the staging dir, which finally removes.
+            if ($release -and -not (Receive-StableRelease $tree $release)) { Confirm-StableUnreachable "could not fetch $release" }
+            if ($Commit -or $release -or $deferred) {
                 # The checkout step is where throttled downloads die: retry it alone.
                 # A pin detaches HEAD and leaves the branch at its tip, as the published pin did.
-                $what = if ($Commit) { $Commit } else { "files" }
+                $detachAt = if ($Commit) { $Commit } else { $release }
+                $what = if ($detachAt) { $detachAt } else { "files" }
                 $materialized = $false
                 foreach ($attempt in 1..2) {
                     Invoke-Logged "Checking out $what (attempt $attempt of 2)" {
-                        if ($Commit) { git -C $tree checkout --force --detach $Commit } else { git -C $tree reset --hard HEAD }
+                        if ($detachAt) { git -C $tree checkout --force --detach $detachAt } else { git -C $tree reset --hard HEAD }
                     }
                     if (-not $LASTEXITCODE) { $materialized = $true; break }
                     if ($attempt -lt 2) { Start-Sleep -Seconds 5 }
@@ -1202,7 +1423,6 @@ function Get-BootstrapPython {
     return $script:BootstrapPython
 }
 
-
 function Enable-MirrorFirst {
     # HerMemory patch: order only, sha256 verification is unchanged.
     # A Chinese line reaches the domestic mirror at 12 MB/s but the hermes-assets
@@ -1240,7 +1460,7 @@ function Enable-ZhActivity {
         $py = Get-BootstrapPython
         if (-not $py) { return }
         & $py $script $InstallDir 2>&1 | Out-Null
-        if ($LASTEXITCODE -eq 0) { Write-Ok "界面文案：活动描述中文化" }
+        if ($LASTEXITCODE -eq 0) { Write-Ok "i18n: activity descriptions localized (zh)" }
     } catch { }
 }
 
@@ -1392,6 +1612,8 @@ function Invoke-BootstrapPm {
         Enable-Ipv4First
         Enable-ZhActivity
         $pmArgs = @('install')
+        # Legacy spelling on purpose: the stable PM this script installs by
+        # default rejects 'chromium', and newer PMs read 'agent-browser' as 'chromium'.
         if ($SkipBrowser) { $pmArgs += @('--without', 'agent-browser') }
         if ($SkipComputerUse) { $pmArgs += @('--without', 'cua-driver') }
         Invoke-Logged "Installing dependencies (hash-verified via uv.lock)" { & $bootPy -m pm.cli @pmArgs }
@@ -1409,8 +1631,56 @@ function Invoke-BootstrapPm {
     Write-Ok "dependencies installed"
 }
 
+# HerMemory patch: resolve the PM-managed interpreter from facts.json, the same
+# contract pm/environments.py records.
+function Get-PmPython {
+    $installs = Join-Path $HermesHome 'installs'
+    if (-not (Test-Path -LiteralPath $installs)) { return $null }
+    foreach ($f in @(Get-ChildItem -LiteralPath $installs -Filter facts.json -Recurse -ErrorAction SilentlyContinue)) {
+        try {
+            $raw = Get-Content -LiteralPath $f.FullName -Raw
+            $envDir = $null
+            try { $envDir = ($raw | ConvertFrom-Json).packages.venv.environment } catch { }
+            if (-not $envDir -and $raw -match '"environment"\s*:\s*"([^"]+)"') { $envDir = $Matches[1] }
+            if ($envDir) {
+                $py = Join-Path $envDir 'Scripts\python.exe'
+                if (Test-Path -LiteralPath $py) { return $py }
+            }
+        } catch { }
+    }
+    return $null
+}
+
+# HerMemory patch: the distribution installs the messaging extra (WeChat SDKs
+# left [all] in v0.22) and patches the WeChat QR renderer. install.ps1 still
+# does both by default; HERMEMORY_INSTALL_EXTRAS=1 makes this vendored
+# installer self-contained for a direct scripts\upstream-install.ps1 run.
+function Invoke-HermemoryExtras {
+    if ($env:HERMEMORY_INSTALL_EXTRAS -ne '1') { return }
+    $bootPy = Get-BootstrapPython
+    Push-Location $InstallDir
+    try {
+        Invoke-Logged "Installing the messaging extra" { & $bootPy -m pm.cli install --extra messaging }
+        if ($LASTEXITCODE) { Write-Warn "messaging extra failed; WeChat login may need: hermes pm install --extra messaging" }
+    } finally {
+        Pop-Location
+    }
+    $patch = Join-Path $PSScriptRoot "patch_weixin_qr.py"
+    if (Test-Path -LiteralPath $patch) {
+        # v0.23 moved WeChat into a platform plugin; v0.22 kept it in gateway.
+        foreach ($target in @((Join-Path $InstallDir "plugins\platforms\weixin\adapter.py"), (Join-Path $InstallDir "gateway\platforms\weixin.py"))) {
+            if (-not (Test-Path -LiteralPath $target)) { continue }
+            $py = Get-PmPython
+            if ($py) { & $py $patch $target 2>&1 | Out-Null }
+            else { Write-Warn "no PM-managed interpreter; skipped the WeChat QR patch" }
+            break
+        }
+    }
+}
+
 function Stage-PythonDeps {
     Invoke-BootstrapPm
+    Invoke-HermemoryExtras
 }
 
 function Invoke-SourceCompletion([bool]$Desktop) {
@@ -1435,10 +1705,9 @@ function Invoke-SourceCompletion([bool]$Desktop) {
 }
 
 function Publish-UserCommand {
-    # PATH exposure stays installer-owned on Windows: expose_cli() answers
-    # "windows-installer-owned" rather than creating the user-facing command,
-    # so the install-scoped launchers the completion publishes are not the ones
-    # the user's PATH points at.
+    # Stage the user-facing commands into $HermesHome\bin and put that folder on
+    # the User PATH. Updates repair this entry through expose_cli(), which edits
+    # the User PATH only for the home that new consoles use.
     $binDir = Join-Path $HermesHome "bin"
     $bootPy = Get-BootstrapPython
     Push-Location $InstallDir
@@ -1531,7 +1800,8 @@ function Invoke-InstalledHermes([string[]]$CommandArgs) {
     $runtimeArgs = @($runtimeCommand | Select-Object -Skip 1) + $CommandArgs
     Invoke-Native { & $runtimeCommand[0] @runtimeArgs }
     if ($LASTEXITCODE) {
-        Fail "hermes $($CommandArgs -join ' ') failed (exit $LASTEXITCODE)" $(if ($CommandArgs[0] -eq 'setup') { 'setup_failed' } else { 'gateway_failed' })
+        $class = @{ setup = 'setup_failed'; gateway = 'gateway_failed' }[$CommandArgs[0]]
+        Fail "hermes $($CommandArgs -join ' ') failed (exit $LASTEXITCODE)" $(if ($class) { $class } else { 'other' })
     }
 }
 
@@ -1612,8 +1882,9 @@ function Stage-Complete {
             completedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
         }
         $marker | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $InstallDir ".hermes-bootstrap-complete") -Encoding UTF8
-        Write-Ok "Hermes Agent install complete (pinned $commit). Run: hermes"
     }
+    if ($Channel) { Invoke-InstalledHermes @('update', '--set-channel', $Channel) }
+    if ($commit) { Write-Ok "Hermes Agent install complete (pinned $commit). Run: hermes" }
 }
 
 function New-DesktopShortcuts {
@@ -1651,7 +1922,9 @@ function New-DesktopShortcuts {
         }
                 $sc = $shell.CreateShortcut($lnkPath)
                 $sc.TargetPath = $TargetExe
-                $sc.WorkingDirectory = $workDir
+                # Not the exe's folder: the Desktop's children inherit it, and a helper
+                # that outlives the app then blocks the next update's swap (#101789).
+                $sc.WorkingDirectory = $env:USERPROFILE
                 $sc.IconLocation = $iconLocation
                 $sc.Description = 'Hermes Agent'
                 $sc.Save()

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ============================================================
 # HerMemory installer — v0.2.0
-# 基于 Hermes Agent v0.22.2 (commit d923a5e)，MIT。
+# 基于 Hermes Agent v0.23.0 (commit 2bd378e)，MIT。
 # 上游仓库：https://github.com/NousResearch/hermes-agent.git
 #
 # 做的事：跑随包的官方安装器（clone pin → PM 装 Python/Node/依赖 → 构建 hermes 命令）
@@ -18,11 +18,11 @@
 set -euo pipefail
 
 HERMEMORY_VERSION="0.2.0"
-PINNED_HERMES_TAG="v0.22.2"
+PINNED_HERMES_TAG="v0.23.0"
 # 上游 v0.22 的安装器只认 commit（没有 -Tag 参数），且要求它是 origin/main 的祖先。
 # 随包内核是「快照仓库」：pin 的工作树重做成单提交仓库（树字节与 pin 一致、带 pin tag，
 # 见 build-offline.ps1）。这里的 commit 是**那个快照提交**，由 hermes-agent.commit 提供；
-# 没有戳时退回「按 main 落位」。真实上游 commit = d923a5eb487a17c0a68801bba9ef0f56c81040a8。
+# 没有戳时退回「按 main 落位」。真实上游 commit = 2bd378ed1b8d6bf2192cb26e0a55ff3091e6bd19。
 PINNED_HERMES_COMMIT=""   # 由随包 hermes-agent.commit 填充（见下方内核段）
 UPSTREAM_REPO="https://github.com/NousResearch/hermes-agent.git"
 UPSTREAM_DIR="$HOME/hermes-agent"
@@ -120,7 +120,7 @@ resolve_pm_python() {
     return 1
 }
 
-HERMES_WANT_VERSION="0.22.2"
+HERMES_WANT_VERSION="0.23.0"
 if hermes_works && [ "$(hermes_version)" = "$HERMES_WANT_VERSION" ]; then
     log "上游内核：已安装 v$HERMES_WANT_VERSION，跳过"
     mark_done upstream
@@ -266,7 +266,9 @@ else
 fi
 
 # ---------- 2.5 内核 UX 补丁（发行版自有，幂等）：微信二维码只打印链接 ----------
-WX_PY="$UPSTREAM_DIR/gateway/platforms/weixin.py"
+# v0.23 把微信平台搬到了 plugins/platforms/weixin/adapter.py；旧路径保留兜底。
+WX_PY="$UPSTREAM_DIR/plugins/platforms/weixin/adapter.py"
+[ -f "$WX_PY" ] || WX_PY="$UPSTREAM_DIR/gateway/platforms/weixin.py"
 WX_PATCH="$SRC/scripts/patch_weixin_qr.py"
 if [ -f "$WX_PY" ] && [ -f "$WX_PATCH" ]; then
     if PM_PY="$(resolve_pm_python)"; then
@@ -429,6 +431,10 @@ if ! grep -q 'HERMES_LANGUAGE' "$HOME/.bashrc" 2>/dev/null; then
     printf '\nexport HERMES_LANGUAGE=zh\n' >> "$HOME/.bashrc" 2>/dev/null || true
 fi
 export HERMES_LANGUAGE=zh
+# 管理面板：v0.23 的 Web Dashboard 是机器级管理界面，默认开；界面在本机浏览器打开。
+hermes config set webapp.enabled true >/dev/null 2>&1 \
+    && ok "Web 面板：已启用（hermes dashboard）" \
+    || warn "webapp.enabled 写入失败（非致命）"
 hermes config set display.timestamps true >/dev/null 2>&1 \
     && ok "对话时间标签 [HH:MM]：已开启" \
     || warn "display.timestamps 写入失败（非致命）"
