@@ -201,6 +201,43 @@ pm doctor 全绿（chromium/ffmpeg/node/python/uv）。关键三处：
 **校验脚本必须带 UTF-8 BOM**：给 PC 写的 PowerShell 检查脚本若无 BOM，PS5.1 按 ANSI 解码，
 中文正则永远匹配不到（本轮因此误判"修复没进包"两次）。
 
+## HerMemory 0.3.0（Hermes v0.23 迁移）现状
+
+**已完成并验证**
+- 内核钉 `v0.23.0` = commit `2bd378ed1b8d6bf2192cb26e0a55ff3091e6bd19`；`hermes-agent.upstream-commit`、
+  `install.sh` 的 `HERMES_WANT_VERSION/PINNED_HERMES_TAG`、`install.ps1` 的 `$PinTag/$WantHermesVersion` 全部同步。
+- vendored 安装器已按 v0.23.0 原文重基（`scripts/upstream-install.sh` / `.ps1`），补丁按新结构落位；
+  微信平台搬到 `plugins/platforms/weixin/adapter.py`，wrapper 双路径兜底。
+- **界面改为 Web**：程序本体 = `shell-lite/`（WinForms 托盘，68.3 MB；起 dashboard/开关网关/开机自启/开浏览器），
+  `build-release.ps1` 默认出托盘壳（`-ClassicApp` 回旧 WPF）。Setup 现 422.5 MB。
+- **dashboard 简体中文**：`scripts/patch_dashboard_zh.py` + `dashboard-zh-extra.json` 补 114 键；
+  另改 `context.tsx` 默认语言 zh、`App.tsx` 四个硬编码英文标签（Files/Channels/Webhooks/Pairing）；
+  构建后侧栏全中文，已验证截图。
+- **HerMemory 面板扩展**：`dashboard-ext/hermemory/`（`dashboard/manifest.json` + `dist/index.js` + `plugin_api.py`）。
+  页签叫「记忆库」：列/编辑 AGENTS·SOUL·USER·MEMORY·AUTOMATION（保存自动备份）、体检、导出 zip（剔除密钥）。
+  上游规则：**用户插件的后端只对 `plugins.enabled` 里的插件挂载** → 安装器 `hermes plugins enable hermemory`。
+  API 实测：/health、/files、/file、/export 全通；UI 用假 SDK 跑过冒烟。
+- **Linux 无代理国内网络实测通过**：容器里把 github/codeload/objects.githubusercontent/files.pythonhosted/pypi.org
+  全指 127.0.0.1、去掉代理变量，`bash install.sh` → **EXIT=0**，pm doctor 全绿。关键三补：
+  PM wheelhouse 本地装（`pm/runtime_stage.py` 注入 `HERMEMORY_PM_WHEELHOUSE`）+ uv.lock 域名换清华
+  （备份 `uv.lock.hm-orig`，失败恢复）+ artifact 镜像/IPv4。
+
+**未完成（唯一卡点）**
+- **Windows 沙盒安装卡在 “Installing Python dependencies…”**（10–16 分钟无进展，VM 空闲、无报错）。
+  工具下载都正常（ffmpeg/node/npm/python/ripgrep 全 ✓），卡的是 PM 的 venv 同步/PM 运行时阶段。
+  Linux 同类问题已定位为 pythonhosted，Windows 侧已打包 wheelhouse + lock mirror 但现象不变，**需拿 PM 详细日志**：
+  建议在沙盒里设 `HERMES_INSTALL_VERBOSE=1` 或直接跑 `pm.cli install` 抓 stderr；`<HERMES_HOME>\logs\install.log`
+  已有（AutoFlush），驱动每 60 秒拷到 `.sandbox-out\vm-install.log`。
+
+**沙盒夹具要点**（`.sandbox-out/`，PC 上）
+- `.wsb` 内存 **6 GB**（12 GB 会把 24 GB 的宿主拖垮，VM 直接消失）；`:\hm\out` 可写映射。
+- 驱动 `net-drive.ps1`（UTF-8 BOM）：点 `BtnStart` → 取消 `ChkHeavyTools`（默认勾着会拉 167 MB chromium）→ 点 `BtnLocStart`；
+  成功判据 `BtnGuide`；每 60 秒拷 VM 的 install.log。
+- 启动器会把沙盒窗口挪到**非主屏**（用户右侧便携屏），主屏/笔记本屏留给用户。
+- **宿主机截图拍不到沙盒画面**（VM 表面是硬件加速层）——要看界面只能靠驱动在 VM 内截的图。
+
+**教训**：给 PC 写的 PowerShell 检查脚本必须带 UTF-8 BOM，否则 PS5.1 按 ANSI 解码，中文正则永远匹配不到（本轮误判过两次）。
+
 ## 沙盒安装测试（唯一的真机验收）
 
 PC 上 `D:\Projects\HerMemory\.sandbox-out\` 是整套沙盒夹具：
