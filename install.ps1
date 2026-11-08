@@ -1004,8 +1004,10 @@ $dashExtSrc = Join-Path $SrcRoot "dashboard-ext\hermemory"
 if (Test-Path $dashExtSrc) {
     $plugDir = Join-Path $HermesHome "plugins\hermemory"
     New-Item -ItemType Directory -Force -Path (Join-Path $HermesHome "plugins") | Out-Null
+    # 覆盖式拷贝：先清空失败也不中断（目录被占用/权限异常时仍要装完）
     if (Test-Path $plugDir) { Remove-Item $plugDir -Recurse -Force -ErrorAction SilentlyContinue }
-    Copy-Item $dashExtSrc $plugDir -Recurse -Force
+    New-Item -ItemType Directory -Force -Path $plugDir | Out-Null
+    Copy-Item (Join-Path $dashExtSrc "*") $plugDir -Recurse -Force
     $_r = Run-QOut $HermesCli plugins enable hermemory
     if ($_r.Code -eq 0) { Ok "面板插件：记忆库/体检/导出已安装" }
     else { Warn ("面板插件已复制，但启用失败；可稍后执行 hermes plugins enable hermemory" + (Show-Tail $_r.Out)) }

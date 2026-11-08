@@ -293,9 +293,10 @@ fi
 # ---------- 2.55 dashboard 扩展插件（记忆库/体检/导出页） ----------
 DASH_EXT_SRC="$SRC/dashboard-ext/hermemory"
 if [ -d "$DASH_EXT_SRC" ]; then
-    mkdir -p "$HERMES_HOME/plugins"
-    rm -rf "$HERMES_HOME/plugins/hermemory"
-    cp -R "$DASH_EXT_SRC" "$HERMES_HOME/plugins/hermemory"
+    mkdir -p "$HERMES_HOME/plugins/hermemory"
+    # 覆盖式拷贝（不先删目录：HERMES_HOME 权限特殊时 rm 会失败，且插件目录被占用也不该中断安装）
+    cp -R "$DASH_EXT_SRC/." "$HERMES_HOME/plugins/hermemory/" 2>/dev/null \
+        || cp -R "$DASH_EXT_SRC" "$HERMES_HOME/plugins/" 2>/dev/null || true
     if hermes plugins enable hermemory >/dev/null 2>&1; then
         ok "面板插件：记忆库/体检/导出已安装（hermes plugins enable hermemory）"
     else
