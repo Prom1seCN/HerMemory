@@ -22,10 +22,11 @@
     build\minimal\{hermes-agent.bundle,uv.exe} 必须已存在（由 build-offline.ps1 产出）。
 #>
 param(
-    [string]$Version = "0.2.0",
+    [string]$Version = "0.3.0",
     [string]$Configuration = "Release",
     [switch]$SkipApp,         # 跳过程序本体发布。仅在「程序本体未改动」时可用；改过 C# 就一定要重发。
     [switch]$SkipPrivacyGate  # 仅当闸门误报、且你已确认那是误报时才用。别拿它当常规开关。
+    ,[switch]$ClassicApp      # 用旧的 WPF 主程序（自绘界面）。默认用 shell-lite 托盘薄壳 + Web 面板。
 )
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
@@ -99,10 +100,21 @@ function New-PayloadZip([string]$PayloadDir, [string]$ZipPath) {
 }
 
 # ---- 1. 程序本体 ----
+$TrayProject = Join-Path $Root "shell-lite\HerMemoryTray.csproj"
+$UseTray = (-not $ClassicApp) -and (Test-Path $TrayProject)
 if (-not $SkipApp) {
-    Step "2/3 发布程序本体（不含离线素材）"
-    & $dotnet publish $Shell @common "-p:SetupMode=false" "-o" "$AppDir"
-    if ($LASTEXITCODE -ne 0) { throw "程序本体发布失败（exit $LASTEXITCODE）" }
+    if ($UseTray) {
+        Step "2/3 发布程序本体（托盘薄壳 shell-lite，界面交给 Web 面板）"
+        if (Test-Path $AppDir) { Remove-Item $AppDir -Recurse -Force -ErrorAction SilentlyContinue }
+        & $dotnet publish $TrayProject -c $Configuration -r win-x64 --self-contained true `
+            -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true -p:Version=$Version -o $AppDir
+        if ($LASTEXITCODE -ne 0) { throw "托盘壳发布失败（exit $LASTEXITCODE）" }
+    } else {
+        Step "2/3 发布程序本体（旧 WPF 主程序）"
+        & $dotnet publish $Shell @common "-p:SetupMode=false" "-o" "$AppDir"
+        if ($LASTEXITCODE -ne 0) { throw "程序本体发布失败（exit $LASTEXITCODE）" }
+    }
     $appExe = Join-Path $AppDir "HerMemory.exe"
     if (-not (Test-Path $appExe)) { throw "程序本体未产出：$appExe" }
     Write-Host ("  -> {0}  ({1:N1} MB)" -f $appExe, ((Get-Item $appExe).Length / 1MB)) -ForegroundColor Green

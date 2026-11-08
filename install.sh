@@ -17,7 +17,7 @@
 # ============================================================
 set -euo pipefail
 
-HERMEMORY_VERSION="0.2.0"
+HERMEMORY_VERSION="0.3.0"
 PINNED_HERMES_TAG="v0.23.0"
 # 上游 v0.22 的安装器只认 commit（没有 -Tag 参数），且要求它是 origin/main 的祖先。
 # 随包内核是「快照仓库」：pin 的工作树重做成单提交仓库（树字节与 pin 一致、带 pin tag，

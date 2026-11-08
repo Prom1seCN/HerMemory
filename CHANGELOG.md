@@ -1,5 +1,17 @@
 # 更新日志
 
+## v0.3.0 — 内核升级到 0.23 + Web 面板
+
+基于 **Hermes Agent v0.23.0**（commit `2bd378e`，The Hearth Release）。
+
+- **界面改为 Web 面板**：程序本体变成托盘薄壳（约 68 MB），双击打开 `hermes dashboard`（默认 `127.0.0.1:9119`）。
+  面板是机器级的：配置、API Key、会话、记忆、日志、统计、定时任务、技能、插件都在里面，还带一个 Chat 页。
+- **Dashboard 简体中文补全**：上游 zh 语言包缺 114 条（profiles/kanban/plugins 等页），安装时自动补齐并把默认语言设为中文。
+- **HerMemory 扩展页**：面板里多一个「HerMemory」标签——记忆库（列文件、编辑、保存自动备份）、体检（目录/核心文件/可写/磁盘/网关/内核版本）、导出（记忆库+配置打成 zip，自动剔除密钥）。
+- **内核 0.23 适配**：安装器按上游 v0.23 原文重基；微信平台搬到 `plugins/platforms/weixin/adapter.py` 已兼容；
+  国内镜像（npmmirror/清华）与 IPv4 优先、状态文案中文化三个补丁全部重打并验证。
+- 实测：Ubuntu 24.04 容器全流程 EXIT=0，pm doctor 全绿（ffmpeg 9.0.1 / node 26.12.1 / python 3.14.9 / uv 0.13.5），面板 200。
+
 ## v0.2.0 — 首个发行版
 
 基于 Hermes Agent **v0.22.2**（commit `c9524f99`）的 MIT 发行版。
