@@ -173,6 +173,23 @@ nodejs.org 全指 127.0.0.1）：**13 分钟装完**，`[OK] Hermes Agent instal
 - dashboard 语言包：`web/src/i18n/*.ts` 是**构建期打包**，上游 zh.ts 缺 114 键（en 772 / zh 658）。`scripts/patch_dashboard_zh.py` + `dashboard-zh-extra.json` 在构建前补齐，并把 `context.tsx` 默认语言从 en 改成 zh；补丁后 zh 772 键、构建产物里能看到新增中文。
 - 容器实测（Ubuntu 24.04）：`bash install.sh` 全流程 EXIT=0，`hermes --version` = v0.23.0，pm doctor 全绿（ffmpeg 9.0.1 / node 26.12.1 / python 3.14.9 / uv 0.13.5），`hermes dashboard` 200，`webapp.enabled=true`。
 
+### 0.23 在 Windows 沙盒里的四个坑（2026-11-08 实测）
+
+1. **长路径**：PM 把插件目录整棵拷进 workspace，`plugins/config_backends/remote/vendor/conformance/...`
+   超过 260 字符 → `shutil.Error [WinError 3]`。安装器开头必须设 `HKLM\...\FileSystem\LongPathsEnabled=1`。
+2. **uv 制品**：`pm/packages.py` 的 uv 从 GitHub 取，国内必超时。把官方 `uv-x86_64-pc-windows-msvc.zip`
+   （sha 与 pm/lock.json 一致）放进 payload `artifacts/<sha>` + `runtime.json` 里，PM 直接命中缓存。
+3. **git-for-windows**：`patch_pm_mirror.py` 的 `_domestic()` 原来只覆盖 node/python，漏了 git；补上后
+   `git-for-windows/v2.53.0.windows.3/PortableGit-...7z.exe` 走 npmmirror。
+4. **PyPI 文件镜像探针**：探针失败就不改写 uv.lock → 卡在 files.pythonhosted.org。改成失败也按清华改写，
+   由 vendored 安装器在失败时恢复 lock 并回退官方索引。
+
+**沙盒驱动要能看日志**：GUI 模式下上游不分流日志，`install.ps1` 现在自己 tee 到
+`<HERMES_HOME>\logs\install.log`（`AutoFlush=$true`），驱动每 60 秒把它拷到 `C:\hm\out\vm-install.log`。
+
+**校验脚本必须带 UTF-8 BOM**：给 PC 写的 PowerShell 检查脚本若无 BOM，PS5.1 按 ANSI 解码，
+中文正则永远匹配不到（本轮因此误判"修复没进包"两次）。
+
 ## 沙盒安装测试（唯一的真机验收）
 
 PC 上 `D:\Projects\HerMemory\.sandbox-out\` 是整套沙盒夹具：
