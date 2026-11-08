@@ -256,6 +256,18 @@ else
     mark_done upstream
 fi
 
+# ---------- 2.4 dashboard 简体中文补全（v0.23 的 zh.ts 缺 114 键） ----------
+DASH_ZH_PATCH="$SRC/scripts/patch_dashboard_zh.py"
+if [ -f "$DASH_ZH_PATCH" ]; then
+    DASH_PY="$(resolve_pm_python 2>/dev/null || true)"
+    [ -n "$DASH_PY" ] || DASH_PY="$(command -v python3 2>/dev/null || true)"
+    if [ -n "$DASH_PY" ]; then
+        "$DASH_PY" "$DASH_ZH_PATCH" "$UPSTREAM_DIR" || warn "dashboard 中文补丁失败（不影响使用）"
+    else
+        warn "找不到 Python，跳过 dashboard 中文补丁"
+    fi
+fi
+
 # ---------- 2.45 微信通道依赖（PM 的 messaging extra） ----------
 # v0.22 政策：平台 SDK 不进 [all]，缺了只给「hermes pm install --extra messaging」的提示。
 # 这里替用户执行那条提示，否则「扫码即用」不成立。

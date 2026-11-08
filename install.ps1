@@ -991,6 +991,14 @@ $wxPython = Get-HermesPython
 if ((Test-Path $wxPy) -and (Test-Path $wxPatch) -and $wxPython) {
     & $wxPython $wxPatch $wxPy
 }
+# ---------- 2.55 dashboard 简体中文补全（v0.23 的 zh.ts 缺 114 键） ----------
+$dashPatch = Join-Path $SrcRoot "scripts\patch_dashboard_zh.py"
+if ((Test-Path $dashPatch) -and $wxPython) {
+    $dashOut = & $wxPython $dashPatch (Join-Path $HermesHome "hermes-agent") 2>&1
+    if ($LASTEXITCODE -eq 0) { Ok ("dashboard 中文：{0}" -f ($dashOut -join " ")) }
+    else { Warn ("dashboard 中文补丁失败（不影响使用）：{0}" -f ($dashOut -join " ")) }
+}
+
 # ---------- 2.6 每日新对话脚本 ----------
 # 设置页「每日新对话」用 cron 的 `--script X --no-agent` 执行它；cron 只认
 # $HERMES_HOME\scripts\ 下的文件，所以这里放一份。默认不创建定时任务（自动化默认关闭，
