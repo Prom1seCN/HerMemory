@@ -999,6 +999,18 @@ if ((Test-Path $dashPatch) -and $wxPython) {
     else { Warn ("dashboard 中文补丁失败（不影响使用）：{0}" -f ($dashOut -join " ")) }
 }
 
+# ---------- 2.55 dashboard 扩展插件（记忆库/体检/导出页） ----------
+$dashExtSrc = Join-Path $SrcRoot "dashboard-ext\hermemory"
+if (Test-Path $dashExtSrc) {
+    $plugDir = Join-Path $HermesHome "plugins\hermemory"
+    New-Item -ItemType Directory -Force -Path (Join-Path $HermesHome "plugins") | Out-Null
+    if (Test-Path $plugDir) { Remove-Item $plugDir -Recurse -Force -ErrorAction SilentlyContinue }
+    Copy-Item $dashExtSrc $plugDir -Recurse -Force
+    $_r = Run-QOut $HermesCli plugins enable hermemory
+    if ($_r.Code -eq 0) { Ok "面板插件：记忆库/体检/导出已安装" }
+    else { Warn ("面板插件已复制，但启用失败；可稍后执行 hermes plugins enable hermemory" + (Show-Tail $_r.Out)) }
+}
+
 # ---------- 2.6 每日新对话脚本 ----------
 # 设置页「每日新对话」用 cron 的 `--script X --no-agent` 执行它；cron 只认
 # $HERMES_HOME\scripts\ 下的文件，所以这里放一份。默认不创建定时任务（自动化默认关闭，

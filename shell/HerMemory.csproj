@@ -65,6 +65,9 @@
     <!-- 只打运行时脚本；__pycache__ / *.pyc 是构建机残留，不该进包 -->
     <PayloadScripts Include="..\scripts\**\*" Exclude="..\scripts\**\__pycache__\**;..\scripts\**\*.pyc" />
     <EmbeddedResource Include="@(PayloadScripts)" LogicalName="payload/scripts/%(Filename)%(Extension)" />
+    <!-- dashboard 扩展插件（v0.23 起）：记忆库/体检/导出页，装到 <HERMES_HOME>\plugins\hermemory -->
+    <PayloadDashboard Include="..\dashboard-ext\**\*" />
+    <EmbeddedResource Include="@(PayloadDashboard)" LogicalName="payload/dashboard-ext/%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 
   <!-- 仅安装器（SetupMode=true）：

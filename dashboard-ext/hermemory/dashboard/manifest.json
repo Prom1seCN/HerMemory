@@ -1,0 +1,10 @@
+{
+  "name": "hermemory",
+  "label": "HerMemory",
+  "description": "记忆库编辑、体检与导出",
+  "icon": "Heart",
+  "version": "0.1.0",
+  "tab": { "path": "/hermemory", "position": "end" },
+  "entry": "dist/index.js",
+  "api": "plugin_api.py"
+}

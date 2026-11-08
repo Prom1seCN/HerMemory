@@ -290,6 +290,19 @@ if [ -f "$WX_PY" ] && [ -f "$WX_PATCH" ]; then
     fi
 fi
 
+# ---------- 2.55 dashboard 扩展插件（记忆库/体检/导出页） ----------
+DASH_EXT_SRC="$SRC/dashboard-ext/hermemory"
+if [ -d "$DASH_EXT_SRC" ]; then
+    mkdir -p "$HERMES_HOME/plugins"
+    rm -rf "$HERMES_HOME/plugins/hermemory"
+    cp -R "$DASH_EXT_SRC" "$HERMES_HOME/plugins/hermemory"
+    if hermes plugins enable hermemory >/dev/null 2>&1; then
+        ok "面板插件：记忆库/体检/导出已安装（hermes plugins enable hermemory）"
+    else
+        warn "面板插件已复制，但启用失败；可稍后执行 hermes plugins enable hermemory"
+    fi
+fi
+
 # ---------- 2.6 每日新对话脚本 ----------
 # 设置页「每日新对话」用 cron 的 --script X --no-agent 执行它；cron 只认
 # $HERMES_HOME/scripts/ 下的文件。默认不创建定时任务（自动化默认关闭）。
