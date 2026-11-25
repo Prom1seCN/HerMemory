@@ -99,6 +99,7 @@ namespace HerMemory
                 _themeUiReady = true;
                 ApplyGirlIcon();
                 Theme.ApplyTitleBar(this);   // 右上角女孩图标：随主题（Assets 为相对路径，用绝对资源文件流加载）
+                if (SelfTest) { _ = RunSelfTestAsync(); return; }
                 if (HomeMode) GoHome();
                 else RunPrecheck();
                 // 更新检查只在程序本体里做：安装器不该在装系统时还去问"有没有新版"。
@@ -106,6 +107,46 @@ namespace HerMemory
                 // 网关服务任务：新装（安装器不再注册）与老装（任务被删）都在这里补一次。
                 if (!AppPaths.IsSetup) _ = EnsureGatewayServiceAsync();
             };
+        }
+
+        // ================= 隐藏自检（--selftest） =================
+        // 只有带参数才启动，正常路径零开销。用途：无人值守遍历所有页面，
+        // 验证 XAML 能加载、入场动画不抛异常、切页不崩。结果写临时目录的文本文件。
+        private static readonly bool SelfTest =
+            Environment.GetCommandLineArgs().Any(a => string.Equals(a, "--selftest", StringComparison.OrdinalIgnoreCase));
+
+        private async Task RunSelfTestAsync()
+        {
+            var log = new StringBuilder();
+            var pages = new[]
+            {
+                "PageHome", "PageMemory", "PageSettings", "PageApi", "PageApiHelp",
+                "PageHealth", "PageCommands", "PageWeixin", "PageSetup",
+                "PageWelcome", "PageParams", "PageLocation", "PageUninstall", "PageDone",
+            };
+            var pass = 0;
+            var fail = 0;
+            foreach (var name in pages)
+            {
+                try
+                {
+                    ShowPage(name);
+                    await Task.Delay(260);          // 等入场动画跑完，动画期内的异常才会落在这里
+                    log.AppendLine($"PASS {name}");
+                    pass++;
+                }
+                catch (Exception ex)
+                {
+                    log.AppendLine($"FAIL {name}: {ex.GetType().Name} {ex.Message}");
+                    fail++;
+                }
+            }
+            try { ShowToast("自检", ToastKind.Success); await Task.Delay(600); log.AppendLine("PASS toast"); pass++; }
+            catch (Exception ex) { log.AppendLine("FAIL toast: " + ex.Message); fail++; }
+
+            log.AppendLine($"SUMMARY pass={pass} fail={fail}");
+            try { File.WriteAllText(Path.Combine(Path.GetTempPath(), "hm-selftest.log"), log.ToString(), new UTF8Encoding(false)); } catch { }
+            App.RequestExit();
         }
 
         /// <summary>小屏兜底：窗口比系统工作区还高/宽时（1366×768 开 125% 缩放就是典型），
@@ -238,11 +279,18 @@ namespace HerMemory
             if (DateTime.UtcNow < _transitionUntil && state != _transitionTarget) return;
             if (state == _transitionTarget) _transitionUntil = DateTime.MinValue;
             _lastState = state;
-            HomeStatus.Text = state switch
+            var statusText = state switch
             {
                 "running" => "Gateway 运行中，AI 在线",
                 _ => "Gateway 已停止，AI 离线",
             };
+            if (HomeStatus.Text != statusText)
+            {
+                HomeStatus.Text = statusText;
+                // 状态文案换字时淡入：直接替换会让一行字"啪"地跳变，淡入 200ms 就顺了。
+                HomeStatus.BeginAnimation(OpacityProperty,
+                    new DoubleAnimation(0.25, 1, new Duration(TimeSpan.FromMilliseconds(200))) { EasingFunction = EaseOut });
+            }
             var running = state == "running";
             HomeStatus.Foreground = running ? Res("Ink") : Res("Muted");
             StatusDot.Fill = running ? Res("Success") : Res("Subtle");
@@ -252,6 +300,16 @@ namespace HerMemory
                 _uiRunning = running;
                 HomeStart.Style = (Style)FindResource(running ? "GhostButton" : "AccentButton");
                 HomeStop.Style = (Style)FindResource(running ? "AccentButton" : "GhostButton");
+                // 状态点弹一下：颜色变化本身太细微，需要一次 1→1.5→1 的缩放把它"点亮"。
+                var pop = new System.Windows.Media.ScaleTransform(1, 1);
+                StatusDot.RenderTransformOrigin = new System.Windows.Point(0.5, 0.5);
+                StatusDot.RenderTransform = pop;
+                var bounce = new DoubleAnimationUsingKeyFrames();
+                bounce.KeyFrames.Add(new EasingDoubleKeyFrame(1.0, KeyTime.FromTimeSpan(TimeSpan.Zero)));
+                bounce.KeyFrames.Add(new EasingDoubleKeyFrame(1.55, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(120))));
+                bounce.KeyFrames.Add(new EasingDoubleKeyFrame(1.0, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(340))));
+                pop.BeginAnimation(System.Windows.Media.ScaleTransform.ScaleXProperty, bounce);
+                pop.BeginAnimation(System.Windows.Media.ScaleTransform.ScaleYProperty, bounce);
             }
             if (running && !_pulseOn) { StartPulse(StatusHalo); _pulseOn = true; }
             else if (!running && _pulseOn) { StopPulse(StatusHalo); _pulseOn = false; }
@@ -531,10 +589,18 @@ namespace HerMemory
             CfgCheck.IsEnabled = false;
             CfgHint.Text = "正在检测地址……";
             CfgHint.Foreground = Brush("#78909C");
-            var (level, msg) = await Task.Run(() => ProbeUrl(url, ""));
-            CfgHint.Text = msg;
-            CfgHint.Foreground = Brush(level == 0 ? "#C62828" : level == 1 ? "#EF6C00" : "#2E7D32");
-            CfgCheck.IsEnabled = true;
+            try
+            {
+                var (level, msg) = await Task.Run(() => ProbeUrl(url, ""));
+                CfgHint.Text = msg;
+                CfgHint.Foreground = Brush(level == 0 ? "#C62828" : level == 1 ? "#EF6C00" : "#2E7D32");
+            }
+            catch (Exception ex)
+            {
+                CfgHint.Text = "检测失败：" + ex.Message;
+                CfgHint.Foreground = Brush("#C62828");
+            }
+            finally { CfgCheck.IsEnabled = true; }
         }
 
         /// <summary>API 设置页 · 拉模型列表：与向导同一实现（CurlModels），选中后随"保存"写入 model.default。</summary>
@@ -718,7 +784,6 @@ namespace HerMemory
                 var st = await Task.Run(() => HermesCtl.State());
                 _lastState = st;
                 UpdateHomeStatus(st);
-                ShowToast("状态已刷新");
             }
             catch (Exception ex) { ReportUiError("刷新状态", ex); }
             finally { _homeBusy = false; SetHomeBusy(false); }
@@ -840,7 +905,6 @@ namespace HerMemory
 
         private void ShowResetResult(AiReset.Report rep)
         {
-            ShowToast(rep.Ok ? "已重置" : "重置未完成", rep.Ok ? ToastKind.Success : ToastKind.Error);
             var lines = new List<string> { rep.Ok ? "重置完成。" : "重置未完全成功。" };
             if (rep.Cleared.Count > 0)
             {
@@ -2410,42 +2474,86 @@ namespace HerMemory
         }
 
         // ================= 动效 =================
-        // 统一口径：淡入 200ms + 上浮 10px/260ms，CubicEase-Out。只碰 Opacity 与 RenderTransform，
-        // 不触发布局（Measure/Arrange 一次都不重跑），所以老机器上也不会卡。
+        // 统一口径：只碰 Opacity 与 RenderTransform，绝不触发布局（Measure/Arrange 一次都不重跑）。
+        // 曲线用 QuarticEase-Out：起步快、收尾轻，观感比 Cubic 更"跟手"，是 iOS/macOS 那类
+        // 系统动效的手感来源。时长全部压在 200ms 上下——超过 260ms 就开始显得拖。
 
-        private static readonly Duration FadeIn = new(TimeSpan.FromMilliseconds(200));
-        private static readonly Duration SlideIn = new(TimeSpan.FromMilliseconds(280));
+        private static readonly Duration FadeIn = new(TimeSpan.FromMilliseconds(170));
+        private static readonly Duration SlideIn = new(TimeSpan.FromMilliseconds(240));
 
-        private static CubicEase EaseOut => new() { EasingMode = EasingMode.EaseOut };
+        private static QuarticEase EaseOut => new() { EasingMode = EasingMode.EaseOut };
+        private static QuarticEase EaseInOutQuart => new() { EasingMode = EasingMode.EaseInOut };
 
         private void PlayWindowIntro()
         {
             RootGrid.Opacity = 0;
-            var tt = new System.Windows.Media.TranslateTransform(0, 12);
+            var tt = new System.Windows.Media.TranslateTransform(0, 10);
             RootGrid.RenderTransform = tt;
             RootGrid.BeginAnimation(OpacityProperty,
-                new DoubleAnimation(0, 1, new Duration(TimeSpan.FromMilliseconds(260))) { EasingFunction = EaseOut });
+                new DoubleAnimation(0, 1, new Duration(TimeSpan.FromMilliseconds(220))) { EasingFunction = EaseOut });
             tt.BeginAnimation(System.Windows.Media.TranslateTransform.YProperty,
-                new DoubleAnimation(12, 0, new Duration(TimeSpan.FromMilliseconds(360))) { EasingFunction = EaseOut });
+                new DoubleAnimation(10, 0, new Duration(TimeSpan.FromMilliseconds(320))) { EasingFunction = EaseOut });
         }
 
         private static void AnimatePageIn(FrameworkElement page)
         {
             page.Opacity = 0;
-            var scale = new System.Windows.Media.ScaleTransform(0.994, 0.994);
-            var tt = new System.Windows.Media.TranslateTransform(0, 12);
-            var group = new System.Windows.Media.TransformGroup();
-            group.Children.Add(scale);
-            group.Children.Add(tt);
-            page.RenderTransform = group;
+            var tt = new System.Windows.Media.TranslateTransform(0, 10);
+            page.RenderTransform = tt;
             page.RenderTransformOrigin = new System.Windows.Point(0.5, 0.5);
             page.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, FadeIn) { EasingFunction = EaseOut });
             tt.BeginAnimation(System.Windows.Media.TranslateTransform.YProperty,
-                new DoubleAnimation(12, 0, SlideIn) { EasingFunction = EaseOut });
-            scale.BeginAnimation(System.Windows.Media.ScaleTransform.ScaleXProperty,
-                new DoubleAnimation(0.994, 1, SlideIn) { EasingFunction = EaseOut });
-            scale.BeginAnimation(System.Windows.Media.ScaleTransform.ScaleYProperty,
-                new DoubleAnimation(0.994, 1, SlideIn) { EasingFunction = EaseOut });
+                new DoubleAnimation(10, 0, SlideIn) { EasingFunction = EaseOut });
+
+            // 直接子级错峰：卡片按顺序各晚 34ms 起跑，读起来像"一页正在展开"而不是"整块糊上来"。
+            // 只对直接子元素做，不递归——递归会命中几百个 TextBlock，动画开销反而盖过观感。
+            AnimateChildrenStagger(page);
+        }
+
+        /// <summary>对容器的直接子元素做错峰淡入。只处理 Panel，且最多 8 个——第 9 个之后同时入场，
+        /// 否则一页二十项会把总时长拖到半秒以上。</summary>
+        private static void AnimateChildrenStagger(FrameworkElement page)
+        {
+            System.Windows.Controls.Panel? host = page as System.Windows.Controls.Panel;
+            if (host == null)
+            {
+                // 大多数页是 Grid 包一层 ScrollViewer/StackPanel：取第一个可见的 Panel 当宿主。
+                foreach (var child in LogicalTreeHelper.GetChildren(page))
+                {
+                    if (child is System.Windows.Controls.ScrollViewer sv) { host = sv.Content as System.Windows.Controls.Panel; break; }
+                    if (child is System.Windows.Controls.Panel p) { host = p; break; }
+                }
+            }
+            if (host == null) return;
+            // 常见结构是 Grid → 单个 ScrollViewer → StackPanel：穿透两层才拿得到真正的卡片列表，
+            // 否则整页只有"一个孩子"，错峰就退化成整体淡入。
+            if (host.Children.Count == 1 && host.Children[0] is System.Windows.Controls.ScrollViewer only
+                && only.Content is System.Windows.Controls.Panel inner) host = inner;
+            int i = 0;
+            foreach (var child in host.Children)
+            {
+                if (i >= 8) break;
+                if (child is not FrameworkElement fe || fe.Visibility != Visibility.Visible) continue;
+                // 页头/返回键不参与错峰：它们本来就该第一个出现。
+                if (fe is System.Windows.Controls.Button) continue;
+                // 设计上就是隐藏的元素（Opacity=0，靠别处动画点亮）不碰，否则会被我们错峰"点亮"。
+                if (fe.Opacity <= 0.01) continue;
+                var delay = TimeSpan.FromMilliseconds(30 + i * 34);
+                var targetOpacity = fe.Opacity;   // 水印类元素本来就是 0.14，要回到它自己的值
+                if (fe.Opacity >= 0.99) fe.Opacity = 0;   // 本来不透明的才压到 0 起跑
+                var ct = new System.Windows.Media.TranslateTransform(0, 7);
+                fe.RenderTransform = ct;
+                fe.BeginAnimation(OpacityProperty, new DoubleAnimation(fe.Opacity, targetOpacity, new Duration(TimeSpan.FromMilliseconds(200)))
+                {
+                    BeginTime = delay, EasingFunction = EaseOut,
+                });
+                ct.BeginAnimation(System.Windows.Media.TranslateTransform.YProperty,
+                    new DoubleAnimation(7, 0, new Duration(TimeSpan.FromMilliseconds(280)))
+                    {
+                        BeginTime = delay, EasingFunction = EaseOut,
+                    });
+                i++;
+            }
         }
 
         /// <summary>状态灯呼吸：只动透明度。18px 的光晕在 9px 圆点外一涨一落，就是"活着"的感觉。</summary>
@@ -3042,10 +3150,18 @@ namespace HerMemory
             BtnCheckUrl.IsEnabled = false;
             ParamStatus.Text = "正在检测地址……";
             ParamStatus.Foreground = Brush("#78909C");
-            var (level, msg) = await Task.Run(() => ProbeUrl(url, key));
-            ParamStatus.Text = msg;
-            ParamStatus.Foreground = Brush(level == 2 ? "#2E7D32" : level == 1 ? "#EF6C00" : "#C62828");
-            BtnCheckUrl.IsEnabled = true;
+            try
+            {
+                var (level, msg) = await Task.Run(() => ProbeUrl(url, key));
+                ParamStatus.Text = msg;
+                ParamStatus.Foreground = Brush(level == 2 ? "#2E7D32" : level == 1 ? "#EF6C00" : "#C62828");
+            }
+            catch (Exception ex)
+            {
+                ParamStatus.Text = "检测失败：" + ex.Message;
+                ParamStatus.Foreground = Brush("#C62828");
+            }
+            finally { BtnCheckUrl.IsEnabled = true; }
         }
 
         /// <summary>探活 {url}/models：任何 HTTP 应答即可达（level 2 绿 / 1 橙 / 0 红）；curl 000 时按退出码给出失败原因。</summary>
@@ -3564,6 +3680,7 @@ namespace HerMemory
             if (lines.Count == 0) lines.Add("安装进行中，请稍候。");
             var i = 0;
             InstallTip.Text = lines[0];
+            _tipTimer?.Stop();   // 连续两次 StartTips（重试安装）时，旧 timer 必须先停，否则会叠加跳动
             _tipTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(6) };
             _tipTimer.Tick += (_, _) => { i = (i + 1) % lines.Count; InstallTip.Text = lines[i]; };
             _tipTimer.Start();
@@ -3892,20 +4009,12 @@ namespace HerMemory
             {
                 // 项目同时引用 WPF 与 WinForms，两个 Clipboard 撞名（CS0104），必须完全限定。
                 System.Windows.Clipboard.SetText(_qrLink);
-                Dispatcher.Invoke(() =>
-                {
-                    BtnCopyQrLink.Content = "已复制";
-                    ShowToast("链接已复制", ToastKind.Success);
-                });
+                Dispatcher.Invoke(() => BtnCopyQrLink.Content = "已复制");
             }
             catch
             {
                 // 剪贴板被占用等：退化为让用户手动选中
-                Dispatcher.Invoke(() =>
-                {
-                    BtnCopyQrLink.Content = "复制失败";
-                    ShowToast("复制失败，请手动选中链接", ToastKind.Error);
-                });
+                Dispatcher.Invoke(() => BtnCopyQrLink.Content = "复制失败");
             }
         }
 
@@ -4080,7 +4189,12 @@ namespace HerMemory
                 _ => "#37474F",
             });
             ToastHost.Visibility = Visibility.Visible;
-            ToastHost.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(150)));
+            // 从下方 10px 滑入 + 淡入：底部浮条从"页面里冒出来"比单纯变色更有交代。
+            var slide = new System.Windows.Media.TranslateTransform(0, 10);
+            ToastHost.RenderTransform = slide;
+            ToastHost.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, new Duration(TimeSpan.FromMilliseconds(140))) { EasingFunction = EaseOut });
+            slide.BeginAnimation(System.Windows.Media.TranslateTransform.YProperty,
+                new DoubleAnimation(10, 0, new Duration(TimeSpan.FromMilliseconds(200))) { EasingFunction = EaseOut });
             _toastTimer?.Stop();
             _toastTimer = new System.Windows.Threading.DispatcherTimer
             {
@@ -4089,9 +4203,11 @@ namespace HerMemory
             _toastTimer.Tick += (_, _) =>
             {
                 _toastTimer?.Stop();
-                var fade = new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(220));
+                var fade = new DoubleAnimation(1, 0, new Duration(TimeSpan.FromMilliseconds(180))) { EasingFunction = EaseOut };
                 fade.Completed += (_, _) => ToastHost.Visibility = Visibility.Collapsed;
                 ToastHost.BeginAnimation(OpacityProperty, fade);
+                slide.BeginAnimation(System.Windows.Media.TranslateTransform.YProperty,
+                    new DoubleAnimation(0, 6, new Duration(TimeSpan.FromMilliseconds(180))) { EasingFunction = EaseOut });
             };
             _toastTimer.Start();
         }
