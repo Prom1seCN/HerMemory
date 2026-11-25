@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """HerMemory headless 微信二维码登录（exe 专用，发行版自研、零改上游）。
 
 为什么不用 `hermes gateway setup`：其 curses 菜单在非 TTY stdin 下直接返回取消值
@@ -38,11 +38,16 @@ def main() -> int:
         return 2
     root, home = Path(sys.argv[1]).resolve(), Path(sys.argv[2])
     sys.path.insert(0, str(root))
+    # v0.23 把微信平台搬到 plugins/platforms/weixin/adapter.py；0.22 及更早仍在
+    # gateway/platforms/weixin.py。先新后旧，一次安装只可能命中一个。
     try:
-        from gateway.platforms.weixin import check_weixin_requirements, qr_login
-    except Exception as exc:
-        print(f"##HM-QR## fail import: {exc}", flush=True)
-        return 1
+        from plugins.platforms.weixin.adapter import check_weixin_requirements, qr_login
+    except Exception:
+        try:
+            from gateway.platforms.weixin import check_weixin_requirements, qr_login
+        except Exception as exc:
+            print(f"##HM-QR## fail import: {exc}", flush=True)
+            return 1
     if not check_weixin_requirements():
         print("##HM-QR## fail deps: 需要 aiohttp/cryptography（上游 venv 依赖不完整）", flush=True)
         return 1

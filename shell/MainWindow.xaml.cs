@@ -507,6 +507,7 @@ namespace HerMemory
                 CfgHint.Text = state == "running"
                     ? $"已保存（{note}）；Gateway 正在运行，需停止后重新启动才生效。"
                     : $"已保存（{note}），启动 Gateway 后生效。";
+                ShowToast(state == "running" ? "已保存，重启 Gateway 后生效" : "已保存", ToastKind.Success);
                 _cfgState = state;
             }
             catch (Exception ex)
@@ -652,10 +653,9 @@ namespace HerMemory
                 });
                 MemoryHint.Foreground = ok ? Brush("#2E7D32") : Brush("#C62828");
                 MemoryHint.Text = ok
-                    ? (running
-                        ? "已保存。重启 Gateway 后生效（首页点「停止」再「启动」）。"
-                        : "已保存，下次启动 Gateway 时生效。")
-                    : "保存失败：配置没有写进去，请查看 Gateway 日志。";
+                    ? (running ? "重启 Gateway 后生效。" : "下次启动生效。")
+                    : "保存失败，请查看 Gateway 日志。";
+                ShowToast(ok ? "已保存" : "保存失败", ok ? ToastKind.Success : ToastKind.Error);
             }
             catch (Exception ex)
             {
@@ -689,9 +689,14 @@ namespace HerMemory
                 {
                     HomeStatus.Text = (cmd == "start" ? "启动失败：" : "停止失败：") + Tail(result.Error, 220);
                     HomeStatus.Foreground = Brush("#C62828");
+                    ShowToast(cmd == "start" ? "启动失败" : "停止失败", ToastKind.Error);
+                }
+                else
+                {
+                    ShowToast(cmd == "start" ? "Gateway 已启动" : "Gateway 已停止", ToastKind.Success);
                 }
             }
-            catch (Exception ex) { ReportUiError("启停网关", ex); }
+            catch (Exception ex) { ReportUiError("启停 Gateway", ex); }
             finally
             {
                 try { StatusProgress.Visibility = Visibility.Collapsed; } catch { }
@@ -713,6 +718,7 @@ namespace HerMemory
                 var st = await Task.Run(() => HermesCtl.State());
                 _lastState = st;
                 UpdateHomeStatus(st);
+                ShowToast("状态已刷新");
             }
             catch (Exception ex) { ReportUiError("刷新状态", ex); }
             finally { _homeBusy = false; SetHomeBusy(false); }
@@ -728,6 +734,7 @@ namespace HerMemory
                 HomeStatus.Foreground = Brush("#C62828");
             }
             catch { }
+            ShowToast($"{what}失败", ToastKind.Error);
             try
             {
                 var dir = Path.Combine(HermesHome, "logs");
@@ -833,6 +840,7 @@ namespace HerMemory
 
         private void ShowResetResult(AiReset.Report rep)
         {
+            ShowToast(rep.Ok ? "已重置" : "重置未完成", rep.Ok ? ToastKind.Success : ToastKind.Error);
             var lines = new List<string> { rep.Ok ? "重置完成。" : "重置未完全成功。" };
             if (rep.Cleared.Count > 0)
             {
@@ -1600,10 +1608,12 @@ namespace HerMemory
                         if (!start.Success) throw new IOException("恢复 Gateway 失败：" + start.Error);
                     }
                 });
+                ShowToast("微信已解绑", ToastKind.Success);
             }
             catch (Exception ex)
             {
                 WxBindStatus.Text = "解绑未完成：" + ex.Message;
+                ShowToast("解绑失败", ToastKind.Error);
                 if (_wxPrevRunning)
                     await Task.Run(() => HermesCtl.GatewayCommand("start", 120));
             }
@@ -1845,7 +1855,7 @@ namespace HerMemory
 
         private static string FixLabel(HealthFix fix) => fix switch
         {
-            HealthFix.StartGateway => "启动网关",
+            HealthFix.StartGateway => "启动 Gateway",
             HealthFix.InstallGateway => "重装任务",
             HealthFix.Reinstall => "修复安装",
             HealthFix.OpenLogs => "看日志",
@@ -1861,11 +1871,11 @@ namespace HerMemory
                 switch (item.Fix)
                 {
                     case HealthFix.StartGateway:
-                        HealthStatus.Text = "正在启动网关……";
+                        HealthStatus.Text = "正在启动 Gateway……";
                         await Task.Run(() => HermesCtl.GatewayCommand("start", 120));
                         break;
                     case HealthFix.InstallGateway:
-                        HealthStatus.Text = "正在重装网关任务（可能要一两分钟）……";
+                        HealthStatus.Text = "正在重建 Gateway 服务……";
                         if (HermesCtl.GatewayLauncherStale()) HermesCtl.ResetGatewayTask();
                         Environment.SetEnvironmentVariable("HERMES_GATEWAY_INSTALL_START_ON_LOGIN",
                             AutoStart.IsOn ? "1" : "0");
@@ -1955,6 +1965,7 @@ namespace HerMemory
                 var (ok, msg) = await Task.Run(() => HermesCtl.SetDailyNewSession(enabled, time, sourceDir));
                 SettingsHint.Foreground = Brush(ok ? "#2E7D32" : "#C62828");
                 SettingsHint.Text = msg;
+                ShowToast(ok ? "已保存" : "保存失败", ok ? ToastKind.Success : ToastKind.Error);
             }
             catch (Exception ex) { ReportUiError("保存设置", ex); }
             finally { BtnSaveSettings.IsEnabled = true; }
@@ -3688,7 +3699,7 @@ namespace HerMemory
                 if (string.IsNullOrEmpty(pyExe) || script == null)
                 {
                     SetQr(string.IsNullOrEmpty(pyExe)
-                        ? "微信接入组件缺失（Python 环境未就绪：PM 未记录可用解释器）。可在主界面「启动」网关一次让环境同步，或重新运行安装包修复。"
+                        ? "微信组件未就绪。点「启动」同步环境，或重新运行安装包。"
                         : $"微信接入组件缺失（登录脚本，安装源={_repoRoot ?? "未定位"}，内嵌包解压也失败，请检查磁盘空间与权限）");
                     return;
                 }
@@ -3881,12 +3892,20 @@ namespace HerMemory
             {
                 // 项目同时引用 WPF 与 WinForms，两个 Clipboard 撞名（CS0104），必须完全限定。
                 System.Windows.Clipboard.SetText(_qrLink);
-                Dispatcher.Invoke(() => BtnCopyQrLink.Content = "已复制");
+                Dispatcher.Invoke(() =>
+                {
+                    BtnCopyQrLink.Content = "已复制";
+                    ShowToast("链接已复制", ToastKind.Success);
+                });
             }
             catch
             {
                 // 剪贴板被占用等：退化为让用户手动选中
-                Dispatcher.Invoke(() => BtnCopyQrLink.Content = "复制失败");
+                Dispatcher.Invoke(() =>
+                {
+                    BtnCopyQrLink.Content = "复制失败";
+                    ShowToast("复制失败，请手动选中链接", ToastKind.Error);
+                });
             }
         }
 
@@ -4044,6 +4063,39 @@ namespace HerMemory
                 Process.Start(new ProcessStartInfo("explorer.exe", $"\"{dir}\"") { UseShellExecute = true });
         }
 
+        // ================= 全局操作反馈（Toast） =================
+        private enum ToastKind { Info, Success, Error }
+        private System.Windows.Threading.DispatcherTimer? _toastTimer;
+
+        /// <summary>底部浮出一条反馈。成功/失败用颜色区分，不做弹窗——弹窗要人点，浮条不用。
+        /// 文案只写结果（"已保存"），过程与原因留给 inline 提示。</summary>
+        private void ShowToast(string message, ToastKind kind = ToastKind.Info)
+        {
+            if (string.IsNullOrWhiteSpace(message) || ToastHost == null) return;
+            ToastText.Text = message;
+            ToastHost.Background = Brush(kind switch
+            {
+                ToastKind.Success => "#2E7D32",
+                ToastKind.Error => "#C62828",
+                _ => "#37474F",
+            });
+            ToastHost.Visibility = Visibility.Visible;
+            ToastHost.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(150)));
+            _toastTimer?.Stop();
+            _toastTimer = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(kind == ToastKind.Error ? 6 : 3),
+            };
+            _toastTimer.Tick += (_, _) =>
+            {
+                _toastTimer?.Stop();
+                var fade = new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(220));
+                fade.Completed += (_, _) => ToastHost.Visibility = Visibility.Collapsed;
+                ToastHost.BeginAnimation(OpacityProperty, fade);
+            };
+            _toastTimer.Start();
+        }
+
         private void BtnFinish_Click(object sender, RoutedEventArgs e)
         {
             // 安装器形态：启动刚装好的程序本体，然后自己退出——用户从此只跟 Program Files 里的
@@ -4135,7 +4187,7 @@ namespace HerMemory
         /// 不删 exe 自身（用户自行删除本程序文件）——卸载功能只负责把 HerMemory 装进去的东西清干净。</summary>
         private void DoUninstall(bool delVault)
         {
-            SetUnins("停止网关……", 5);
+            SetUnins("停止 Gateway……", 5);
             HermesCtl.GatewayCommand("stop", 120);
 
             SetUnins("移除登录项与计划任务……", 12);

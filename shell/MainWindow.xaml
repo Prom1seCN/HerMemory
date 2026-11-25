@@ -125,9 +125,9 @@
                         </Grid>
                         <StackPanel Margin="15,0,0,0" VerticalAlignment="Center">
                             <TextBlock x:Name="HomeStatus" FontSize="17" FontWeight="SemiBold"
-                                       Foreground="{DynamicResource Ink}" Text="正在检查 Gateway 状态……"/>
+                                       Foreground="{DynamicResource Ink}" Text="正在检查状态……"/>
                             <TextBlock x:Name="HomeStatusSub" FontSize="11.5" Margin="0,5,0,0"
-                                       Foreground="{DynamicResource Subtle}" Text="微信通过 Gateway 连接 HerMemory"/>
+                                       Foreground="{DynamicResource Subtle}" Text="AI 通过 Gateway 连接你的微信"/>
                             <!-- 启停过渡：细长的青色进度条来回跑，告诉用户"在干活"，而不是卡死 -->
                             <ProgressBar x:Name="StatusProgress" Style="{StaticResource ThinProgress}"
                                          IsIndeterminate="True" Visibility="Collapsed"
@@ -382,7 +382,7 @@
                     <Button Style="{StaticResource BackButton}" Content="返回" HorizontalAlignment="Left" Click="BtnBack_Click"/>
                     <TextBlock Text="记忆设置" Style="{StaticResource PageTitle}"/>
                     <TextBlock Style="{StaticResource Body}" Margin="0,6,0,0"
-                               Text="MEMORY.md 与 USER.md 的字符上限。"/>
+                               Text="单次注入的字符上限"/>
                     <Border Style="{StaticResource PageHeadRule}"/>
 
                     <Border Style="{StaticResource Card}" Margin="0,18,0,0" Padding="20,18">
@@ -428,7 +428,7 @@
                         </StackPanel>
                     </Border>
 
-                    <TextBlock Style="{StaticResource Hint}" Margin="2,14,0,0" Text="保存后重启 Gateway 生效。"/>
+                    <TextBlock Style="{StaticResource Hint}" Margin="2,14,0,0" Text="重启后生效。"/>
                 </StackPanel>
             </ScrollViewer>
         </Grid>
@@ -446,14 +446,14 @@
                         <StackPanel>
                             <TextBlock Text="每日新对话" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource Ink}"/>
                             <TextBlock Style="{StaticResource Body}" Margin="0,6,0,0" MaxWidth="560" HorizontalAlignment="Left"
-                                       Text="到设定时间自动开启新对话，避免上下文持续累积。"/>
+                                       Text="每天定时开启新对话。"/>
                             <CheckBox x:Name="ChkDailyNew" Content="每天自动开始新对话" Margin="0,16,0,0"
                                       Checked="ChkDailyNew_Changed" Unchecked="ChkDailyNew_Changed"/>
                             <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
                                 <TextBlock Text="时间" FontSize="12.5" VerticalAlignment="Center" Foreground="{DynamicResource Muted}"/>
                                 <TextBox x:Name="DailyTimeBox" Style="{StaticResource FieldBox}" Width="92" Margin="12,0,0,0"
                                          Text="04:00" TextAlignment="Center"/>
-                                <TextBlock Text="24 小时制，建议放在你不会聊天的时段" FontSize="11.5" Margin="12,0,0,0"
+                                <TextBlock Text="24 小时制" FontSize="11.5" Margin="12,0,0,0"
                                            VerticalAlignment="Center" Foreground="{DynamicResource Subtle}"/>
                             </StackPanel>
                             <StackPanel Orientation="Horizontal" Margin="0,22,0,0">
@@ -466,7 +466,7 @@
                     </Border>
 
                     <TextBlock Style="{StaticResource Hint}" Margin="2,14,0,0"
-                               Text="网关运行时执行；关机期间错过的时间不补跑。"/>
+                               Text="关机期间不补跑。"/>
 
                     <Border Style="{StaticResource Card}" Margin="0,18,0,0" Padding="20,18">
                         <Grid>
@@ -474,7 +474,7 @@
                             <StackPanel>
                                 <TextBlock Text="配置向导" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource Ink}"/>
                                 <TextBlock Style="{StaticResource Body}" Margin="0,6,0,0" MaxWidth="520" HorizontalAlignment="Left"
-                                           Text="重新走一遍「连接 AI / 绑定微信」的步骤，已填好的内容会保留。"/>
+                                           Text="重新运行配置向导，已填内容保留。"/>
                             </StackPanel>
                             <Button Grid.Column="1" Content="重新运行" Style="{StaticResource GhostButton}"
                                     VerticalAlignment="Center" Click="BtnSetupAgain_Click"/>
@@ -495,7 +495,7 @@
                 <Button Style="{StaticResource BackButton}" Content="返回" HorizontalAlignment="Left" Click="BtnBack_Click"/>
                 <TextBlock Text="体检" Style="{StaticResource PageTitle}"/>
                 <TextBlock Style="{StaticResource Body}" Margin="0,6,0,0"
-                           Text="在本机逐项检查，不调用模型。红色项会直接影响使用，橙色项是提醒。"/>
+                           Text="本机检查，不调用模型。"/>
                 <Border Style="{StaticResource PageHeadRule}"/>
                 <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
                     <Button x:Name="BtnHealthRefresh" Content="重新检查" Style="{StaticResource AccentButton}"
@@ -982,5 +982,16 @@
         </Grid>
             </Grid>
         </ScrollViewer>
+
+        <!-- 全局操作反馈：底部居中浮条。不占布局、不挡内容、不需要用户点确认。
+             成功/失败靠颜色区分，文案只写结果，不写过程。 -->
+        <Border x:Name="ToastHost" Grid.Row="0" Grid.RowSpan="2"
+                HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                Margin="0,0,0,2" Padding="16,10" CornerRadius="8"
+                Visibility="Collapsed" Opacity="0" Panel.ZIndex="99"
+                Background="#37474F">
+            <TextBlock x:Name="ToastText" Foreground="White" FontSize="12.5"
+                       TextWrapping="Wrap" MaxWidth="560"/>
+        </Border>
     </Grid>
 </Window>
