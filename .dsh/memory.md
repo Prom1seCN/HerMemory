@@ -529,3 +529,31 @@ export HERMES_HOME=<spike>/home
   这类类型二义，新增控件要写全名。
 - Linux 安装器新增 `HERMEMORY_HEADLESS=1`：跳过记忆档位 / AI / 扫码三段问答；模型列表为空时允许手填型号。
 - Linux 侧文档：`docs/LINUX.md`（运维）、`docs/COMMANDS.md`（命令）。两份随 `docs/` 一起进记忆库。
+
+## 安装产物与 GUI 测试（0.3.0）
+
+- **发出去的程序本体必须是 `shell/`（WPF），不是 `shell-lite/`（托盘壳）。**
+  `shell-lite` 只有 `Program.cs`，没有 `ShowSetup`/`PageSetup`——装完只得到托盘图标，
+  用户无处填 API、无处扫码，微信永远不通。`build-release.ps1` 默认走 `shell/`，
+  `-TrayApp` 才出托盘壳；`-ClassicApp` 是兼容别名，无实际作用。
+- 判断程序本体是哪种：`shell/` 产物约 72.6 MB（含 MainWindow.xaml），`shell-lite` 约 71.7 MB。
+  只看体积不可靠，用 `strings` 找不到 XAML（单文件压缩），以版本 + 是否有窗口为准。
+- **微信扫码脚本要兼容 0.23 的模块路径**：`scripts/weixin_qr_login.py` 先
+  `from plugins.platforms.weixin.adapter import check_weixin_requirements, qr_login`，
+  失败再回退 `gateway.platforms.weixin`。0.23 只保留前者，旧路径会报
+  `No module named 'gateway.platforms.weixin'`。`install.ps1` §2.5 早就双路径兜底，
+  但 GUI 走的是这个脚本，两条路都要改。
+- **ssh 登录在 Session 0（services），没有交互桌面**：从 ssh 启的 GUI 进程活着但
+  `MainWindowHandle=0`，不是程序 bug。要看窗口/做 GUI 测试必须
+  `schtasks /create ... /ru <用户> /it` 再 `/run`，进程落到 Session 1。
+  `qwinsta` 可确认：`services` 是 0，`console` 是 1。
+- **`--selftest`（隐藏参数）**：遍历 14 个页面 + Toast，每页停 260ms 让入场动画跑完，
+  结果写 `%TEMP%\hm-selftest.log`，结束自动退出。用于无人值守验证 XAML 能加载、
+  动画不抛异常。发布前必跑。
+- **`Timeline.DesiredFrameRate` 不是附加属性**，写在 `Grid` 上会 `XamlParseException`
+  （`InvalidCastException` in `Timeline_PropertyChangedFunction`）。要限帧只能在每个
+  `DoubleAnimation` 上用 `Timeline.SetDesiredFrameRate()`；不设则跟随显示器刷新率。
+- 干净的 Windows 上卸载要清五处：`Program Files\HerMemory`、`%LOCALAPPDATA%\hermes`、
+  `%USERPROFILE%\vault`、`%LOCALAPPDATA%\HerMemory`（`setup_done` 标记）、
+  注册表卸载项 + `Hermes_Gateway` 计划任务。漏掉 `%LOCALAPPDATA%\HerMemory` 会让程序
+  以为配置已完成、跳过引导。
