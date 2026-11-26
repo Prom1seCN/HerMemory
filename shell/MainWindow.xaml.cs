@@ -3732,10 +3732,12 @@ namespace HerMemory
         private long _dlBytes;
         private DateTime _dlAt;
 
+        private int _dlIdle;
+
         private void StartDownloadMeter()
         {
             if (_dlTimer != null) return;
-            _dlBytes = 0; _dlAt = DateTime.UtcNow;
+            _dlBytes = 0; _dlAt = DateTime.UtcNow; _dlIdle = 0;
             _dlTimer = new System.Windows.Threading.DispatcherTimer
             {
                 Interval = TimeSpan.FromSeconds(2),
@@ -3755,10 +3757,16 @@ namespace HerMemory
                     var speed = Math.Max(0, (total - _dlBytes) / secs);
                     _dlBytes = total; _dlAt = now;
                     if (total <= 0) return;
+                    // 下载收尾后速度会掉到 0，此时留着" · 0 KB/s"只会让人以为卡住了。
+                    // 连续 5 拍（约 10 秒）没有增长就当作下完了，把这一行收起来——后面的进度
+                    // 由安装日志自己说明。
+                    _dlIdle = speed < 1024 ? _dlIdle + 1 : 0;
+                    if (_dlIdle >= 5) { InstallDl.Visibility = Visibility.Collapsed; return; }
                     InstallDl.Visibility = Visibility.Visible;
                     InstallDl.Text = "已下载 " + (total / 1048576.0).ToString("F1") + " MB" +
                         (speed > 1048576 ? " · " + (speed / 1048576.0).ToString("F1") + " MB/s"
-                                         : " · " + (speed / 1024).ToString("F0") + " KB/s");
+                         : speed >= 1024 ? " · " + (speed / 1024).ToString("F0") + " KB/s"
+                                         : "");
                 }
                 catch { }
             };
