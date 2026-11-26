@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <HmPayloadDir Condition="'$(HmPayloadDir)' == ''">..\build\minimal</HmPayloadDir>
     <!-- 大件打包：build\payload.zip（build-release.ps1 生成）。存在时用单个压缩资源替换逐文件内嵌，
@@ -40,6 +40,9 @@
   <ItemGroup>
     <!-- .NET 8 不自带代码页编码；安装器输出按 GBK(936) 解码需显式注册 CodePagesEncodingProvider（App 启动时） -->
     <PackageReference Include="System.Text.Encoding.CodePages" Version="8.0.0" />
+    <!-- 对话界面：把 Hermes 自己的 webapp（apps/desktop 构建出的静态 bundle）嵌进来。
+         运行时用系统 Edge WebView2（Win10 1803+ 基本都带），不随包分发浏览器内核。 -->
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3124.44" />
   </ItemGroup>
 
   <ItemGroup>

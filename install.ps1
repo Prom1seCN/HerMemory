@@ -1042,6 +1042,20 @@ if (Test-Path $dashExtSrc) {
     else { Warn ("面板插件已复制，但启用失败；可稍后执行 hermes plugins enable hermemory" + (Show-Tail $_r.Out)) }
 }
 
+# ---------- 2.56 对话界面（Hermes webapp 静态产物） ----------
+# apps/desktop 构建出的 dist-webapp 是「打开对话」窗口加载的那套界面（官方 Desktop 同源）。
+# Gateway 没有它会 404，窗口只能退回浏览器打开。这里只拷静态文件，绝不跑 npm build——
+# 用户机器上既没有构建工具链，也不该为一个界面等十分钟。
+$webappSrc = Join-Path $SrcRoot "dist-webapp"
+$webappDst = Join-Path $HermesHome "hermes-agent\apps\desktop\dist-webapp"
+if (Test-Path (Join-Path $webappSrc "index.html")) {
+    New-Item -ItemType Directory -Force -Path $webappDst | Out-Null
+    Copy-Item (Join-Path $webappSrc "*") $webappDst -Recurse -Force
+    Ok "对话界面已就位（webapp）"
+} else {
+    Warn "随包缺少对话界面素材（dist-webapp）；「打开对话」将退回系统浏览器"
+}
+
 # ---------- 2.6 每日新对话脚本 ----------
 # 设置页「每日新对话」用 cron 的 `--script X --no-agent` 执行它；cron 只认
 # $HERMES_HOME\scripts\ 下的文件，所以这里放一份。默认不创建定时任务（自动化默认关闭，

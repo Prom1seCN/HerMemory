@@ -248,19 +248,19 @@
                             </StackPanel>
                         </Grid>
                     </Button>
-                    <Button x:Name="BtnResetAi" Grid.Row="1" Grid.Column="2" Style="{StaticResource TileButton}" Margin="5,0,0,0"
-                            AutomationProperties.Name="重置 AI" Click="BtnResetAi_Click">
+                    <Button Grid.Row="1" Grid.Column="2" Style="{StaticResource TileButton}" Margin="5,0,0,0"
+                            AutomationProperties.Name="打开对话" Click="BtnChat_Click">
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                             <Border Style="{StaticResource TileIconChip}">
                                 <Path Width="18" Height="18" Stretch="Uniform" Stroke="{DynamicResource Accent}"
                                       StrokeThickness="1.6" StrokeLineJoin="Round" StrokeStartLineCap="Round"
                                       StrokeEndLineCap="Round" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                      Data="M 4 12 A 8 8 0 1 0 6.3 6.3 M 4 4.5 V 9 H 8.5"/>
+                                      Data="M 3.5 5 H 20.5 V 15.5 H 11.5 L 7 19.5 V 15.5 H 3.5 Z"/>
                             </Border>
                             <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center">
-                                <TextBlock Text="重置 AI" FontSize="13" FontWeight="SemiBold"/>
-                                <TextBlock Text="清空记忆并恢复出厂" FontSize="11" Margin="0,3,0,0" Foreground="{DynamicResource Subtle}"/>
+                                <TextBlock Text="打开对话" FontSize="13" FontWeight="SemiBold"/>
+                                <TextBlock Text="不经过微信直接聊" FontSize="11" Margin="0,3,0,0" Foreground="{DynamicResource Subtle}"/>
                             </StackPanel>
                         </Grid>
                     </Button>
@@ -282,6 +282,8 @@
                     </Button>
                     <Button Content="一键导出" Style="{StaticResource GhostButton}"
                             Margin="9,0,0,0" VerticalAlignment="Center" Click="BtnExport_Click"/>
+                    <Button x:Name="BtnResetAi" Content="重置 AI" Style="{StaticResource GhostButton}"
+                            Margin="9,0,0,0" VerticalAlignment="Center" Click="BtnResetAi_Click"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                     <Button Content="常用命令" Style="{StaticResource GhostButton}" Click="BtnCommands_Click"/>

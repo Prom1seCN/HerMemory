@@ -100,6 +100,7 @@ namespace HerMemory
                 ApplyGirlIcon();
                 Theme.ApplyTitleBar(this);   // 右上角女孩图标：随主题（Assets 为相对路径，用绝对资源文件流加载）
                 if (SelfTest) { _ = RunSelfTestAsync(); return; }
+                if (SelfTestChat) { _ = RunChatSelfTestAsync(); return; }
                 if (HomeMode) GoHome();
                 else RunPrecheck();
                 // 更新检查只在程序本体里做：安装器不该在装系统时还去问"有没有新版"。
@@ -114,6 +115,28 @@ namespace HerMemory
         // 验证 XAML 能加载、入场动画不抛异常、切页不崩。结果写临时目录的文本文件。
         private static readonly bool SelfTest =
             Environment.GetCommandLineArgs().Any(a => string.Equals(a, "--selftest", StringComparison.OrdinalIgnoreCase));
+
+        private static readonly bool SelfTestChat =
+            Environment.GetCommandLineArgs().Any(a => string.Equals(a, "--selftest-chat", StringComparison.OrdinalIgnoreCase));
+
+        /// <summary>对话窗口自检：WebView2 初始化是唯一无法靠编译发现、也无法靠 xaml 遍历覆盖的一环，
+        /// 必须真起一个窗口加载一次才知道成不成。</summary>
+        private async Task RunChatSelfTestAsync()
+        {
+            var log = new StringBuilder();
+            try
+            {
+                var w = new ChatWindow();
+                w.Show();
+                await Task.Delay(14000);
+                log.AppendLine("CHAT " + await w.DiagnosticsAsync());
+                w.Close();
+            }
+            catch (Exception ex) { log.AppendLine("CHAT FAIL: " + ex.GetType().Name + " " + ex.Message); }
+            log.AppendLine("SUMMARY done");
+            try { File.WriteAllText(Path.Combine(Path.GetTempPath(), "hm-chat-selftest.log"), log.ToString(), new UTF8Encoding(false)); } catch { }
+            App.RequestExit();
+        }
 
         private async Task RunSelfTestAsync()
         {
@@ -1716,6 +1739,13 @@ namespace HerMemory
         }
 
         // ================= 编辑记忆（应用内嵌 Markdown 编辑器） =================
+
+        /// <summary>打开应用内对话窗口（嵌 Hermes 自己的 webapp）。安装器形态没有对话可谈——先装完。</summary>
+        private void BtnChat_Click(object sender, RoutedEventArgs e)
+        {
+            if (AppPaths.IsSetup) return;
+            ChatWindow.Open(this);
+        }
 
         private void BtnEditor_Click(object sender, RoutedEventArgs e)
         {
