@@ -54,7 +54,6 @@ namespace HerMemory
             string yes = "保存", string no = "不保存", string cancel = "取消")
         {
             var dlg = Build(owner, title, message, Kind.Warn);
-            dlg._tri = true;
             dlg.BtnOk.Content = yes;
             dlg.BtnNo.Content = no;
             dlg.BtnNo.Visibility = Visibility.Visible;
@@ -64,8 +63,6 @@ namespace HerMemory
             if (dlg._ok) return Choice.Yes;
             return dlg._no ? Choice.No : Choice.Cancel;
         }
-
-        private bool _tri;
 
         private static AppDialog Build(Window? owner, string title, string message, Kind kind)
         {

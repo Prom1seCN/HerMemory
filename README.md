@@ -7,7 +7,7 @@
 # 你的AI。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-![Hermes](https://img.shields.io/badge/Hermes-v0.22.2-22D3EE)
+![Hermes](https://img.shields.io/badge/Hermes-v0.23.0-22D3EE)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey)
 
 </div>
@@ -136,9 +136,9 @@ Hermes 内核的全部能力，加上为日常对话与写作做的取舍。
 
 **要求**：Windows 10 2004+ / Windows 11（x64）；安装过程需要联网；磁盘约 2–4.5 GB（取决于是否勾选「浏览器与电脑操作」）。
 
-> **界面 = 浏览器里的管理面板**（v0.3 起）：程序本体是一个托盘薄壳，双击即打开 `http://127.0.0.1:9119` 的 Web 面板——聊天、记忆、配置、日志、定时任务都在里面。托盘菜单还能启停网关、开关开机自启。
+> **界面 = 一个窗口**：双击 `HerMemory.exe`，六块磁贴就是全部入口——启动/停止、设置 AI、绑定微信、记忆库、体检，以及**打开对话**（应用内对话窗口，备胎通道；主通道仍是微信）。所有页面都是原生窗口，深浅色跟随系统。
 
-1. 下载最新的 **`Setup.exe`**（约 403 MB，内核、uv、ffmpeg、ripgrep 已内嵌，不需要另装任何环境）。
+1. 下载最新的 **`Setup.exe`**（约 460 MB，内核、uv、ffmpeg、ripgrep 已内嵌，不需要另装任何环境）。
 2. 双击运行（安装包无代码签名，SmartScreen 弹「Windows 已保护你的电脑」时点「更多信息 → 仍要运行」）：
    - **环境预检** → **安装位置**：程序 / 运行数据 / 记忆库三处分开，仅首次安装可选；同页可勾「开机自动启动」与「浏览器与电脑操作」（约 500 MB，默认勾，日后可补装）。
    - **安装**：内核与 ffmpeg/ripgrep 从随包落位；git、CPython、Node 走 npmmirror，Python 依赖走清华，npm 走 npmmirror——**国内不用梯子**。
@@ -158,9 +158,9 @@ bash install.sh                        # 交互式：记忆档位 → API Key �
 HERMEMORY_HEADLESS=1 bash install.sh   # 无交互（装完自己跑 hermes model / hermes gateway setup）
 ```
 
-- **内核来源**：仓库里不带 `hermes-agent.bundle`，默认从 GitHub clone，并用随仓库的 `hermes-agent.upstream-commit` 钉住上游 **v0.22.2**（不会装成 main 上的最新版）；把 bundle 放到仓库根目录即可免 clone。
+- **内核来源**：仓库里不带 `hermes-agent.bundle`，默认从 GitHub clone，并用随仓库的 `hermes-agent.upstream-commit` 钉住上游 **v0.23.0**（不会装成 main 上的最新版）；把 bundle 放到仓库根目录即可免 clone。
 - **国内镜像**：PyPI 走清华、npm 与 **Node / CPython 走 npmmirror**（已改写到 PM 的下载层，sha256 校验不变）；**uv 与 ffmpeg 仍从 GitHub 取**，这两个大件在国内无梯子时会慢（约 100 KB/s）。
-- **实测**：Ubuntu 24.04 容器里跑完整流程通过，`hermes --version` 为 v0.22.2，`hermes pm doctor` 除可选项外全绿。
+- **实测**：Ubuntu 24.04 容器里跑完整流程通过，`hermes --version` 为 v0.23.0，`hermes pm doctor` 除可选项外全绿。
 - 装完没有桌面程序，日常在微信里用；网关常驻、日志、备份与卸载见 [docs/LINUX.md](docs/LINUX.md)。
 
 <div align="center">

@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using System.Windows;
 
 namespace HerMemory
@@ -79,10 +79,17 @@ namespace HerMemory
                 {
                     try
                     {
+                        // 说三件事：出了什么、还能用不能、日志在哪儿（给绝对路径，不写环境变量占位符——
+                        // 用户拿到的是一句能直接粘进"运行"的路径，而不是要去猜 %LOCALAPPDATA% 是什么）。
+                        var detail = args.Exception.GetType().Name;
+                        var msg = (args.Exception.Message ?? "").Replace("\r", " ").Replace("\n", " ");
+                        if (msg.Length > 160) msg = msg.Substring(0, 160) + "…";
+                        if (msg.Length > 0) detail += "：" + msg;
                         AppDialog.Warn(null,
                             "HerMemory 遇到一个内部错误，已记录日志。\n"
                             + "功能可能受影响，必要时请从托盘退出并重新打开。\n\n"
-                            + "日志：%LOCALAPPDATA%\\hermes\\logs\\hermemory-crash.log",
+                            + "错误：" + detail + "\n"
+                            + "日志：" + Path.Combine(HermesCtl.LogsDir, "hermemory-crash.log"),
                             "HerMemory");
                     }
                     catch { }

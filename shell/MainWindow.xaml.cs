@@ -166,6 +166,18 @@ namespace HerMemory
             }
             try { ShowToast("自检", ToastKind.Success); await Task.Delay(600); log.AppendLine("PASS toast"); pass++; }
             catch (Exception ex) { log.AppendLine("FAIL toast: " + ex.Message); fail++; }
+            // 独立窗口的 XAML 不能被页面遍历覆盖：DocsWindow 就因为引用了 MainWindow 的窗口级
+            // 资源（SectionLabel）在运行时才炸。这里真开一次，让它自己证明。
+            try
+            {
+                var dw = new DocsWindow();
+                dw.Show();
+                await Task.Delay(1200);
+                dw.Close();
+                log.AppendLine("PASS docs-window");
+                pass++;
+            }
+            catch (Exception ex) { log.AppendLine("FAIL docs-window: " + ex.GetType().Name + " " + ex.Message); fail++; }
 
             log.AppendLine($"SUMMARY pass={pass} fail={fail}");
             try { File.WriteAllText(Path.Combine(Path.GetTempPath(), "hm-selftest.log"), log.ToString(), new UTF8Encoding(false)); } catch { }
@@ -253,6 +265,7 @@ namespace HerMemory
         {
             if (AppPaths.IsSetup) return;
             HomeMode = true;
+            try { Height = 620; Width = 880; } catch { }
             // 没有 Key 一定先配置：卸载重装后 ui-state 可能还在，不能因为一个残留的"已完成"
             // 标记就跳过引导——那样用户会对着一个不会说话的 AI 发呆。
             if (!ApiConfigured() && !_setupSkipped) { ShowSetup(); return; }
@@ -1262,6 +1275,10 @@ namespace HerMemory
         {
             _inSetup = true;
             _setupSkipped = false;
+            // 向导比主界面高：安装位置页要塞三个路径框 + 两个勾选项，620 会把
+            //「浏览器与电脑操作」裁在滚动区下边缘——不滚的人会以为没有这个选项。
+            // 主界面回到 620/880，向导用 720/940（窗口本身不可缩放，只能由代码给）。
+            try { Height = 720; Width = 940; } catch { }
             ShowPage("PageSetup");
             RefreshSetup();
         }

@@ -110,11 +110,51 @@ namespace HerMemory
             OverlayTitle.Text = "正在连接对话界面……";
             OverlayText.Text = "";
 
-            if (!await ProbeAsync(_url))
+            var probe = await ProbeAsync(_url);
+
+            // 连不上＝Gateway 没跑。这里不把用户赶回主界面自己点「启动」——那一步对陌生人
+            // 就是死胡同（他不知道"启动"是哪个按钮、也不知道要等多久）。自己起，进度写在脸上。
+            if (probe == Probe.Down && HermesCtl.Installed && HermesCtl.ProbeState() != "running")
+            {
+                OverlayBar.Visibility = Visibility.Visible;
+                OverlayTitle.Text = "正在启动 AI 通道……";
+                OverlayText.Text = "对话界面由本机的 AI 通道提供，第一次启动要几十秒。";
+                var started = await Task.Run(() => HermesCtl.GatewayCommand("start", 150));
+                if (!started.Success)
+                {
+                    OverlayBar.Visibility = Visibility.Collapsed;
+                    OverlayTitle.Text = "AI 通道没能启动";
+                    OverlayText.Text = "启动失败：" + Tail(started.Error, 300)
+                        + "\n\n可以回主界面点「重试」或查看「体检」里的日志。";
+                    BtnRetry.Visibility = Visibility.Visible;
+                    return;
+                }
+                var deadline = DateTime.UtcNow.AddSeconds(90);
+                while (DateTime.UtcNow < deadline)
+                {
+                    probe = await ProbeAsync(_url);
+                    if (probe == Probe.Up) break;
+                    await Task.Delay(1500);
+                }
+            }
+
+            if (probe == Probe.Down)
             {
                 OverlayBar.Visibility = Visibility.Collapsed;
                 OverlayTitle.Text = "Gateway 没有在运行";
                 OverlayText.Text = "对话界面由 Gateway 提供。回到主界面点「启动」，等状态变成「AI 在线」再重试。";
+                BtnRetry.Visibility = Visibility.Visible;
+                BtnOpenBrowser2.Visibility = Visibility.Visible;
+                return;
+            }
+            if (probe == Probe.HttpError)
+            {
+                // 端口在听但给不出页面：多半是旧版安装没有带 dist-webapp（或 webapp 关掉了）。
+                // 这跟"没启动"是两回事，说错话会让人反复点启动。
+                OverlayBar.Visibility = Visibility.Collapsed;
+                OverlayTitle.Text = "对话界面组件缺失";
+                OverlayText.Text = "AI 通道在运行，但这台电脑上没有装对话界面的页面文件（旧版本安装的残留）。\n\n"
+                    + "重新运行安装包、或回主界面点「体检」看提示即可修复。";
                 BtnRetry.Visibility = Visibility.Visible;
                 BtnOpenBrowser2.Visibility = Visibility.Visible;
                 return;
@@ -201,15 +241,24 @@ namespace HerMemory
             catch { return null; }
         }
 
-        private static async Task<bool> ProbeAsync(string url)
+        private enum Probe { Up, HttpError, Down }
+
+        private static async Task<Probe> ProbeAsync(string url)
         {
             try
             {
                 using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(4) };
                 using var resp = await http.GetAsync(url);
-                return resp.IsSuccessStatusCode;
+                return resp.IsSuccessStatusCode ? Probe.Up : Probe.HttpError;
             }
-            catch { return false; }
+            catch { return Probe.Down; }
+        }
+
+        private static string Tail(string s, int max)
+        {
+            if (string.IsNullOrWhiteSpace(s)) return "（无输出）";
+            s = s.Trim();
+            return s.Length <= max ? s : "…" + s.Substring(s.Length - max);
         }
 
 
