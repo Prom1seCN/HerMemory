@@ -557,3 +557,22 @@ export HERMES_HOME=<spike>/home
   `%USERPROFILE%\vault`、`%LOCALAPPDATA%\HerMemory`（`setup_done` 标记）、
   注册表卸载项 + `Hermes_Gateway` 计划任务。漏掉 `%LOCALAPPDATA%\HerMemory` 会让程序
   以为配置已完成、跳过引导。
+
+## 应用内对话界面（WebView2 + Hermes webapp）
+
+- **不自己写聊天 UI**：Hermes `apps/desktop` 构建出的 `dist-webapp` 就是官方 Desktop 的同一套界面
+  （React + `@assistant-ui` + streamdown，会话/流式/工具卡片/审批全在里面）。重写只会是低配版。
+- **落点**：`%LOCALAPPDATA%\hermes\hermes-agent\apps\desktop\dist-webapp`。没有它，9120 端口
+  在监听但返回 **404**，`hermes webapp` 也不会自动修——安装器 `install.ps1` §2.56 负责铺。
+- **bundle 来源**：NAS `~/hermes-agent-023/apps/desktop/dist-webapp`（45 MB / 1056 个资源，
+  2026-11-09 构建）。重建 `node apps/desktop/scripts/build-webapp.mjs` 要求 **Node >= 26**，
+  NAS 上是 24.21 会报 `node 24.21.0 violates >=26`；不要再试，直接用现成产物。
+- **9120 要 loopback 才免登录**：`webapp.host` 缺省 `127.0.0.1` 时不走登录闸门；
+  写 `0.0.0.0` 就会要 dashboard 凭据，WebView2 里表现为登录页而不是对话。
+- **WPF 侧**：`shell/ChatWindow.xaml(.cs)`，`Microsoft.Web.WebView2` 1.0.3124.44。
+  运行时用系统 Edge WebView2（`C:\Program Files (x86)\Microsoft\EdgeWebView\Application`），
+  不随包分发内核；机器上没有时 `CreateAsync` 抛异常 → 退回系统浏览器打开同一地址。
+- **验证**：`--selftest-chat` 起一个真窗口，14 秒后用 `ExecuteScriptAsync` 读
+  `document.title` / 节点数 / `body.innerText` 长度——只看 URL 加载成功会漏掉白屏。
+- payload 里加了 `dist-webapp\` 后 `payload.zip` 从 298 MB 涨到 314 MB（压缩后 +16 MB），
+  Setup.exe 约 +16 MB。
