@@ -52,7 +52,8 @@ namespace HerMemory
                 var title = await core.ExecuteScriptAsync("document.title");
                 var nodes = await core.ExecuteScriptAsync("document.querySelectorAll('*').length");
                 var textLen = await core.ExecuteScriptAsync("(document.body && document.body.innerText || '').length");
-                return $"webview=ready url={core.Source} title={title} nodes={nodes} textLen={textLen} state={StateText.Text}";
+                var sample = await core.ExecuteScriptAsync("(document.body && document.body.innerText || '').replace(/\\s+/g,' ').slice(0,90)");
+                return $"webview=ready url={core.Source} title={title} nodes={nodes} textLen={textLen} sample={sample}";
             }
             catch (Exception ex) { return "diag-error: " + ex.Message; }
         }
@@ -106,7 +107,6 @@ namespace HerMemory
             BtnRetry.Visibility = Visibility.Collapsed;
             BtnOpenBrowser2.Visibility = Visibility.Collapsed;
             OverlayBar.Visibility = Visibility.Visible;
-            StateText.Text = "";
             OverlayTitle.Text = "正在连接对话界面……";
             OverlayText.Text = "";
 
@@ -140,10 +140,21 @@ namespace HerMemory
                     OpenExternal(e.Uri);
                 };
 
-                core.Navigate(_url);
+                // webapp 在 loopback 上也不接受裸地址：唯一入口是 CLI mint 出来的一次性签入链接
+                // （60 秒有效，兑换后种 cookie，之后 Reload 就正常了）。
+                var launch = await MintLaunchUrlAsync();
+                if (string.IsNullOrEmpty(launch))
+                {
+                    OverlayBar.Visibility = Visibility.Collapsed;
+                    OverlayTitle.Text = "无法生成签入链接";
+                    OverlayText.Text = "对话界面的入口链接由 hermes webapp 生成。可以用浏览器打开同一地址，在那边手动签入。";
+                    BtnRetry.Visibility = Visibility.Visible;
+                    BtnOpenBrowser2.Visibility = Visibility.Visible;
+                    return;
+                }
+                core.Navigate(launch);
                 View.Visibility = Visibility.Visible;
                 Overlay.Visibility = Visibility.Collapsed;
-                StateText.Text = "已连接";
             }
             catch (Exception ex)
             {
@@ -154,8 +165,40 @@ namespace HerMemory
                     + ex.GetType().Name + "：" + ex.Message;
                 BtnRetry.Visibility = Visibility.Visible;
                 BtnOpenBrowser2.Visibility = Visibility.Visible;
-                StateText.Text = "不可用";
             }
+        }
+
+
+        /// <summary>调 `hermes webapp --no-open --skip-build` 拿到一次性签入链接。
+        /// 这是 webapp 唯一的入口：直接访问 9120 只会停在 "Sign in to Hermes"。</summary>
+        private static async Task<string?> MintLaunchUrlAsync()
+        {
+            try
+            {
+                var cli = Path.Combine(HermesCtl.HermesHome, "bin", "hermes.exe");
+                if (!File.Exists(cli)) return null;
+                var psi = new ProcessStartInfo(cli, "webapp --no-open --skip-build")
+                {
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    StandardOutputEncoding = System.Text.Encoding.UTF8,
+                };
+                psi.Environment["HERMES_HOME"] = HermesCtl.HermesHome;
+                using var p = Process.Start(psi);
+                if (p == null) return null;
+                var stdout = await p.StandardOutput.ReadToEndAsync();
+                await p.WaitForExitAsync();
+                foreach (var raw in stdout.Split('\n'))
+                {
+                    var t = raw.Trim().Trim('"').TrimStart('\uFEFF');
+                    if (t.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+                        || t.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) return t;
+                }
+                return null;
+            }
+            catch { return null; }
         }
 
         private static async Task<bool> ProbeAsync(string url)
@@ -169,20 +212,6 @@ namespace HerMemory
             catch { return false; }
         }
 
-        private void BtnReload_Click(object sender, RoutedEventArgs e)
-        {
-            try
-            {
-                if (View.CoreWebView2 != null && View.Visibility == Visibility.Visible)
-                {
-                    View.CoreWebView2.Reload();
-                    return;
-                }
-            }
-            catch { }
-            _booted = false;
-            _ = BootAsync();
-        }
 
         private void BtnRetry_Click(object sender, RoutedEventArgs e) => _ = ConnectAsync();
 

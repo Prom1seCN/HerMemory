@@ -176,7 +176,6 @@
                             </Border>
                             <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center">
                                 <TextBlock Text="记忆设置" FontSize="13" FontWeight="SemiBold"/>
-                                <TextBlock Text="档位与记忆预算" FontSize="11" Margin="0,3,0,0" Foreground="{DynamicResource Subtle}"/>
                             </StackPanel>
                         </Grid>
                     </Button>
@@ -192,7 +191,6 @@
                             </Border>
                             <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center">
                                 <TextBlock Text="API 设置" FontSize="13" FontWeight="SemiBold"/>
-                                <TextBlock Text="地址、密钥与模型" FontSize="11" Margin="0,3,0,0" Foreground="{DynamicResource Subtle}"/>
                             </StackPanel>
                         </Grid>
                     </Button>
@@ -208,7 +206,6 @@
                             </Border>
                             <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center">
                                 <TextBlock Text="微信绑定" FontSize="13" FontWeight="SemiBold"/>
-                                <TextBlock Text="扫码连接与解绑" FontSize="11" Margin="0,3,0,0" Foreground="{DynamicResource Subtle}"/>
                             </StackPanel>
                         </Grid>
                     </Button>
@@ -228,7 +225,6 @@
                             </Border>
                             <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center">
                                 <TextBlock Text="设置" FontSize="13" FontWeight="SemiBold"/>
-                                <TextBlock Text="每日新对话" FontSize="11" Margin="0,3,0,0" Foreground="{DynamicResource Subtle}"/>
                             </StackPanel>
                         </Grid>
                     </Button>
@@ -244,7 +240,6 @@
                             </Border>
                             <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center">
                                 <TextBlock Text="体检" FontSize="13" FontWeight="SemiBold"/>
-                                <TextBlock Text="检查并修复问题" FontSize="11" Margin="0,3,0,0" Foreground="{DynamicResource Subtle}"/>
                             </StackPanel>
                         </Grid>
                     </Button>
@@ -260,7 +255,6 @@
                             </Border>
                             <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center">
                                 <TextBlock Text="打开对话" FontSize="13" FontWeight="SemiBold"/>
-                                <TextBlock Text="不经过微信直接聊" FontSize="11" Margin="0,3,0,0" Foreground="{DynamicResource Subtle}"/>
                             </StackPanel>
                         </Grid>
                     </Button>

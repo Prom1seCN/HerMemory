@@ -10,30 +10,8 @@
         TextOptions.TextFormattingMode="Display"
         UseLayoutRounding="True">
     <Grid>
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
-        </Grid.RowDefinitions>
-
-        <!-- 顶部条：只放"能改变当前状态"的三个动作。标题在左，动作在右。 -->
-        <Border Grid.Row="0" Background="{DynamicResource CardBg}"
-                BorderBrush="{DynamicResource CardBorder}" BorderThickness="0,0,0,1">
-            <Grid Margin="18,11">
-                <TextBlock Text="对话" FontSize="13.5" FontWeight="SemiBold"
-                           Foreground="{DynamicResource Ink}" VerticalAlignment="Center"/>
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                    <TextBlock x:Name="StateText" FontSize="11.5" VerticalAlignment="Center"
-                               Margin="0,0,12,0" Foreground="{DynamicResource Subtle}" Text=""/>
-                    <Button x:Name="BtnReload" Content="刷新" Style="{StaticResource GhostButton}"
-                            MinHeight="30" Padding="12,0" Click="BtnReload_Click"/>
-                    <Button x:Name="BtnBrowser" Content="在浏览器打开" Style="{StaticResource GhostButton}"
-                            MinHeight="30" Padding="12,0" Margin="8,0,0,0" Click="BtnBrowser_Click"/>
-                </StackPanel>
-            </Grid>
-        </Border>
-
-        <!-- 内容：WebView2 占满。覆盖层只在"还没准备好"时出现，避免白屏无交代。 -->
-        <Grid Grid.Row="1">
+        <!-- 只有内容：WebView2 占满。覆盖层只在"还没准备好"时出现，避免白屏无交代。 -->
+        <Grid>
             <wv2:WebView2 x:Name="View" Visibility="Collapsed"
                           DefaultBackgroundColor="Transparent"/>
 
