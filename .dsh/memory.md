@@ -623,7 +623,11 @@ dotnet publish shell/HerMemory.csproj ... -p:SetupMode=true  -o <outdir>       #
 - `drive.ps1`（**必须带 UTF-8 BOM**）用 UIA 按名字点按钮：位置页「开始安装」→ 安装页无按钮 →
   完成页「完成」；每 20 秒心跳、每 30 秒把 `%LOCALAPPDATA%\hermes\logs\install.log` 拷出来。
   完成后自动跑 `--selftest`、抓主界面截图与 UIA 树。
-- 从零装到完成页**实测 9–10 分钟**（沙盒里 chromium 172 MB 走 npmmirror 约 4 MB/s）；
-  `dist-webapp` 落位 1077 个文件；`--selftest` 16/16。
+- 从零装到完成页**实测 5 分 14 秒**（安装段），连点完成 → 起程序 → 自检合计 6 分 17 秒；
+  chromium 172 MB 走 npmmirror、ffmpeg/ripgrep 走随包；`dist-webapp` 落位 1077 个文件；
+  装完 `--selftest` = `SUMMARY pass=16`（这项是判断"装进去的到底是不是新代码"的唯一硬指标）。
+- **窗口尺寸**：安装向导 720×940 必须在 `MainWindow` 构造的 `if (AppPaths.IsSetup)` 里设。
+  安装器走的入口是 `App.OnStartup → ShowWizard() → new MainWindow()`，**不经过** `GoWelcome()`；
+  只在 GoWelcome/ShowSetup 里设是没用的（实测三轮回流都白改）。
 - 按钮名字要按 UIA 的 `Name` 匹配（= WPF `Content`）。注意**两页都叫「开始安装」**，
   位置页那个在内存里叫 `BtnLocStart`；已装过的机器上位置页三个路径框只读、按钮是「继续安装」。
