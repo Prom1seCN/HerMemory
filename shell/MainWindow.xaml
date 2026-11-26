@@ -377,8 +377,6 @@
                 <StackPanel>
                     <Button Style="{StaticResource BackButton}" Content="返回" HorizontalAlignment="Left" Click="BtnBack_Click"/>
                     <TextBlock Text="记忆设置" Style="{StaticResource PageTitle}"/>
-                    <TextBlock Style="{StaticResource Body}" Margin="0,6,0,0"
-                               Text="单次注入的字符上限"/>
                     <Border Style="{StaticResource PageHeadRule}"/>
 
                     <Border Style="{StaticResource Card}" Margin="0,18,0,0" Padding="20,18">
@@ -441,8 +439,6 @@
                     <Border Style="{StaticResource Card}" Margin="0,18,0,0" Padding="20,18">
                         <StackPanel>
                             <TextBlock Text="每日新对话" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource Ink}"/>
-                            <TextBlock Style="{StaticResource Body}" Margin="0,6,0,0" MaxWidth="560" HorizontalAlignment="Left"
-                                       Text="每天定时开启新对话。"/>
                             <CheckBox x:Name="ChkDailyNew" Content="每天自动开始新对话" Margin="0,16,0,0"
                                       Checked="ChkDailyNew_Changed" Unchecked="ChkDailyNew_Changed"/>
                             <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
@@ -605,8 +601,6 @@
             <StackPanel Grid.Row="0">
                 <Button Style="{StaticResource BackButton}" Content="返回" HorizontalAlignment="Left" Click="BtnBack_Click"/>
                 <TextBlock Text="常用命令" Style="{StaticResource PageTitle}"/>
-                <TextBlock Style="{StaticResource Body}" Margin="0,6,0,0"
-                           Text="在微信聊天框里直接发送，斜杠开头。点「复制」再粘贴。"/>
                 <Border Style="{StaticResource PageHeadRule}"/>
             </StackPanel>
             <ScrollViewer Grid.Row="1" Margin="0,14,0,0" VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
