@@ -593,3 +593,37 @@ export HERMES_HOME=<spike>/home
   `using Application = System.Windows.Application; using Brush = System.Windows.Media.Brush;`
 - **独立窗口必须进自检**：`--selftest` 现在除了遍历 14 个页面，还会真开一次 `DocsWindow`
   并记 `PASS docs-window`。页面遍历覆盖不到独立窗口的 XAML，这是唯一能自动发现的办法。
+
+## 出包顺序（踩过的坑，务必按这个来）
+
+安装器**内嵌的是磁盘上的 `build\app\HerMemory.exe`**（csproj 的 `SetupApp`），不是当场编译的产物。
+所以顺序只有一种：
+
+```bash
+dotnet restore shell/HerMemory.csproj -r win-x64 -p:EnableWindowsTargeting=true
+dotnet publish shell/HerMemory.csproj ... -p:SetupMode=false -o build/app      # ① 程序本体
+dotnet publish shell/HerMemory.csproj ... -p:SetupMode=true  -o <outdir>       # ② 安装器
+```
+
+- 漏掉 ① 就会把**上一次**的本体打进安装包：本次沙盒里装出来的程序没有「使用说明」阅读器、
+  自检只有 15 项（缺 `docs-window`），而 Setup.exe 的大小几乎不变——非常容易误判成功。
+  **验收标准**：装完跑 `--selftest` 必须是 `SUMMARY pass=16`。
+- 任何一次**不带 `-r win-x64`** 的 `dotnet build` 都会把 `shell\obj\project.assets.json` 覆盖成
+  没有 win-x64 目标，之后 `--no-restore` 的 publish 直接 `NETSDK1047`。改完代码先 build 检查可以，
+  但出包前必须重新 `restore -r win-x64`。
+- NAS 上构建要 `PATH=/home/hcn/.dotnet-linux:$PATH`、`DOTNET_CLI_HOME=/home/hcn/.dotnet-cli`；
+  本体 publish ≈ 45 秒，安装器 ≈ 70 秒（payload.zip 只当单个资源塞进去，不再逐件压缩）。
+
+## 沙盒验收（PC 上的 `D:\hm-sb`）
+
+- `test.wsb`：`in\`（只读，放 `Setup.exe`）→ `C:\hm\in`，`out\`（可写）→ `C:\hm\out`，
+  `Networking=Enable`、`MemoryInMB=8192`；`LogonCommand` 跑 `out\boot.ps1`。
+- `boot.ps1` 用 `schtasks /Create /RL HIGHEST /IT` 起 `drive.ps1`（ssh 落在 Session 0，
+  必须靠这个进 Session 1 才有桌面）。
+- `drive.ps1`（**必须带 UTF-8 BOM**）用 UIA 按名字点按钮：位置页「开始安装」→ 安装页无按钮 →
+  完成页「完成」；每 20 秒心跳、每 30 秒把 `%LOCALAPPDATA%\hermes\logs\install.log` 拷出来。
+  完成后自动跑 `--selftest`、抓主界面截图与 UIA 树。
+- 从零装到完成页**实测 9–10 分钟**（沙盒里 chromium 172 MB 走 npmmirror 约 4 MB/s）；
+  `dist-webapp` 落位 1077 个文件；`--selftest` 16/16。
+- 按钮名字要按 UIA 的 `Name` 匹配（= WPF `Content`）。注意**两页都叫「开始安装」**，
+  位置页那个在内存里叫 `BtnLocStart`；已装过的机器上位置页三个路径框只读、按钮是「继续安装」。
