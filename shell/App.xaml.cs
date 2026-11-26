@@ -79,11 +79,11 @@ namespace HerMemory
                 {
                     try
                     {
-                        System.Windows.MessageBox.Show(
+                        AppDialog.Warn(null,
                             "HerMemory 遇到一个内部错误，已记录日志。\n"
                             + "功能可能受影响，必要时请从托盘退出并重新打开。\n\n"
                             + "日志：%LOCALAPPDATA%\\hermes\\logs\\hermemory-crash.log",
-                            "HerMemory", MessageBoxButton.OK, MessageBoxImage.Warning);
+                            "HerMemory");
                     }
                     catch { }
                 }
@@ -148,11 +148,10 @@ namespace HerMemory
             }
             if (list.Count == 0) return false;
 
-            var answer = System.Windows.MessageBox.Show(
+            if (!AppDialog.Confirm(null,
                 "检测到 HerMemory 正在运行。\n\n安装或升级需要先关闭它——只会关掉托盘界面，" +
                 "不影响记忆、文档、API Key 与微信绑定。\n\n现在关闭并继续吗？",
-                "HerMemory 安装程序", MessageBoxButton.YesNo, MessageBoxImage.Question);
-            if (answer != MessageBoxResult.Yes) return false;
+                "HerMemory 安装程序")) return false;
 
             foreach (var p in list) { try { p.CloseMainWindow(); } catch { } }
             var deadline = DateTime.UtcNow.AddSeconds(5);
@@ -213,10 +212,10 @@ namespace HerMemory
                         Shutdown();
                         return;
                     }
-                    System.Windows.MessageBox.Show(
+                    AppDialog.Info(null,
                         "HerMemory 正在运行。\n\n安装或升级需要先关闭它（只关界面，不影响记忆与文档）。\n" +
                         "请在托盘图标上右键 → 退出，再重新运行安装包。",
-                        "HerMemory 安装程序", MessageBoxButton.OK, MessageBoxImage.Information);
+                        "HerMemory 安装程序");
                     Shutdown();
                     return;
                 }

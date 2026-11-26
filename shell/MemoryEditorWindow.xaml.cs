@@ -145,10 +145,9 @@ namespace HerMemory
 
             if (_dirty && _current != null)
             {
-                var r = System.Windows.MessageBox.Show(this,
-                    $"「{_current.Label}」有未保存的修改。要先保存吗？",
-                    "编辑记忆", MessageBoxButton.YesNoCancel, MessageBoxImage.Question, MessageBoxResult.Yes);
-                if (r == MessageBoxResult.Cancel)
+                var r = AppDialog.Ask3(this, $"「{_current.Label}」有未保存的修改。要先保存吗？", "编辑记忆",
+                    "保存", "不保存", "取消");
+                if (r == AppDialog.Choice.Cancel)
                 {
                     // 撤销这次切换
                     _suppress = true;
@@ -156,7 +155,7 @@ namespace HerMemory
                     _suppress = false;
                     return;
                 }
-                if (r == MessageBoxResult.Yes && !Save(quiet: false))
+                if (r == AppDialog.Choice.Yes && !Save(quiet: false))
                 {
                     // 保存失败：列表已切到 next，但 _current 还是旧文件 —— 不回滚的话
                     // 接下来的编辑会写进旧文件，用户以为在改新文件。
@@ -229,10 +228,7 @@ namespace HerMemory
         {
             if (_dirty)
             {
-                var r = System.Windows.MessageBox.Show(this,
-                    "放弃未保存的修改？", "编辑记忆",
-                    MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No);
-                if (r != MessageBoxResult.Yes) return;
+                if (!AppDialog.Confirm(this, "放弃未保存的修改？", "编辑记忆")) return;
                 _dirty = false;
             }
             Close();
@@ -257,11 +253,11 @@ namespace HerMemory
             // 也必须按"外部改动"处理，否则一次保存就把人家刚写的内容盖掉。
             if (!quiet && disk != null && disk != _stamp)
             {
-                var r = System.Windows.MessageBox.Show(this,
+                var r = AppDialog.Confirm(this,
                     "这个文件在打开之后被其他程序改过（可能是 AI 自己写的，或你用别的编辑器改过）。\n\n"
-                    + "选「是」用自己的内容覆盖磁盘上的版本；选「否」放弃本次保存、重新载入磁盘版本。",
-                    "文件已被外部修改", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
-                if (r != MessageBoxResult.Yes)
+                    + "点「确定」用自己的内容覆盖磁盘上的版本；点「取消」放弃本次保存、重新载入磁盘版本。",
+                    "文件已被外部修改");
+                if (!r)
                 {
                     var en = _current;
                     if (en != null) LoadEntry(en);
@@ -286,8 +282,7 @@ namespace HerMemory
             {
                 SetSaveState("保存失败：" + ex.Message, "#C62828");
                 if (!quiet)
-                    System.Windows.MessageBox.Show(this, "保存失败：" + ex.Message + "\n\n文件位置：" + path,
-                        "编辑记忆", MessageBoxButton.OK, MessageBoxImage.Error);
+                    AppDialog.Error(this, "保存失败：" + ex.Message + "\n\n文件位置：" + path, "编辑记忆");
                 return false;
             }
         }
@@ -367,12 +362,11 @@ namespace HerMemory
             // 有未保存改动时，历史里看不到它们——先提醒保存，避免"恢复了却把刚写的弄丢"
             if (_dirty)
             {
-                var r = System.Windows.MessageBox.Show(this,
-                    "当前有未保存的修改。历史快照只包含已保存的内容，建议先保存再看历史。\n\n现在保存吗？",
-                    "记忆历史", MessageBoxButton.YesNoCancel, MessageBoxImage.Question, MessageBoxResult.Yes);
-                // 取消或"不保存"都不进历史：历史窗口里一恢复就会用磁盘旧版覆盖编辑器，
+                // "不保存"也不进历史：历史窗口里一恢复就会用磁盘旧版覆盖编辑器，
                 // 未保存的内容会静默消失。要看历史，先落盘。
-                if (r != MessageBoxResult.Yes) return;
+                if (!AppDialog.Confirm(this,
+                    "当前有未保存的修改。历史快照只包含已保存的内容，建议先保存再看历史。\n\n现在保存吗？",
+                    "记忆历史")) return;
                 if (!Save(quiet: false)) return;
             }
             try
@@ -392,8 +386,7 @@ namespace HerMemory
         {
             try
             {
-                System.Windows.MessageBox.Show(this, what + "失败：" + ex.Message, "编辑记忆",
-                    MessageBoxButton.OK, MessageBoxImage.Error);
+                AppDialog.Error(this, what + "失败：" + ex.Message, "编辑记忆");
             }
             catch { }
         }
@@ -416,11 +409,9 @@ namespace HerMemory
         private void OnClosing(object? sender, CancelEventArgs e)
         {
             if (!_dirty) return;
-            var r = System.Windows.MessageBox.Show(this,
-                "还有未保存的修改，要保存吗？",
-                "编辑记忆", MessageBoxButton.YesNoCancel, MessageBoxImage.Question, MessageBoxResult.Yes);
-            if (r == MessageBoxResult.Cancel) { e.Cancel = true; return; }
-            if (r == MessageBoxResult.Yes && !Save(quiet: false)) e.Cancel = true;
+            var r = AppDialog.Ask3(this, "还有未保存的修改，要保存吗？", "编辑记忆", "保存", "不保存", "取消");
+            if (r == AppDialog.Choice.Cancel) { e.Cancel = true; return; }
+            if (r == AppDialog.Choice.Yes && !Save(quiet: false)) e.Cancel = true;
         }
 
         /// <summary>窗口淡入：260ms 内从 0 到 1，并轻微上浮。

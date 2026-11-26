@@ -18,8 +18,8 @@
         <Border Grid.Column="0" Background="{DynamicResource CardBg}"
                 BorderBrush="{DynamicResource CardBorder}" BorderThickness="0,0,1,0">
             <DockPanel>
-                <TextBlock DockPanel.Dock="Top" Text="使用说明" Style="{StaticResource SectionLabel}"
-                           Margin="18,18,0,10"/>
+                <TextBlock DockPanel.Dock="Top" Text="使用说明" FontSize="11" FontWeight="SemiBold"
+                           Foreground="{DynamicResource Subtle}" Margin="18,18,0,10"/>
                 <ListBox x:Name="DocList" Background="Transparent" BorderThickness="0"
                          Margin="8,0,8,12" SelectionChanged="DocList_SelectionChanged"
                          ScrollViewer.HorizontalScrollBarVisibility="Disabled">

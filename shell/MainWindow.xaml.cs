@@ -879,9 +879,7 @@ namespace HerMemory
             confirm.Add("重置前会停止 Gateway，完成后按原状态恢复。");
             confirm.Add("备份只含记忆文件与会话库（不含日志与缓存），放在 %LOCALAPPDATA%\\HerMemory\\reset-backup-…");
 
-            var yes = System.Windows.MessageBox.Show(this, string.Join(Environment.NewLine, confirm),
-                "重置 AI", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
-            if (yes != MessageBoxResult.Yes) return;
+            if (!AppDialog.Confirm(this, string.Join(Environment.NewLine, confirm), "重置 AI")) return;
 
             _homeBusy = true;
             SetHomeBusy(true);
@@ -958,8 +956,8 @@ namespace HerMemory
                 : rep.GatewayWasRunning ? "Gateway 未能重新启动，请在主界面点「启动」。"
                 : "Gateway 原本未运行，保持停止。");
 
-            System.Windows.MessageBox.Show(this, string.Join(Environment.NewLine, lines), "重置 AI",
-                MessageBoxButton.OK, rep.Ok ? MessageBoxImage.Information : MessageBoxImage.Warning);
+            if (rep.Ok) AppDialog.Info(this, string.Join(Environment.NewLine, lines), "重置 AI");
+            else AppDialog.Warn(this, string.Join(Environment.NewLine, lines), "重置 AI");
         }
 
         // ================= 一键导出（原生实现，包结构与 export.sh 一致） =================
@@ -1184,10 +1182,9 @@ namespace HerMemory
             // 结果是一个用户完全看不见的半成品安装。明确告知并要求确认，确认后杀掉子进程。
             if (!ReallyExit && InstallInProgress)
             {
-                var r = System.Windows.MessageBox.Show(
-                    "安装正在进行。退出将中断安装（已完成步骤在下次安装时自动跳过）。确定退出？",
-                    "HerMemory", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
-                if (r != MessageBoxResult.Yes) { e.Cancel = true; return; }
+                if (!AppDialog.Confirm(this,
+                    "安装正在进行。退出将中断安装（已完成步骤在下次安装时自动跳过）。确定退出？", "HerMemory"))
+                { e.Cancel = true; return; }
                 AbortInstallProcess();
                 ReallyExit = true;
                 base.OnClosing(e);
@@ -1640,10 +1637,7 @@ namespace HerMemory
         {
             if (EnvHasWeixin())
             {
-                var r = System.Windows.MessageBox.Show(
-                    "扫码后本机夺回绑定，原绑定设备将失效。继续？",
-                    "重新绑定微信", MessageBoxButton.YesNo, MessageBoxImage.Question);
-                if (r != MessageBoxResult.Yes) return;
+                if (!AppDialog.Confirm(this, "扫码后本机夺回绑定，原绑定设备将失效。继续？", "重新绑定微信")) return;
             }
             BtnWxBind.IsEnabled = false;
             BtnWxUnbind.IsEnabled = false;
@@ -1672,10 +1666,7 @@ namespace HerMemory
 
         private async void BtnWxUnbind_Click(object sender, RoutedEventArgs e)
         {
-            var r = System.Windows.MessageBox.Show(
-                "解绑仅断开微信通道，记忆与文档不受影响。继续？",
-                "解绑微信", MessageBoxButton.YesNo, MessageBoxImage.Warning);
-            if (r != MessageBoxResult.Yes) return;
+            if (!AppDialog.Confirm(this, "解绑仅断开微信通道，记忆与文档不受影响。继续？", "解绑微信")) return;
             BtnWxBind.IsEnabled = false;
             BtnWxUnbind.IsEnabled = false;
             WxBindStatus.Text = "正在解绑……";
@@ -1981,9 +1972,8 @@ namespace HerMemory
                         BtnHealthLogs_Click(sender, e);
                         break;
                     case HealthFix.Reinstall:
-                        System.Windows.MessageBox.Show(this,
-                            "这一项需要重新运行安装包 Setup.exe 修复（已完成的步骤会自动跳过，记忆与配置不受影响）。",
-                            "体检", MessageBoxButton.OK, MessageBoxImage.Information);
+                        AppDialog.Info(this,
+                            "这一项需要重新运行安装包 Setup.exe 修复（已完成的步骤会自动跳过，记忆与配置不受影响）。", "体检");
                         break;
                 }
             }
@@ -4294,10 +4284,8 @@ namespace HerMemory
             var delVault = UninsVault.IsChecked == true;
             if (delVault)
             {
-                var r = System.Windows.MessageBox.Show(this,
-                    "删除整个 vault？其中为全部文档与 AI 记忆，删除后不可恢复。",
-                    "删除 vault", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
-                if (r != MessageBoxResult.Yes) { UninsVault.IsChecked = false; return; }
+                if (!AppDialog.Confirm(this, "删除整个 vault？其中为全部文档与 AI 记忆，删除后不可恢复。", "删除 vault"))
+                { UninsVault.IsChecked = false; return; }
             }
             BtnUninsRun.IsEnabled = false;
             BtnUninsBack.IsEnabled = false;

@@ -110,11 +110,10 @@ namespace HerMemory
             if (idx < 0 || idx >= _items.Count) return;
             var snap = _items[idx];
 
-            var ok = System.Windows.MessageBox.Show(this,
+            if (!AppDialog.Confirm(this,
                 $"把「{_fileName}」恢复成 {snap.Time:yyyy-MM-dd HH:mm:ss} 的版本？\n\n" +
                 "当前内容会先记一条快照，所以恢复错了还能再回来。",
-                "恢复记忆", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No);
-            if (ok != MessageBoxResult.Yes) return;
+                "恢复记忆")) return;
 
             BtnRestore.IsEnabled = false;
             Status.Text = "正在恢复……";
