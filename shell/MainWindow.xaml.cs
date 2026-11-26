@@ -85,6 +85,10 @@ namespace HerMemory
             // 标题都叫 HerMemory 会让人分不清自己在跟哪一个打交道。
             if (AppPaths.IsSetup)
             {
+                // 安装向导比主界面高：620 会把「安装位置」页的第二个勾选项裁在滚动区下边缘
+                //（沙盒截图实测，2026-11-27）。这里必须设——安装器走的入口是 App.ShowWizard()
+                // → new MainWindow()，不经过 GoWelcome()，所以只在 GoWelcome 里设是没用的。
+                try { Height = 720; Width = 940; } catch { }
                 Title = "HerMemory 安装程序";
                 // 安装器不提供卸载入口——卸载是已安装程序的事，由它从「设置 → 应用」发起
                 BtnWelcomeUninstall.Visibility = Visibility.Collapsed;
@@ -302,6 +306,9 @@ namespace HerMemory
         public void GoWelcome()
         {
             ShowFromTray();
+            // 安装向导的默认高度：620 会把「安装位置」页的第二个勾选项裁在滚动区下边缘，
+            // 不滚的人会以为没有「浏览器与电脑操作」这个选项（沙盒截图实测）。
+            try { Height = 720; Width = 940; } catch { }
             ShowPage("PageWelcome");
             PrecheckStatus.Text = "正在检查环境……";
             PrecheckStatus.Foreground = Brush("#78909C");
