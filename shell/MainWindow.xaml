@@ -281,7 +281,7 @@
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                     <Button Content="常用命令" Style="{StaticResource GhostButton}" Click="BtnCommands_Click"/>
-                    <Button Content="使用文档" Style="{StaticResource GhostButton}" Margin="9,0,0,0" Click="BtnGuide_Click"/>
+                    <Button Content="使用说明" Style="{StaticResource GhostButton}" Margin="9,0,0,0" Click="BtnGuide_Click"/>
                     <Button Content="打开记忆库" Style="{StaticResource GhostButton}" Margin="9,0,0,0" Click="BtnVault_Click"/>
                     <Button Content="卸载" Style="{StaticResource LinkButton}" Margin="10,0,0,0"
                             VerticalAlignment="Center" Click="BtnUninstall_Click"/>
@@ -965,7 +965,7 @@
                 <TextBlock Text="安装完成" FontSize="25" FontWeight="Bold" Foreground="{DynamicResource Ink}"/>
                 <TextBlock x:Name="DoneText" Style="{StaticResource Body}" Margin="0,14,0,0" LineHeight="22" MaxWidth="620" HorizontalAlignment="Left"/>
                 <StackPanel Orientation="Horizontal" Margin="0,24,0,0">
-                    <Button x:Name="BtnGuide" Content="打开使用文档" Style="{StaticResource GhostButton}" Click="BtnGuide_Click"/>
+                    <Button x:Name="BtnGuide" Content="打开使用说明" Style="{StaticResource GhostButton}" Click="BtnGuide_Click"/>
                     <Button Content="完成" Style="{StaticResource AccentButton}" Margin="9,0,0,0" Click="BtnFinish_Click"/>
                 </StackPanel>
             </StackPanel>

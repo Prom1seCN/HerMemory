@@ -4183,24 +4183,8 @@ namespace HerMemory
         }
 
         // ================= 页 5：完成 =================
-        private void BtnGuide_Click(object sender, RoutedEventArgs e)
-        {
-            var candidates = new[]
-            {
-                Path.Combine(VaultDocs, "GUIDE.md"),
-                _repoRoot == null ? "" : Path.Combine(_repoRoot, "docs", "GUIDE.md"),
-            };
-            foreach (var g in candidates)
-            {
-                if (g.Length == 0 || !File.Exists(g)) continue;
-                Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{g}\"") { UseShellExecute = true });
-                return;
-            }
-            var dir = Directory.Exists(VaultDocs) ? VaultDocs
-                : (_repoRoot != null && Directory.Exists(Path.Combine(_repoRoot, "docs")) ? Path.Combine(_repoRoot, "docs") : "");
-            if (dir.Length > 0)
-                Process.Start(new ProcessStartInfo("explorer.exe", $"\"{dir}\"") { UseShellExecute = true });
-        }
+        /// <summary>打开内嵌的使用说明阅读器（只读 Markdown）。</summary>
+        private void BtnGuide_Click(object sender, RoutedEventArgs e) => DocsWindow.Open(this);
 
         // ================= 全局操作反馈（Toast） =================
         private enum ToastKind { Info, Success, Error }
