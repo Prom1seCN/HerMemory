@@ -576,3 +576,20 @@ export HERMES_HOME=<spike>/home
   `document.title` / 节点数 / `body.innerText` 长度——只看 URL 加载成功会漏掉白屏。
 - payload 里加了 `dist-webapp\` 后 `payload.zip` 从 298 MB 涨到 314 MB（压缩后 +16 MB），
   Setup.exe 约 +16 MB。
+
+## WPF 界面约定（对话框与独立窗口）
+
+- **窗口级资源不能跨窗口引用**：`SectionLabel` / `PageTitle` / `Body` / `Hint` / `PageHeadRule`
+  都定义在 `MainWindow.xaml` 的 `<Window.Resources>` 里。新窗口（如 `DocsWindow`）引用它们
+  编译能过、运行时 `InitializeComponent()` 直接抛 `XamlParseException`。要么内联属性，
+  要么搬进 `App.xaml`。**独立窗口只用 App 级令牌**（`WindowBg`/`Ink`/`Muted`/`Accent`/`UiFont`）
+  和 `App.xaml` 的按钮样式。
+- **不要用系统 `MessageBox`**：Win32 方角灰底、不跟主题。统一走 `AppDialog`：
+  `Info/Warn/Error(owner, msg, title)`、`Confirm(owner, msg, title) -> bool`、
+  `Ask3(owner, msg, title, yes, no, cancel) -> Choice`。语义色条在顶部 3px。
+  owner 传 null 时它会自动找当前可见窗口。
+- **项目同时引用 WinForms**（托盘 NotifyIcon、剪贴板），`Brush` / `Application` / `Brushes`
+  与 `System.Drawing`、`System.Windows.Forms` 撞名。新文件里加别名：
+  `using Application = System.Windows.Application; using Brush = System.Windows.Media.Brush;`
+- **独立窗口必须进自检**：`--selftest` 现在除了遍历 14 个页面，还会真开一次 `DocsWindow`
+  并记 `PASS docs-window`。页面遍历覆盖不到独立窗口的 XAML，这是唯一能自动发现的办法。
